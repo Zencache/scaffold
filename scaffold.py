@@ -1456,10 +1456,16 @@ class MainWindow(QMainWindow):
         preview_bar = QHBoxLayout()
         preview_bar.setContentsMargins(8, 4, 8, 0)
 
-        self.preview = QLineEdit()
+        self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setFont(_monospace_font())
         self.preview.setPlaceholderText("Command preview...")
+        self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.preview.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.preview.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        line_height = self.preview.fontMetrics().lineSpacing()
+        scrollbar_height = QApplication.style().pixelMetric(QApplication.style().PixelMetric.PM_ScrollBarExtent)
+        self.preview.setFixedHeight(line_height + scrollbar_height + 16)
         preview_bar.addWidget(self.preview, 1)
 
         self.copy_btn = QPushButton("Copy Command")
@@ -1617,7 +1623,7 @@ class MainWindow(QMainWindow):
     def _update_preview(self):
         missing = self.form.validate_required()
         cmd, display = self.form.build_command()
-        self.preview.setText(display)
+        self.preview.setPlainText(display)
         process_running = (
             self.process is not None
             and self.process.state() != QProcess.ProcessState.NotRunning
