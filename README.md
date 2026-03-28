@@ -171,6 +171,7 @@ python scaffold.py --validate tools/mytool.json
 | `separator` | string | "space" | How flag and value join: `"space"` (`-o file`), `"equals"` (`--out=file`), `"none"` (`-T4`) |
 | `positional` | bool | false | If true, only the value appears (no flag), placed after all flags |
 | `validation` | string | null | Regex pattern — field gets red border if input doesn't match |
+| `examples` | array | null | Common values shown as editable suggestions for `string` fields (user can also type custom values) |
 
 ### Widget Types
 

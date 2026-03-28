@@ -22,6 +22,7 @@ ARG_DEFAULTS = {
     "separator": "space",
     "positional": False,
     "validation": None,
+    "examples": None,
 }
 
 
@@ -108,6 +109,12 @@ def _validate_args(args, scope, errors):
 
         if "separator" in arg and arg["separator"] not in VALID_SEPARATORS:
             errors.append(f"{prefix}: invalid separator \"{arg['separator']}\" (must be one of: {', '.join(sorted(VALID_SEPARATORS))})")
+
+        if "examples" in arg and arg["examples"] is not None:
+            if not isinstance(arg["examples"], list) or not all(isinstance(e, str) for e in arg["examples"]):
+                errors.append(f"{prefix}: \"examples\" must be a list of strings or null")
+            if "type" in arg and arg["type"] == "enum":
+                errors.append(f"{prefix}: has both \"choices\" and \"examples\" set. For enum types, \"choices\" is used and \"examples\" is ignored")
 
 
 def _check_duplicate_flags(args, scope, errors):
@@ -345,16 +352,38 @@ class ToolForm(QWidget):
             w.stateChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "string":
-            w = QLineEdit()
-            if arg["default"] is not None:
-                w.setText(str(arg["default"]))
-            if arg["description"]:
-                w.setPlaceholderText(arg["description"])
-            if arg["validation"]:
-                regex = re.compile(arg["validation"])
-                self.validators[key] = regex
-                w.textChanged.connect(lambda text, ww=w, rx=regex: self._validate_input(ww, rx, text))
-            w.textChanged.connect(lambda _: self.command_changed.emit())
+            examples = arg.get("examples")
+            if examples:
+                # Editable combo with suggestions
+                w = QComboBox()
+                w.setEditable(True)
+                w.addItem("")  # empty first item so nothing is pre-selected
+                w.addItems(examples)
+                if arg["default"] is not None:
+                    w.setCurrentText(str(arg["default"]))
+                else:
+                    w.setCurrentText("")
+                if arg["description"]:
+                    w.lineEdit().setPlaceholderText(arg["description"])
+                if arg["validation"]:
+                    regex = re.compile(arg["validation"])
+                    self.validators[key] = regex
+                    w.lineEdit().textChanged.connect(
+                        lambda text, ww=w.lineEdit(), rx=regex: self._validate_input(ww, rx, text)
+                    )
+                w.currentTextChanged.connect(lambda _: self.command_changed.emit())
+            else:
+                # Plain line edit
+                w = QLineEdit()
+                if arg["default"] is not None:
+                    w.setText(str(arg["default"]))
+                if arg["description"]:
+                    w.setPlaceholderText(arg["description"])
+                if arg["validation"]:
+                    regex = re.compile(arg["validation"])
+                    self.validators[key] = regex
+                    w.textChanged.connect(lambda text, ww=w, rx=regex: self._validate_input(ww, rx, text))
+                w.textChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "text":
             w = QPlainTextEdit()
@@ -537,9 +566,14 @@ class ToolForm(QWidget):
                 lambda: self._update_dependent(parent_key, child_field)
             )
         elif isinstance(pw, QComboBox):
-            pw.currentIndexChanged.connect(
-                lambda: self._update_dependent(parent_key, child_field)
-            )
+            if pw.isEditable():
+                pw.currentTextChanged.connect(
+                    lambda: self._update_dependent(parent_key, child_field)
+                )
+            else:
+                pw.currentIndexChanged.connect(
+                    lambda: self._update_dependent(parent_key, child_field)
+                )
         elif isinstance(pw, QSpinBox):
             pw.valueChanged.connect(
                 lambda: self._update_dependent(parent_key, child_field)
@@ -574,6 +608,8 @@ class ToolForm(QWidget):
         if isinstance(w, QPlainTextEdit):
             return bool(w.toPlainText().strip())
         if isinstance(w, QComboBox):
+            if w.isEditable():
+                return bool(w.currentText().strip())
             return bool(w.currentData())
         if isinstance(w, QSpinBox) or isinstance(w, QDoubleSpinBox):
             return w.value() != 0
@@ -635,7 +671,7 @@ class ToolForm(QWidget):
             return None
 
         elif t == "string":
-            v = w.text().strip()
+            v = w.currentText().strip() if isinstance(w, QComboBox) else w.text().strip()
             return v if v else None
 
         elif t == "text":
@@ -691,7 +727,7 @@ class ToolForm(QWidget):
             return None
 
         elif t == "string":
-            v = w.text().strip()
+            v = w.currentText().strip() if isinstance(w, QComboBox) else w.text().strip()
             return v if v else None
 
         elif t == "text":
@@ -820,7 +856,10 @@ class ToolForm(QWidget):
                 field["repeat_spin"].setValue(1)
 
         elif t == "string":
-            w.setText(str(value) if value is not None else "")
+            if isinstance(w, QComboBox):
+                w.setCurrentText(str(value) if value is not None else "")
+            else:
+                w.setText(str(value) if value is not None else "")
 
         elif t == "text":
             w.setPlainText(str(value) if value is not None else "")

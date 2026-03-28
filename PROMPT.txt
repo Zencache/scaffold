@@ -33,7 +33,8 @@ Every argument in every "arguments" array MUST have ALL of these fields:
   "repeatable": "<bool> true if the flag can be specified multiple times (e.g. -v -v -v). Default false",
   "separator": "<string> How flag and value are joined. \"space\" for --flag VALUE, \"equals\" for --flag=VALUE, \"none\" for boolean flags or flags where value is concatenated directly (e.g. -T4). Default \"space\"",
   "positional": "<bool> true if this argument appears without a flag prefix. Default false",
-  "validation": "<string or null> Optional regex for validating string input. null if not applicable"
+  "validation": "<string or null> Optional regex for validating string input. null if not applicable",
+  "examples": "<array of strings or null> Common values shown as editable suggestions for string type fields. Unlike choices (which restricts input), examples are non-restrictive — the user can pick a suggestion OR type a custom value. null if not applicable"
 }
 
 === SUBCOMMAND OBJECT (only when tool uses subcommands) ===
@@ -53,8 +54,8 @@ Use ONLY these types. Never invent new ones:
 - text: Flag takes multi-line text input (rare — use only when clearly multi-line).
 - integer: Flag takes a whole number value.
 - float: Flag takes a decimal number value.
-- enum: Flag accepts exactly ONE value from a fixed set listed in the docs. Populate "choices" with all valid values as strings.
-- multi_enum: Flag accepts MULTIPLE values from a fixed set. Populate "choices".
+- enum: Flag accepts exactly ONE value from a STRICTLY CLOSED set listed in the docs. Populate "choices" with all valid values as strings. Only use enum when no other values are valid.
+- multi_enum: Flag accepts MULTIPLE values from a strictly closed set. Populate "choices".
 - file: Flag takes a file path. Use ONLY when the docs clearly say it expects a file. When unsure between file and string, use string.
 - directory: Flag takes a directory path. Use ONLY when the docs clearly say it expects a directory.
 
@@ -79,6 +80,8 @@ Use ONLY these types. Never invent new ones:
 
 8. VALIDATION: Add a regex pattern only for string fields where the expected format is clear and constrained (e.g. port ranges, IP addresses). Do not add validation for free-form text.
 
+9. EXAMPLES vs ENUM: If a flag accepts well-known common values but the docs indicate other values are also valid (look for phrases like "see list," "available options include," "supported values," or open-ended descriptions), set the type to "string" and populate the "examples" array with the most common values listed in the docs. Do NOT use enum for these — enum is only for flags where the set of valid values is strictly closed. examples provides suggestions that help the user without restricting them.
+
 === COMMAND ASSEMBLY ORDER ===
 
 The GUI will assemble commands in this order:
@@ -90,7 +93,7 @@ Place positional arguments at the END of the arguments array, in the order they 
 === FINAL CHECKLIST ===
 
 Before returning, verify:
-- Every argument object has ALL 14 fields (name, flag, short_flag, type, description, required, default, choices, group, depends_on, repeatable, separator, positional, validation)
+- Every argument object has ALL 15 fields (name, flag, short_flag, type, description, required, default, choices, group, depends_on, repeatable, separator, positional, validation, examples)
 - No field is missing or has an undefined value — use null, false, or "space" as appropriate
 - type is one of: boolean, string, text, integer, float, enum, multi_enum, file, directory
 - separator is one of: "space", "equals", "none"
