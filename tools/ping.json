@@ -1,7 +1,7 @@
 {
   "tool": "ping",
   "binary": "ping",
-  "description": "Send ICMP ECHO_REQUEST to network hosts.",
+  "description": "Send ICMP echo requests to verify IP-level connectivity to a network host.",
   "subcommands": null,
   "arguments": [
     {
@@ -9,7 +9,7 @@
       "flag": "-n",
       "short_flag": null,
       "type": "integer",
-      "description": "Number of echo requests to send",
+      "description": "Number of echo requests to send (default 4)",
       "required": false,
       "default": null,
       "choices": null,
@@ -18,14 +18,15 @@
       "repeatable": false,
       "separator": "space",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "Timeout",
       "flag": "-w",
       "short_flag": null,
       "type": "integer",
-      "description": "Timeout in milliseconds to wait for each reply",
+      "description": "Timeout in milliseconds to wait for each reply (default 4000)",
       "required": false,
       "default": null,
       "choices": null,
@@ -34,14 +35,15 @@
       "repeatable": false,
       "separator": "space",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "Buffer Size",
       "flag": "-l",
       "short_flag": null,
       "type": "integer",
-      "description": "Send buffer size in bytes",
+      "description": "Send buffer size in bytes (default 32)",
       "required": false,
       "default": null,
       "choices": null,
@@ -50,7 +52,8 @@
       "repeatable": false,
       "separator": "space",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "TTL",
@@ -66,14 +69,32 @@
       "repeatable": false,
       "separator": "space",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Type of Service",
+      "flag": "-v",
+      "short_flag": null,
+      "type": "integer",
+      "description": "Type of Service field value (IPv4-only, deprecated)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
     },
     {
       "name": "Ping Continuously",
       "flag": "-t",
       "short_flag": null,
       "type": "boolean",
-      "description": "Ping the specified host until stopped (use Stop to end)",
+      "description": "Ping the specified host until stopped",
       "required": false,
       "default": null,
       "choices": null,
@@ -82,14 +103,15 @@
       "repeatable": false,
       "separator": "none",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "Don't Fragment",
       "flag": "-f",
       "short_flag": null,
       "type": "boolean",
-      "description": "Set Don't Fragment flag in packet",
+      "description": "Set Don't Fragment flag in packet (IPv4-only)",
       "required": false,
       "default": null,
       "choices": null,
@@ -98,10 +120,11 @@
       "repeatable": false,
       "separator": "none",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
-      "name": "Resolve to Addresses",
+      "name": "Resolve Addresses",
       "flag": "-a",
       "short_flag": null,
       "type": "boolean",
@@ -114,7 +137,144 @@
       "repeatable": false,
       "separator": "none",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Record Route",
+      "flag": "-r",
+      "short_flag": null,
+      "type": "integer",
+      "description": "Record route for count hops (1-9, IPv4-only)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": "route_option",
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Timestamp",
+      "flag": "-s",
+      "short_flag": null,
+      "type": "integer",
+      "description": "Timestamp for count hops (1-4, IPv4-only)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": "route_option",
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Loose Source Route",
+      "flag": "-j",
+      "short_flag": null,
+      "type": "string",
+      "description": "Loose source route along host-list (IPv4-only)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": "route_option",
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Strict Source Route",
+      "flag": "-k",
+      "short_flag": null,
+      "type": "string",
+      "description": "Strict source route along host-list (IPv4-only)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": "route_option",
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Source Address",
+      "flag": "-S",
+      "short_flag": null,
+      "type": "string",
+      "description": "Source address to use",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Routing Header",
+      "flag": "-R",
+      "short_flag": null,
+      "type": "boolean",
+      "description": "Use routing header to test reverse route (IPv6-only)",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "none",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Compartment",
+      "flag": "-c",
+      "short_flag": null,
+      "type": "integer",
+      "description": "Routing compartment identifier",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "space",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    },
+    {
+      "name": "Hyper-V Ping",
+      "flag": "-p",
+      "short_flag": null,
+      "type": "boolean",
+      "description": "Ping a Hyper-V Network Virtualization provider address",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "none",
+      "positional": false,
+      "validation": null,
+      "examples": null
     },
     {
       "name": "IPv4",
@@ -130,7 +290,8 @@
       "repeatable": false,
       "separator": "none",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "IPv6",
@@ -146,14 +307,15 @@
       "repeatable": false,
       "separator": "none",
       "positional": false,
-      "validation": null
+      "validation": null,
+      "examples": null
     },
     {
       "name": "Destination",
       "flag": "DESTINATION",
       "short_flag": null,
       "type": "string",
-      "description": "Target host — IP address or hostname",
+      "description": "Target host -- IP address or hostname",
       "required": true,
       "default": null,
       "choices": null,
@@ -162,7 +324,8 @@
       "repeatable": false,
       "separator": "space",
       "positional": true,
-      "validation": null
+      "validation": null,
+      "examples": ["8.8.8.8", "1.1.1.1", "google.com", "localhost", "192.168.1.1"]
     }
   ]
 }
