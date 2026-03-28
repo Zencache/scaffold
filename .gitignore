@@ -32,6 +32,7 @@ Desktop.ini
 # Scaffold runtime files
 presets/
 test.txt
+test_*.py
 
 # Secrets / credentials
 .env

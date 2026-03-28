@@ -180,7 +180,7 @@ python scaffold.py --validate tools/mytool.json
 | Type | Widget | Value | Example |
 |------|--------|-------|---------|
 | `boolean` | Checkbox | checked/unchecked | `-v`, `--force` |
-| `string` | Text input | free text | `-p 22,80`, `--name foo` |
+| `string` | Text input (or editable dropdown if `examples` is set) | free text | `-p 22,80`, `--name foo` |
 | `text` | Multi-line text area | free text with newlines | `--script-args` |
 | `integer` | Spin box | whole number | `--count 5`, `--depth 1` |
 | `float` | Double spin box | decimal number | `--rate 1000.0` |
@@ -251,6 +251,22 @@ Use `depends_on` to link a child field to a parent. The child is grayed out unti
 { "name": "Service Detection", "flag": "-sV", "type": "boolean", ... },
 { "name": "Version Intensity", "flag": "--version-intensity", "type": "integer", "depends_on": "-sV", ... }
 ```
+
+### Examples (Editable Suggestions)
+
+Use `examples` on `string` type fields to provide common value suggestions without restricting input. Unlike `enum` (which locks the user to a fixed set), `examples` renders an editable dropdown — the user can pick a suggestion OR type any custom value:
+
+```json
+{
+  "name": "Video Codec",
+  "flag": "-c:v",
+  "type": "string",
+  "description": "Video codec to use for encoding",
+  "examples": ["copy", "libx264", "libx265", "libvpx-vp9", "libaom-av1", "hevc_nvenc"]
+}
+```
+
+This is ideal for flags that accept well-known values but also allow others not listed in the docs. If the set of values is strictly closed (no other values are valid), use `enum` with `choices` instead.
 
 ## Presets
 
