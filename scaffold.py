@@ -1028,14 +1028,17 @@ class ToolPicker(QWidget):
         layout.addWidget(header)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Tool", "Description", "Path"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["", "Tool", "Description", "Path"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -1064,7 +1067,7 @@ class ToolPicker(QWidget):
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
 
-        self._entries = []  # list of (path, data_or_none, error_or_none)
+        self._entries = []  # list of (path, data_or_none, error_or_none, binary_available)
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
         self.scan()
 
@@ -1078,20 +1081,51 @@ class ToolPicker(QWidget):
                 data = load_tool(str(json_file))
                 errors = validate_tool(data)
                 if errors:
-                    self._entries.append((str(json_file), None, "; ".join(errors)))
+                    self._entries.append((str(json_file), None, "; ".join(errors), False))
                 else:
                     normalize_tool(data)
-                    self._entries.append((str(json_file), data, None))
+                    available = _binary_in_path(data["binary"])
+                    self._entries.append((str(json_file), data, None, available))
             except RuntimeError as e:
-                self._entries.append((str(json_file), None, str(e)))
+                self._entries.append((str(json_file), None, str(e), False))
 
+        # Sort: available tools first, then unavailable, then invalid — alphabetical within each group
+        def _sort_key(entry):
+            _, data, error, available = entry
+            if error:
+                priority = 2  # invalid last
+            elif available:
+                priority = 0  # available first
+            else:
+                priority = 1  # unavailable middle
+            name = data["tool"].lower() if data else Path(entry[0]).name.lower()
+            return (priority, name)
+
+        self._entries.sort(key=_sort_key)
         self._populate_table()
 
     def _populate_table(self):
         self.table.setRowCount(len(self._entries))
 
-        for row, (path, data, error) in enumerate(self._entries):
+        for row, (path, data, error, available) in enumerate(self._entries):
             fname = Path(path).name
+
+            # Status column
+            if error:
+                status_item = QTableWidgetItem("")
+            elif available:
+                status_item = QTableWidgetItem("\u2714")  # checkmark
+                status_item.setForeground(QColor("#4ec94e"))
+                status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
+            else:
+                status_item = QTableWidgetItem("\u2716")  # X mark
+                status_item.setForeground(QColor("#e05555"))
+                status_item.setToolTip(
+                    f"'{data['binary']}' not found in PATH. "
+                    "Install it or add its location to your PATH."
+                )
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
             if data:
                 name_item = QTableWidgetItem(data["tool"])
                 desc_item = QTableWidgetItem(data.get("description", ""))
@@ -1101,13 +1135,19 @@ class ToolPicker(QWidget):
             path_item = QTableWidgetItem(fname)
 
             if error:
-                for item in (name_item, desc_item, path_item):
+                for item in (status_item, name_item, desc_item, path_item):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
                     item.setToolTip(error)
+            elif not available:
+                # Dim unavailable tools slightly but keep them selectable
+                dim = QColor("#888888")
+                for item in (name_item, desc_item, path_item):
+                    item.setForeground(dim)
 
-            self.table.setItem(row, 0, name_item)
-            self.table.setItem(row, 1, desc_item)
-            self.table.setItem(row, 2, path_item)
+            self.table.setItem(row, 0, status_item)
+            self.table.setItem(row, 1, name_item)
+            self.table.setItem(row, 2, desc_item)
+            self.table.setItem(row, 3, path_item)
 
         has_items = len(self._entries) > 0
         self.table.setVisible(has_items)
@@ -1120,12 +1160,12 @@ class ToolPicker(QWidget):
             self.open_btn.setEnabled(False)
             return
         row = rows[0].row()
-        _, data, _ = self._entries[row]
+        _, data, _, _ = self._entries[row]
         self.open_btn.setEnabled(data is not None)
 
     def _on_double_click(self, index):
         row = index.row()
-        path, data, _ = self._entries[row]
+        path, data, _, _ = self._entries[row]
         if data is not None:
             self.tool_selected.emit(path)
 
@@ -1134,7 +1174,7 @@ class ToolPicker(QWidget):
         if not rows:
             return
         row = rows[0].row()
-        path, data, _ = self._entries[row]
+        path, data, _, _ = self._entries[row]
         if data is not None:
             self.tool_selected.emit(path)
 
