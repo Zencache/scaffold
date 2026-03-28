@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# CLGUI runtime files
+presets/
+
+# Secrets / credentials
+.env
+*.pem
+*.key
