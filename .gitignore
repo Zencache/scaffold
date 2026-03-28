@@ -29,8 +29,9 @@ env/
 Thumbs.db
 Desktop.ini
 
-# CLGUI runtime files
+# Scaffold runtime files
 presets/
+test.txt
 
 # Secrets / credentials
 .env
