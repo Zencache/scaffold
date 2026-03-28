@@ -73,6 +73,8 @@ The included `PROMPT.txt` file contains a detailed prompt that teaches any LLM (
 4. Save the JSON response as `tools/toolname.json`
 5. Restart Scaffold (or use File > Reload) — the new tool appears in the picker
 
+> **Note:** Generating schemas for complex tools (like curl or ffmpeg) with many flags requires a large context window and works best with frontier-level LLMs (Claude Opus, GPT-4, Gemini Pro, etc.). Smaller or older models may truncate output, miss fields, or produce invalid JSON. Always validate the result with `python scaffold.py --validate tools/toolname.json`.
+
 > **Note:** LLM-generated schemas may contain errors. Always validate with `python scaffold.py --validate tools/toolname.json` and test the generated commands before relying on them.
 
 ### The Manual Way
