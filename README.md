@@ -9,6 +9,8 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Single File](https://img.shields.io/badge/single%20file-1%2C731%20lines-orange)
 
+![Scaffold — nmap example](nmap%20example.png)
+
 > **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (661 passing assertions), it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
 ---
