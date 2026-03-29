@@ -17,6 +17,15 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 
 ## Getting Started
 
+### Prerequisites
+
+- **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
+- **pip** — should come with Python; update it with `pip install --upgrade pip`
+- **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
+- **A JSON schema for your tool** — Scaffold comes with example schemas (nmap, ping, git, curl) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+
+### Install and Run
+
 ```bash
 # 1. Clone the repo
 git clone https://github.com/Zencache/scaffold.git
@@ -29,7 +38,7 @@ pip install PySide6
 python scaffold.py
 ```
 
-That's it. The tool picker will open showing the example schemas in the `tools/` folder. Double-click any tool to open its form, fill in the fields, and hit **Run**.
+The tool picker will open showing all `.json` schemas in the `tools/` folder. A green checkmark means the tool is installed and ready to use; a red X means it's not found in your PATH. Double-click any tool to open its form, fill in the fields, and hit **Run**.
 
 > **Tip:** Toggle dark mode with **Ctrl+D** or from the **View > Theme** menu.
 
