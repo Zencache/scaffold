@@ -43,6 +43,14 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 
 > **Tip:** Toggle dark mode with **Ctrl+D** or from the **View > Theme** menu.
 
+> **Linux users:** On some distros (e.g., Ubuntu 24.04+), `pip install PySide6` may fail because the system Python is externally managed. You can work around this with `pip install pyside6 --break-system-packages` — but **be careful**, this installs packages globally and can conflict with system packages. A safer alternative is to use a virtual environment (`python3 -m venv .venv && source .venv/bin/activate && pip install PySide6`).
+>
+> You may also need to install `libxcb-cursor0` for the Qt platform plugin to load:
+> ```bash
+> sudo apt install libxcb-cursor0
+> ```
+> Without it, PySide6 will crash on launch with `Could not load the Qt platform plugin "xcb"`.
+
 ---
 
 ## Features
