@@ -1092,6 +1092,23 @@
           "examples": null
         },
         {
+          "name": "Restart",
+          "flag": "--restart",
+          "short_flag": null,
+          "type": "boolean",
+          "description": "Restart the gateway process.",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "none",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        },
+        {
           "name": "Reset",
           "flag": "--reset",
           "short_flag": null,

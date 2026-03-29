@@ -371,11 +371,19 @@ If you find bugs, have suggestions, or want to contribute, please open an issue 
 
 ## Support the Project
 
-If Scaffold saves you time or you find it useful, consider supporting its development! Contributions of any kind are welcome — code, bug reports, new tool schemas, or donations.
+This project was built as a hobby by one person and an LLM with a lot of patience. It burned through more than $100 in API credits and mass amounts of personal time — but it was worth it. If Scaffold saves you some time or you just think it's cool, consider tossing a few sats my way. No pressure, but coffee and compute aren't free.
 
-- **Star this repo** to help others find it
+- **Star this repo** — it's free and it helps others find the project
 - **Share your tool schemas** — submit a PR to add schemas for popular CLI tools
-- **Sponsor** — [Buy me a coffee](https://buymeacoffee.com/) or support via [GitHub Sponsors](https://github.com/sponsors)
+- **Crypto donations** — if you're feeling generous:
+
+  | Currency | Address |
+  |----------|---------|
+  | **BTC** | `3MBq8n3zj58xCbdDykLdDW6PSFA9vXyRfa` |
+  | **LTC** | `MQ1ZqNdS2ujMgdRvE8BUAGm3y7DV6ZKkas` |
+  | **ETH** | `0xB08dFBa742487F22e47135aB734de5554262047D` |
+  | **BCH** | `qrgjrpsfhfkgvwv5cd3j267tzcx5kkfzrgrngskj42` |
+  | **SOL** | `5sFhB8Rs4zkFgXfLwdEt7tK2KbcnorfMjjFhgj5BYx9C` |
 
 ## License
 
