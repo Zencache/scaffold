@@ -2,6 +2,12 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v1.2.3] — 2026-03-28
+
+### Improved
+- Added prerequisites section to Getting Started (Python version, pip, CLI tool installation, JSON schema)
+- Added platform compatibility note (tested on Windows, should work on macOS/Linux)
+
 ## [v1.2.2] — 2026-03-28
 
 ### Added
