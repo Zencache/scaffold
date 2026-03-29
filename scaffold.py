@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Scaffold — CLI-to-GUI Translation Layer.
 
 Turn any command-line tool into a native desktop GUI. Scaffold reads a JSON
@@ -10,10 +11,14 @@ Usage:
     python scaffold.py tools/nmap.json        Open a specific tool directly
     python scaffold.py --validate FILE        Validate a schema (no GUI)
     python scaffold.py --prompt               Print the LLM schema-generation prompt
+    python scaffold.py --version              Show version and exit
     python scaffold.py --help                 Show this help and exit
 
 Requires: PySide6 (pip install PySide6) — no other dependencies.
+Minimum Python version: 3.10
 """
+
+__version__ = "2.0.0"
 
 import json
 import re
@@ -56,6 +61,9 @@ DEFAULT_WINDOW_HEIGHT = 750
 # Output panel limits
 OUTPUT_MAX_BLOCKS = 10000       # Max lines kept in the output panel
 OUTPUT_FLUSH_MS = 100           # Milliseconds between output buffer flushes
+OUTPUT_MIN_HEIGHT = 80          # Minimum output panel height (pixels)
+OUTPUT_MAX_HEIGHT = 800         # Maximum output panel height (pixels)
+OUTPUT_DEFAULT_HEIGHT = 150     # Default output panel height (pixels)
 
 # Tool schema file size limit (bytes)
 MAX_SCHEMA_SIZE = 1_000_000     # 1 MB — skip files larger than this
@@ -295,7 +303,7 @@ def _elevation_label():
 # ---------------------------------------------------------------------------
 
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
-from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPolygon, QShortcut, QTextCharFormat  # noqa: E402
+from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -503,6 +511,60 @@ def _required_color() -> str:
     return DARK_COLORS["required"] if _dark_mode else "red"
 
 
+class DragHandle(QWidget):
+    """A small centered grip bar that the user drags vertically to resize the output panel."""
+
+    HEIGHT = 8
+    LINE_WIDTH = 32
+    LINE_SPACING = 3
+
+    def __init__(self, target: QWidget, settings: QSettings, parent=None):
+        super().__init__(parent)
+        self._target = target
+        self._settings = settings
+        self._dragging = False
+        self._drag_start_y = 0
+        self._drag_start_h = 0
+        self.setFixedHeight(self.HEIGHT)
+        self.setCursor(QCursor(Qt.CursorShape.SizeVerCursor))
+        self.setToolTip("Drag to resize output panel")
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(DARK_COLORS["disabled"] if _dark_mode else "#888888")
+        p.setPen(QPen(color, 1))
+        cx = self.width() / 2
+        cy = self.height() / 2
+        x0 = int(cx - self.LINE_WIDTH / 2)
+        x1 = int(cx + self.LINE_WIDTH / 2)
+        y_top = int(cy - self.LINE_SPACING / 2)
+        y_bot = int(cy + self.LINE_SPACING / 2)
+        p.drawLine(x0, y_top, x1, y_top)
+        p.drawLine(x0, y_bot, x1, y_bot)
+        p.end()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_start_y = event.globalPosition().y()
+            self._drag_start_h = self._target.height()
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging:
+            delta = int(self._drag_start_y - event.globalPosition().y())
+            new_h = max(OUTPUT_MIN_HEIGHT, min(OUTPUT_MAX_HEIGHT, self._drag_start_h + delta))
+            self._target.setFixedHeight(new_h)
+            event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._dragging:
+            self._dragging = False
+            self._settings.setValue("output/height", self._target.height())
+            event.accept()
+
+
 class ToolForm(QWidget):
     """Dynamically renders a GUI form from a validated, normalized tool dict."""
 
@@ -546,6 +608,16 @@ class ToolForm(QWidget):
             desc = QLabel(self.data["description"])
             desc.setWordWrap(True)
             root.addWidget(desc)
+
+        # Separator between header and options
+        header_sep = QFrame()
+        header_sep.setFrameShape(QFrame.Shape.HLine)
+        header_sep.setFrameShadow(QFrame.Shadow.Plain)
+        color = DARK_COLORS["border"] if _dark_mode else "#999999"
+        header_sep.setStyleSheet(
+            f"QFrame {{ color: {color}; max-height: 1px; margin: 4px 0 2px 0; }}"
+        )
+        root.addWidget(header_sep)
 
         # Elevation control
         self.elevation_check = None
@@ -1786,6 +1858,22 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.preview.setStyleSheet("")
+        # Section labels and separators
+        for attr in ("preview_label", "output_label"):
+            if hasattr(self, attr):
+                self._style_section_label(getattr(self, attr))
+        for attr in ("preview_sep",):
+            if hasattr(self, attr):
+                self._style_separator(getattr(self, attr))
+        # Form frame border
+        if hasattr(self, "form_frame"):
+            self._style_form_frame()
+        # Drag handle
+        if hasattr(self, "output_handle"):
+            self.output_handle.update()
+        # Run button
+        if hasattr(self, "run_btn"):
+            self._style_run_btn()
         # Warning bar
         if hasattr(self, "warning_bar") and self.warning_bar.isVisible():
             self._style_warning_bar()
@@ -1794,6 +1882,79 @@ class MainWindow(QMainWindow):
             self.form.update_theme()
         # Force repaint
         QApplication.instance().setStyle(QApplication.instance().style().name())
+
+    @staticmethod
+    def _style_section_label(label: QLabel) -> None:
+        """Apply theme-appropriate styling to a section header label."""
+        color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        label.setStyleSheet(
+            "font-weight: bold; font-size: 11px; text-transform: uppercase;"
+            f" letter-spacing: 1px; padding: 2px 0 1px 0; color: {color};"
+        )
+
+    def _make_separator(self) -> QFrame:
+        """Create a subtle horizontal separator line."""
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Plain)
+        self._style_separator(sep)
+        return sep
+
+    @staticmethod
+    def _style_separator(sep: QFrame) -> None:
+        """Apply theme-appropriate styling to a separator line."""
+        color = DARK_COLORS["border"] if _dark_mode else "#999999"
+        sep.setStyleSheet(
+            f"QFrame {{ color: {color}; max-height: 1px; margin: 4px 16px 0 16px; }}"
+        )
+
+    def _style_form_frame(self) -> None:
+        """Apply theme-appropriate border styling to the command options frame."""
+        self.form_frame.setObjectName("form_frame")
+        if _dark_mode:
+            self.form_frame.setStyleSheet(
+                f"QFrame#form_frame {{ border: 1px solid {DARK_COLORS['border']};"
+                f" border-radius: 4px; background-color: {DARK_COLORS['window']}; }}"
+            )
+        else:
+            self.form_frame.setStyleSheet(
+                "QFrame#form_frame { border: 1px solid #999999;"
+                " border-radius: 4px; }"
+            )
+
+    def _style_run_btn(self) -> None:
+        """Apply green (Run) or red (Stop) styling to the run button."""
+        is_stop = self.run_btn.text() == "Stop"
+        if _dark_mode:
+            if is_stop:
+                self.run_btn.setStyleSheet(
+                    f"QPushButton {{ background-color: #45272a; color: {DARK_COLORS['error']};"
+                    f" border: 1px solid {DARK_COLORS['error']}; padding: 4px 16px;"
+                    f" font-weight: bold; border-radius: 3px; }} "
+                    f"QPushButton:hover {{ background-color: #5a3035; }}"
+                )
+            else:
+                self.run_btn.setStyleSheet(
+                    f"QPushButton {{ background-color: #1e3a2a; color: {DARK_COLORS['success']};"
+                    f" border: 1px solid {DARK_COLORS['success']}; padding: 4px 16px;"
+                    f" font-weight: bold; border-radius: 3px; }} "
+                    f"QPushButton:hover {{ background-color: #274d36; }}"
+                )
+        else:
+            if is_stop:
+                self.run_btn.setStyleSheet(
+                    "QPushButton { background-color: #fdecea; color: #c62828;"
+                    " border: 1px solid #ef9a9a; padding: 4px 16px;"
+                    " font-weight: bold; border-radius: 3px; } "
+                    "QPushButton:hover { background-color: #f9d0cd; }"
+                )
+            else:
+                self.run_btn.setStyleSheet(
+                    "QPushButton { background-color: #e8f5e9; color: #2e7d32;"
+                    " border: 1px solid #a5d6a7; padding: 4px 16px;"
+                    " font-weight: bold; border-radius: 3px; } "
+                    "QPushButton:hover { background-color: #c8e6c9; }"
+                )
 
     def _style_warning_bar(self) -> None:
         """Apply theme-appropriate styling to the binary-not-found warning bar."""
@@ -1942,13 +2103,24 @@ class MainWindow(QMainWindow):
         self.warning_bar.setVisible(False)
         layout.addWidget(self.warning_bar)
 
-        # Form
+        # Form inside a bordered frame
         self.form = ToolForm(self.data)
-        layout.addWidget(self.form, 1)
+        self.form_frame = QFrame()
+        self.form_frame.setFrameShape(QFrame.Shape.Box)
+        frame_layout = QVBoxLayout(self.form_frame)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
+        frame_layout.addWidget(self.form)
+        self._style_form_frame()
+        layout.addWidget(self.form_frame, 1)
 
-        # Preview bar
+        # -- Command Preview section --
+        self.preview_label = QLabel("Command Preview")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._style_section_label(self.preview_label)
+        layout.addWidget(self.preview_label)
+
         preview_bar = QHBoxLayout()
-        preview_bar.setContentsMargins(8, 4, 8, 0)
+        preview_bar.setContentsMargins(8, 0, 8, 0)
 
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
@@ -1959,7 +2131,7 @@ class MainWindow(QMainWindow):
         self.preview.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         line_height = self.preview.fontMetrics().lineSpacing()
         scrollbar_height = QApplication.style().pixelMetric(QApplication.style().PixelMetric.PM_ScrollBarExtent)
-        self.preview.setFixedHeight(line_height + scrollbar_height + 16)
+        self.preview.setFixedHeight(line_height + scrollbar_height + 12)
         if _dark_mode:
             self.preview.setStyleSheet(
                 f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
@@ -1977,16 +2149,17 @@ class MainWindow(QMainWindow):
 
         # Status label
         self.status = QLabel("")
-        self.status.setStyleSheet("padding: 0 8px 4px 8px;")
+        self.status.setStyleSheet("padding: 0 8px 0 8px;")
         layout.addWidget(self.status)
 
         # Action buttons bar
         action_widget = QWidget()
         action_bar = QHBoxLayout(action_widget)
-        action_bar.setContentsMargins(8, 0, 8, 4)
+        action_bar.setContentsMargins(8, 0, 8, 0)
 
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self._on_run_stop)
+        self._style_run_btn()
         action_bar.addWidget(self.run_btn)
 
         self.clear_btn = QPushButton("Clear Output")
@@ -1996,12 +2169,24 @@ class MainWindow(QMainWindow):
         action_bar.addStretch()
         layout.addWidget(action_widget)
 
-        # Output panel
+        # -- Output section --
+        self.output_label = QLabel("Output")
+        self.output_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._style_section_label(self.output_label)
+        layout.addWidget(self.output_label)
+
+        # Output panel (create first so DragHandle can reference it)
+        saved_height = int(self.settings.value("output/height", OUTPUT_DEFAULT_HEIGHT))
+        saved_height = max(OUTPUT_MIN_HEIGHT, min(OUTPUT_MAX_HEIGHT, saved_height))
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setFont(_monospace_font())
-        self.output.setMinimumHeight(150)
+        self.output.setFixedHeight(saved_height)
         self.output.setMaximumBlockCount(OUTPUT_MAX_BLOCKS)
+
+        # Drag handle to resize output panel
+        self.output_handle = DragHandle(self.output, self.settings)
+        layout.addWidget(self.output_handle)
         if _dark_mode:
             self.output.setStyleSheet(
                 f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
@@ -2237,6 +2422,7 @@ class MainWindow(QMainWindow):
 
         self._killed = False
         self.run_btn.setText("Stop")
+        self._style_run_btn()
         self.statusBar().showMessage("Running...")
         self.process.start()
 
@@ -2289,6 +2475,7 @@ class MainWindow(QMainWindow):
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Process exited with code {exit_code}")
         self.run_btn.setText("Run")
+        self._style_run_btn()
         self._update_preview()
 
     def _on_error(self, error) -> None:
@@ -2312,6 +2499,7 @@ class MainWindow(QMainWindow):
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
         self.run_btn.setText("Run")
+        self._style_run_btn()
         self._update_preview()
 
     def _append_output(self, text: str, color: str) -> None:
@@ -2353,15 +2541,20 @@ def print_prompt() -> None:
 
 def main() -> None:
     """Entry point: handle --help / --prompt / --validate CLI flags, then launch the GUI."""
+    if "--version" in sys.argv or "-V" in sys.argv:
+        print(f"Scaffold {__version__}")
+        sys.exit(0)
+
     if "--help" in sys.argv or "-h" in sys.argv:
         print(
-            "Scaffold — CLI-to-GUI Translation Layer\n"
+            f"Scaffold {__version__} - CLI-to-GUI Translation Layer\n"
             "\n"
             "Usage:\n"
             "  python scaffold.py                        Launch the tool picker GUI\n"
             "  python scaffold.py <tool.json>            Open a specific tool directly\n"
             "  python scaffold.py --validate <tool.json> Validate a schema (no GUI)\n"
             "  python scaffold.py --prompt               Print the LLM schema-generation prompt\n"
+            "  python scaffold.py --version              Show version and exit\n"
             "  python scaffold.py --help                 Show this help and exit\n"
         )
         sys.exit(0)

@@ -2,6 +2,67 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.0.0] — 2026-03-29
+
+### Added
+- **`__version__` constant** (`2.0.0`) and `--version` / `-V` CLI flag for bug reports and preset compatibility
+- **Shebang line** (`#!/usr/bin/env python3`) for direct execution on Unix (`./scaffold.py`)
+- **Minimum Python version** documented in module docstring (`3.10`)
+- **Resizable output panel** — drag handle between command controls and output panel
+  - Custom `DragHandle` widget with two-line grip indicator and vertical resize cursor
+  - Drag up to shrink, drag down to grow (80px–800px range)
+  - Panel height persisted across sessions via QSettings
+- **Command options border** — form area wrapped in a rounded `QFrame` with a subtle border to visually distinguish it from the preview and output sections below
+- **Separator line** between tool header and command options for cleaner visual hierarchy
+- **UI polish** — section labels, separator lines, and colored action button
+  - Centered, uppercase "Command Preview" and "Output" section labels with theme-aware styling
+  - Subtle horizontal separator lines before each section for visual clarity
+  - Run button styled green; switches to red when in "Stop" state
+  - All new elements update correctly on light/dark theme toggle
+- New example tool schemas: `nikto.json`, `gobuster.json`, `hashcat.json`, `ffmpegv2.json`
+  - nikto: demonstrates string+examples for code-concatenation flags (-Tuning, -Display, -evasion)
+  - gobuster: demonstrates full subcommand architecture (7 modes with scoped flags)
+  - hashcat: demonstrates examples-vs-enum distinction (-m as string vs -a as enum)
+  - ffmpegv2: demonstrates large schema with 123 arguments across encoding, filtering, and I/O
+- New screenshot: `hashcat example.png`
+- Validation feedback tip in README — paste errors back into LLM to self-correct
+
+### Improved
+- **Tighter vertical spacing** — reduced padding on section labels, status bar, action bar, and command preview to reclaim screen space for tools with many arguments
+- **Higher contrast light theme** — borders for form frame, separators, and drag handle darkened from `#d0d0d0`/`#aaaaaa` to `#999999`/`#888888` for better visibility
+- **`--help` output** now includes version number and `--version` flag; replaced em dash with ASCII dash to avoid encoding issues on Windows cp1252 terminals
+- **Updated nmap screenshot** — reflects new UI (form border, section labels, drag handle, colored Run button); optimized from 445 KB to 114 KB
+- **README updates** — line-count badge updated to 2,634; assertion count corrected to 156; nikto, gobuster, hashcat added to example schemas table
+- **PROMPT.txt rewrite** — 5-stage review, test, iterate, harden, slim
+  - Added complete example JSON (5 arguments demonstrating all key patterns)
+  - Added type hallucination guard table with wrong→correct name mappings
+  - Added JSON formatting rules (no comments, no trailing commas, null not "")
+  - Added completeness + accuracy rules (don't truncate, don't invent flags)
+  - Added no-duplicates rule (short+long forms = one entry, aliases merged)
+  - Strengthened positional placement rule (MUST be last in array)
+  - Clarified flag vs short_flag convention (long form in flag, short in short_flag)
+  - Expanded separator detection guidance (look for "=" in docs)
+  - Added unclear/incomplete docs handling ("inferred — verify" annotation, version notes)
+  - Added examples-vs-enum "why" explanation to prevent silent misclassification
+  - Collapsed self-check into compact 9-item checklist
+  - Compressed prompt to ~1,039 words while preserving all rules
+
+### Fixed
+- **QPushButton stylesheet parse error** — added missing whitespace between QSS rule blocks in Run/Stop button styling (both dark and light mode)
+
+### Tested
+- **Full pre-release audit** (9 sections): first impressions, dependencies, cross-platform, security, error handling, UI polish, file deliverables, CLI interface, final sanity
+- **Security audit passed** — no `shell=True`, no `eval()`/`exec()`, binary passed as single string to `QProcess.setProgram()`, extra flags use `shlex.split()`, JSON loaded with `json.loads()` in try/except, no secrets in QSettings
+- **Cross-platform audit passed** — all paths use `pathlib.Path`, elevation gated by `sys.platform`, `shutil.which()` for binary detection, `QSettings("Scaffold", "Scaffold")`
+- **CLI entry points verified** — `--help`, `--version`, `--validate`, `--prompt`, direct path, missing file, invalid file all produce clean output with correct exit codes and no tracebacks
+- **Functional test suite**: 104/104 assertions pass (tool picker, all 9 widget types, tooltips, required fields, defaults, mutual exclusivity, dependencies, extra flags, command preview, process execution, stop, dark mode, presets, session persistence, subcommands, editable dropdowns, file/directory widgets, output batching, file size guard)
+- **Examples feature test suite**: 52/52 assertions pass (schema normalization, validation rules, editable dropdowns, command assembly)
+- **Schema conformance check**: all 8 bundled tool schemas (nmap, ping, git, curl, nikto, gobuster, hashcat, ffmpegv2) pass PROMPT.txt 15-field spec with all top-level keys present
+- Prompt validated against 6 CLI tools across 3 complexity levels (ping, nmap, curl, nikto, gobuster, hashcat)
+- All generated schemas pass `scaffold.py --validate` with zero structural errors
+- Cross-model testing: Opus 4.6 (zero failures) and Haiku 4.5 (structural pass, semantic improvements from guardrails)
+- `--prompt` output verified on Windows (cp1252 encoding handled correctly)
+
 ## [v1.4.0] — 2026-03-28
 
 ### Improved

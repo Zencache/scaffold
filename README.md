@@ -7,11 +7,11 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-1%2C731%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-2%2C634%20lines-orange)
 
 ![Scaffold — nmap example](nmap%20example.png)
 
-> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (661 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (156 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
 ---
 
@@ -106,6 +106,8 @@ The included `PROMPT.txt` file contains a detailed prompt that teaches any LLM (
 > **Note:** Generating schemas for complex tools (like curl or ffmpeg) with many flags requires a large context window and works best with frontier-level LLMs (Claude Opus, GPT-4, Gemini Pro, etc.). Smaller or older models may truncate output, miss fields, or produce invalid JSON. Always validate the result with `python scaffold.py --validate tools/toolname.json`.
 
 > **Note:** LLM-generated schemas may contain errors. Always validate with `python scaffold.py --validate tools/toolname.json` and test the generated commands before relying on them.
+
+> **Tip:** If validation fails, paste the error messages back into the LLM conversation and ask it to fix them. Most models can correct their own mistakes in one round when shown the specific validation errors. For example: *"The validator returned these errors: [paste errors]. Fix the JSON and return the corrected version."*
 
 ### The Manual Way
 
@@ -351,6 +353,9 @@ python scaffold.py --prompt
 | `tools/ping.json` | ping | Simple tool, mutual exclusivity group (IPv4/IPv6) |
 | `tools/git.json` | git | 4 subcommands, scoped arguments, equals separators |
 | `tools/curl.json` | curl | HTTP client, string/boolean/file/integer fields |
+| `tools/nikto.json` | nikto | String+examples for code-concatenation flags, enum vs examples distinction |
+| `tools/gobuster.json` | gobuster | 7 subcommands with scoped flags, repeatable headers, file types |
+| `tools/hashcat.json` | hashcat | Positional arg ordering, examples vs enum (-m vs -a), equals separators |
 
 ## Requirements
 
