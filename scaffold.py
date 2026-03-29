@@ -169,7 +169,7 @@ def normalize_tool(data):
 # ---------------------------------------------------------------------------
 
 from PySide6.QtCore import QProcess, QSettings, Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QKeySequence, QShortcut, QTextCharFormat
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QKeySequence, QPalette, QShortcut, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -180,7 +180,150 @@ from PySide6.QtWidgets import (
 )
 
 
-INVALID_STYLE = "border: 1px solid red;"
+_dark_mode = False
+_original_palette = None
+
+DARK_COLORS = {
+    "window": "#1e1e2e",
+    "widget": "#2a2a3c",
+    "input": "#313244",
+    "text": "#cdd6f4",
+    "text_dim": "#a6adc8",
+    "accent": "#89b4fa",
+    "selection": "#45475a",
+    "border": "#585b70",
+    "required": "#f38ba8",
+    "disabled": "#6c7086",
+    "success": "#a6e3a1",
+    "error": "#f38ba8",
+    "stderr": "#fab387",
+    "output_bg": "#11111b",
+    "output_text": "#cdd6f4",
+    "command": "#89b4fa",
+    "warning_bg": "#45475a",
+    "warning_text": "#fab387",
+    "warning_border": "#585b70",
+}
+
+
+def _detect_system_dark():
+    try:
+        scheme = QApplication.styleHints().colorScheme()
+        return scheme == Qt.ColorScheme.Dark
+    except AttributeError:
+        pass
+    try:
+        lightness = QApplication.palette().color(QPalette.ColorRole.Window).lightness()
+        return lightness < 128
+    except Exception:
+        pass
+    return False
+
+
+def apply_theme(dark):
+    global _dark_mode, _original_palette
+    _dark_mode = dark
+    app = QApplication.instance()
+    if _original_palette is None:
+        _original_palette = QPalette(app.palette())
+    if dark:
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(DARK_COLORS["window"]))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(DARK_COLORS["text"]))
+        palette.setColor(QPalette.ColorRole.Base, QColor(DARK_COLORS["input"]))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(DARK_COLORS["widget"]))
+        palette.setColor(QPalette.ColorRole.Text, QColor(DARK_COLORS["text"]))
+        palette.setColor(QPalette.ColorRole.Button, QColor(DARK_COLORS["widget"]))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["text"]))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(DARK_COLORS["accent"]))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(DARK_COLORS["window"]))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(DARK_COLORS["widget"]))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(DARK_COLORS["text"]))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(DARK_COLORS["disabled"]))
+        palette.setColor(QPalette.ColorRole.Link, QColor(DARK_COLORS["accent"]))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(DARK_COLORS["disabled"]))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(DARK_COLORS["disabled"]))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["disabled"]))
+        app.setPalette(palette)
+        C = DARK_COLORS
+        app.setStyleSheet(
+            # Menu bar and menus
+            "QMenuBar { background-color: %(widget)s; color: %(text)s; }"
+            "QMenuBar::item:selected { background-color: %(selection)s; }"
+            "QMenu { background-color: %(widget)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; }"
+            "QMenu::item:selected { background-color: %(selection)s; }"
+            # Checkboxes
+            "QCheckBox { color: %(text)s; }"
+            "QCheckBox::indicator { background-color: %(selection)s;"
+            "  border: 1px solid %(border)s; }"
+            "QCheckBox::indicator:checked { background-color: %(accent)s;"
+            "  border: 1px solid %(accent)s; }"
+            # Comboboxes (dropdowns)
+            "QComboBox { background-color: %(input)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; padding: 2px 4px; }"
+            "QComboBox QAbstractItemView { background-color: %(widget)s;"
+            "  color: %(text)s; selection-background-color: %(selection)s;"
+            "  selection-color: %(text)s; border: 1px solid %(border)s; }"
+            "QComboBox::drop-down { border-left: 1px solid %(border)s; }"
+            # Spinboxes
+            "QSpinBox, QDoubleSpinBox { background-color: %(input)s;"
+            "  color: %(text)s; border: 1px solid %(border)s; }"
+            "QSpinBox::up-button, QSpinBox::down-button,"
+            "  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
+            "  { background-color: %(widget)s; border: 1px solid %(border)s; }"
+            # Line edits
+            "QLineEdit { background-color: %(input)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; }"
+            # List widgets (multi_enum)
+            "QListWidget { background-color: %(input)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; }"
+            "QListWidget::item:selected { background-color: %(selection)s;"
+            "  color: %(text)s; }"
+            # Group boxes
+            "QGroupBox { color: %(text)s; border: 1px solid %(border)s;"
+            "  margin-top: 6px; padding-top: 6px; }"
+            "QGroupBox::title { color: %(text)s; }"
+            # Table (tool picker)
+            "QTableWidget { background-color: %(input)s; color: %(text)s;"
+            "  gridline-color: %(border)s; }"
+            "QTableWidget::item:selected { background-color: %(selection)s;"
+            "  color: %(text)s; }"
+            "QHeaderView::section { background-color: %(widget)s;"
+            "  color: %(text)s; border: 1px solid %(border)s; padding: 4px; }"
+            # Scrollbars
+            "QScrollBar:horizontal, QScrollBar:vertical"
+            "  { background-color: %(window)s; }"
+            "QScrollBar::handle:horizontal, QScrollBar::handle:vertical"
+            "  { background-color: %(border)s; border-radius: 3px; }"
+            "QScrollBar::handle:horizontal:hover, QScrollBar::handle:vertical:hover"
+            "  { background-color: %(disabled)s; }"
+            # Buttons
+            "QPushButton { background-color: %(widget)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; padding: 4px 12px; }"
+            "QPushButton:hover { background-color: %(selection)s; }"
+            "QPushButton:pressed { background-color: %(input)s; }"
+            # Plain text edits (extra flags, text-type fields)
+            "QPlainTextEdit { background-color: %(input)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; }"
+            # Tooltips
+            "QToolTip { background-color: %(widget)s; color: %(text)s;"
+            "  border: 1px solid %(border)s; }"
+            # Status bar
+            "QStatusBar { color: %(text)s; }"
+            % C
+        )
+    else:
+        app.setPalette(_original_palette)
+        app.setStyleSheet("")
+
+
+def _invalid_style():
+    return "border: 1px solid #f38ba8;" if _dark_mode else "border: 1px solid red;"
+
+
+def _required_color():
+    return "#f38ba8" if _dark_mode else "red"
 
 
 class ToolForm(QWidget):
@@ -304,7 +447,7 @@ class ToolForm(QWidget):
             widget = self._build_widget(arg, key)
             label_text = arg["name"]
             if arg["required"]:
-                label_text = f"<b>{label_text} <span style='color:red;'>*</span></b>"
+                label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
             label = QLabel(label_text)
             label.setTextFormat(Qt.TextFormat.RichText)
 
@@ -497,7 +640,7 @@ class ToolForm(QWidget):
 
     def _validate_input(self, widget, regex, text):
         if text and not regex.search(text):
-            widget.setStyleSheet(INVALID_STYLE)
+            widget.setStyleSheet(_invalid_style())
         else:
             widget.setStyleSheet("")
 
@@ -972,6 +1115,21 @@ class ToolForm(QWidget):
                 else:
                     cmd.append(f"{flag}{sv}")
 
+    def update_theme(self):
+        """Update theme-sensitive widget styles (required labels, validation borders)."""
+        color = _required_color()
+        for key, field in self.fields.items():
+            arg = field["arg"]
+            label = field["label"]
+            if arg["required"]:
+                name = arg["name"]
+                label.setText(f"<b>{name} <span style='color:{color};'>*</span></b>")
+            w = field["widget"]
+            if w.styleSheet() and "border" in w.styleSheet():
+                w.setStyleSheet(_invalid_style())
+            if hasattr(w, "_line_edit") and w._line_edit.styleSheet() and "border" in w._line_edit.styleSheet():
+                w._line_edit.setStyleSheet(_invalid_style())
+
     def validate_required(self):
         """Check required fields. Returns list of (key, name) tuples that are missing."""
         missing = []
@@ -995,9 +1153,9 @@ class ToolForm(QWidget):
                 if value is None:
                     missing.append(key)
                     if hasattr(w, '_line_edit'):
-                        w._line_edit.setStyleSheet(INVALID_STYLE)
+                        w._line_edit.setStyleSheet(_invalid_style())
                     elif hasattr(w, 'setStyleSheet'):
-                        w.setStyleSheet(INVALID_STYLE)
+                        w.setStyleSheet(_invalid_style())
                 else:
                     if key not in self.validators:
                         if hasattr(w, '_line_edit'):
@@ -1322,6 +1480,92 @@ class MainWindow(QMainWindow):
         self.act_reset = self.preset_menu.addAction("Reset to Defaults")
         self.act_reset.triggered.connect(self._on_reset_defaults)
 
+        # View menu — theme selector
+        view_menu = self.menuBar().addMenu("View")
+        theme_menu = view_menu.addMenu("Theme")
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        self.act_theme_light = QAction("Light", self, checkable=True)
+        self.act_theme_light.setData("light")
+        self.act_theme_dark = QAction("Dark", self, checkable=True)
+        self.act_theme_dark.setData("dark")
+        self.act_theme_system = QAction("System Default", self, checkable=True)
+        self.act_theme_system.setData("system")
+        for act in (self.act_theme_light, self.act_theme_dark, self.act_theme_system):
+            theme_group.addAction(act)
+            theme_menu.addAction(act)
+        theme_group.triggered.connect(lambda act: self._set_theme(act.data()))
+        self._sync_theme_checks()
+        # Shortcut to toggle between light/dark
+        toggle_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
+        toggle_shortcut.activated.connect(self._toggle_dark_mode)
+
+    def _sync_theme_checks(self):
+        pref = self.settings.value("appearance/theme", "system")
+        self.act_theme_light.setChecked(pref == "light")
+        self.act_theme_dark.setChecked(pref == "dark")
+        self.act_theme_system.setChecked(pref == "system")
+
+    def _set_theme(self, pref):
+        self.settings.setValue("appearance/theme", pref)
+        if pref == "dark":
+            apply_theme(True)
+        elif pref == "light":
+            apply_theme(False)
+        else:
+            apply_theme(_detect_system_dark())
+        self._apply_widget_theme()
+
+    def _toggle_dark_mode(self):
+        self._set_theme("dark" if not _dark_mode else "light")
+        self._sync_theme_checks()
+
+    def _apply_widget_theme(self):
+        dark = _dark_mode
+        # Output panel
+        if hasattr(self, "output"):
+            if dark:
+                self.output.setStyleSheet(
+                    f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
+                    f" color: {DARK_COLORS['output_text']}; }}"
+                )
+            else:
+                self.output.setStyleSheet(
+                    "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
+                )
+        # Preview bar
+        if hasattr(self, "preview"):
+            if dark:
+                self.preview.setStyleSheet(
+                    f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
+                    f" color: {DARK_COLORS['text']}; }}"
+                )
+            else:
+                self.preview.setStyleSheet("")
+        # Warning bar
+        if hasattr(self, "warning_bar") and self.warning_bar.isVisible():
+            self._style_warning_bar()
+        # Update required label colors in the form
+        if hasattr(self, "form"):
+            self.form.update_theme()
+        # Force repaint
+        QApplication.instance().setStyle(QApplication.instance().style().name())
+
+    def _style_warning_bar(self):
+        if _dark_mode:
+            self.warning_bar.setStyleSheet(
+                f"background-color: {DARK_COLORS['warning_bg']};"
+                f" color: {DARK_COLORS['warning_text']};"
+                f" padding: 6px 12px;"
+                f" border: 1px solid {DARK_COLORS['warning_border']};"
+                " font-weight: bold;"
+            )
+        else:
+            self.warning_bar.setStyleSheet(
+                "background-color: #fff3cd; color: #856404; padding: 6px 12px;"
+                " border: 1px solid #ffc107; font-weight: bold;"
+            )
+
     def _build_shortcuts(self):
         # Ctrl+Enter to Run
         run_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
@@ -1441,10 +1685,7 @@ class MainWindow(QMainWindow):
 
         # Warning banner (non-blocking, at top)
         self.warning_bar = QLabel("")
-        self.warning_bar.setStyleSheet(
-            "background-color: #fff3cd; color: #856404; padding: 6px 12px;"
-            " border: 1px solid #ffc107; font-weight: bold;"
-        )
+        self._style_warning_bar()
         self.warning_bar.setVisible(False)
         layout.addWidget(self.warning_bar)
 
@@ -1466,6 +1707,11 @@ class MainWindow(QMainWindow):
         line_height = self.preview.fontMetrics().lineSpacing()
         scrollbar_height = QApplication.style().pixelMetric(QApplication.style().PixelMetric.PM_ScrollBarExtent)
         self.preview.setFixedHeight(line_height + scrollbar_height + 16)
+        if _dark_mode:
+            self.preview.setStyleSheet(
+                f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
+                f" color: {DARK_COLORS['text']}; }}"
+            )
         preview_bar.addWidget(self.preview, 1)
 
         self.copy_btn = QPushButton("Copy Command")
@@ -1502,9 +1748,15 @@ class MainWindow(QMainWindow):
         self.output.setReadOnly(True)
         self.output.setFont(_monospace_font())
         self.output.setMinimumHeight(150)
-        self.output.setStyleSheet(
-            "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
-        )
+        if _dark_mode:
+            self.output.setStyleSheet(
+                f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
+                f" color: {DARK_COLORS['output_text']}; }}"
+            )
+        else:
+            self.output.setStyleSheet(
+                "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
+            )
         layout.addWidget(self.output)
 
         # Connect live preview
@@ -1645,9 +1897,12 @@ class MainWindow(QMainWindow):
     def _copy_command(self):
         _, display = self.form.build_command()
         QApplication.clipboard().setText(display)
-        self._show_status("Copied to clipboard.", "green")
+        color = DARK_COLORS["success"] if _dark_mode else "green"
+        self._show_status("Copied to clipboard.", color)
 
-    def _show_status(self, text, color="red"):
+    def _show_status(self, text, color=None):
+        if color is None:
+            color = DARK_COLORS["error"] if _dark_mode else "red"
         self.status.setText(text)
         self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
 
@@ -1791,6 +2046,16 @@ def main():
 
     # GUI launch
     app = QApplication(sys.argv)
+
+    # Apply theme from settings or system detection
+    settings = QSettings("Scaffold", "Scaffold")
+    theme_pref = settings.value("appearance/theme", "system")
+    if theme_pref == "dark":
+        apply_theme(True)
+    elif theme_pref == "light":
+        apply_theme(False)
+    else:
+        apply_theme(_detect_system_dark())
 
     # Direct launch with a JSON path
     args = [a for a in sys.argv[1:] if not a.startswith("--")]

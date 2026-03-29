@@ -11,7 +11,27 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 
 ![Scaffold — nmap example](nmap%20example.png)
 
-> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (661 passing assertions), it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (661 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+
+---
+
+## Getting Started
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/Zencache/scaffold.git
+cd scaffold
+
+# 2. Install the only dependency
+pip install PySide6
+
+# 3. Launch Scaffold
+python scaffold.py
+```
+
+That's it. The tool picker will open showing the example schemas in the `tools/` folder. Double-click any tool to open its form, fill in the fields, and hit **Run**.
+
+> **Tip:** Toggle dark mode with **Ctrl+D** or from the **View > Theme** menu.
 
 ---
 

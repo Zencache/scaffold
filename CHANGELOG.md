@@ -2,6 +2,18 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v1.2.2] — 2026-03-28
+
+### Added
+- **Dark mode** with system detection and manual toggle (View > Theme menu, Ctrl+D shortcut)
+- Three theme options: Light, Dark, and System Default — persisted across sessions
+- Catppuccin Mocha-inspired dark color palette with full widget coverage
+- Getting started instructions at the top of README
+
+### Improved
+- Comprehensive dark mode styling for all widgets (dropdowns, checkboxes, spinboxes, tables, scrollbars, buttons, menus, tooltips, group boxes)
+- README disclaimer now notes limitations with large/complex CLI tools
+
 ## [v1.2.1] — 2026-03-28
 
 ### Improved
