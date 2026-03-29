@@ -397,6 +397,8 @@ This project was built as a hobby by one person and an LLM with a lot of patienc
   | **BCH** | `qrgjrpsfhfkgvwv5cd3j267tzcx5kkfzrgrngskj42` |
   | **SOL** | `5sFhB8Rs4zkFgXfLwdEt7tK2KbcnorfMjjFhgj5BYx9C` |
 
+- **Contact** — kev@gurutechnology.services
+
 ## License
 
 MIT — free to use, modify, and distribute. See [LICENSE](LICENSE) for details.
