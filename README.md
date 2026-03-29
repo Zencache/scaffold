@@ -365,7 +365,7 @@ python scaffold.py --prompt
 
 ## About This Project
 
-Scaffold was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) as a hobby project and learning experiment. The author is not a professional software developer. While the project includes an automated test suite with 661 passing assertions across 12 test phases, it should be considered early-stage software.
+Scaffold was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) as a hobby project and learning experiment. The author is not a professional software developer. While the project includes an automated test suite with 156 passing assertions across 2 test suites, it should be considered early-stage software.
 
 If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 

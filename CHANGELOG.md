@@ -2,6 +2,11 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.0.1] — 2026-03-29
+
+### Fixed
+- **README assertion count** — second mention in "About This Project" section still said 661; corrected to 156
+
 ## [v2.0.0] — 2026-03-29
 
 ### Added
