@@ -19,6 +19,7 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 
 ### Prerequisites
 
+- **Windows, macOS, or Linux** — Scaffold has been tested on Windows. It should work on macOS and Linux as well (PySide6 is cross-platform), but these have not been extensively tested. If you run into platform-specific issues, please open an issue!
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **pip** — should come with Python; update it with `pip install --upgrade pip`
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
