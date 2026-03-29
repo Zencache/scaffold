@@ -356,6 +356,7 @@ python scaffold.py --prompt
 | `tools/nikto.json` | nikto | String+examples for code-concatenation flags, enum vs examples distinction |
 | `tools/gobuster.json` | gobuster | 7 subcommands with scoped flags, repeatable headers, file types |
 | `tools/hashcat.json` | hashcat | Positional arg ordering, examples vs enum (-m vs -a), equals separators |
+| `tools/openclaw.json` | openclaw | AI agent platform, 10+ subcommands, gateway with auth/tailscale options |
 
 ## Requirements
 
