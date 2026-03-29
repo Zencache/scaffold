@@ -2,6 +2,11 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v1.3.1] — 2026-03-28
+
+### Improved
+- Added right padding between form fields and scrollbar for cleaner layout
+
 ## [v1.3.0] — 2026-03-28
 
 ### Added

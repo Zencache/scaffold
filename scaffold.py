@@ -525,7 +525,7 @@ class ToolForm(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(scroll_widget)
-        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setContentsMargins(0, 0, 8, 0)
         scroll.setWidget(scroll_widget)
         root.addWidget(scroll, 1)
 
