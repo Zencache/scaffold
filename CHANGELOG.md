@@ -49,6 +49,7 @@ All notable changes to Scaffold are documented here.
 
 ### Fixed
 - **QPushButton stylesheet parse error** — added missing whitespace between QSS rule blocks in Run/Stop button styling (both dark and light mode)
+- **`nmap.json` `-sC` mislabeled as `short_flag` of `--script`** — `-sC` is a distinct flag (`--script=default`), not the short form of `--script`. Split into separate "Default Scripts" boolean entry
 
 ### Tested
 - **Full pre-release audit** (9 sections): first impressions, dependencies, cross-platform, security, error handling, UI polish, file deliverables, CLI interface, final sanity
@@ -57,7 +58,7 @@ All notable changes to Scaffold are documented here.
 - **CLI entry points verified** — `--help`, `--version`, `--validate`, `--prompt`, direct path, missing file, invalid file all produce clean output with correct exit codes and no tracebacks
 - **Functional test suite**: 104/104 assertions pass (tool picker, all 9 widget types, tooltips, required fields, defaults, mutual exclusivity, dependencies, extra flags, command preview, process execution, stop, dark mode, presets, session persistence, subcommands, editable dropdowns, file/directory widgets, output batching, file size guard)
 - **Examples feature test suite**: 52/52 assertions pass (schema normalization, validation rules, editable dropdowns, command assembly)
-- **Schema conformance check**: all 8 bundled tool schemas (nmap, ping, git, curl, nikto, gobuster, hashcat, ffmpegv2) pass PROMPT.txt 15-field spec with all top-level keys present
+- **Schema conformance check**: all 8 bundled tool schemas (nmap, ping, git, curl, nikto, gobuster, hashcat, ffmpegv2) pass PROMPT.txt 15-field spec with all top-level keys present; original 4 schemas audited against new prompt conventions (flag/short_flag, no duplicates, positionals last, boolean separators)
 - Prompt validated against 6 CLI tools across 3 complexity levels (ping, nmap, curl, nikto, gobuster, hashcat)
 - All generated schemas pass `scaffold.py --validate` with zero structural errors
 - Cross-model testing: Opus 4.6 (zero failures) and Haiku 4.5 (structural pass, semantic improvements from guardrails)
