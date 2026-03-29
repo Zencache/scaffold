@@ -14,7 +14,7 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (157 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work well with all CLI programs.** On the schema generation side, tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window, resulting in incomplete or inaccurate output. On the UI side, complex tools with many subcommands (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are difficult to navigate — the options change with every subcommand selection and important flags can get buried. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded; see [About This Project](#about-this-project) for the full story. While it has an automated test suite (157 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work well with all CLI programs.** On the schema generation side, tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window, resulting in incomplete or inaccurate output. On the UI side, complex tools with many subcommands (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are difficult to navigate — the options change with every subcommand selection and important flags can get buried. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
 ---
 
@@ -377,7 +377,20 @@ python scaffold.py --prompt
 
 ## About This Project
 
-Scaffold was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) as a hobby project and learning experiment. The author is not a professional software developer. While the project includes an automated test suite with 157 passing assertions across 2 test suites, it should be considered early-stage software.
+Every line of code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) — but the project was designed, directed, tested, and iterated by a human. This wasn't a one-shot generation.
+
+Scaffold was built the way a real team would build software, just with an AI writing the code instead of a second person:
+
+1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
+2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The functional test suite (105 assertions) and examples test suite (52 assertions) were written to validate each feature as it was delivered
+4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
+5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
+6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
+
+The author is an IT professional with a Python developer certification — not a software developer by trade, but not starting from zero either. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
+
+While the project includes 157 passing test assertions across 2 test suites, it should be considered early-stage software.
 
 If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
