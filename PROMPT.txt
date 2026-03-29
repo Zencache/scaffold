@@ -12,6 +12,7 @@ CRITICAL RULES:
   "binary": "<string, required> Exact executable name or path (e.g. \"nmap\", \"docker\")",
   "description": "<string, required> One-line description of the tool",
   "subcommands": "<array or null> List of subcommand objects, or null if tool has no subcommands",
+  "elevated": "<string or null> Whether the tool needs elevated privileges. null or \"never\" = no elevation UI. \"optional\" = some features need elevation (e.g. nmap SYN scan). \"always\" = tool requires elevation to function (e.g. systemctl restart). Default null",
   "arguments": "<array, required> List of argument objects. If subcommands exist, these are GLOBAL flags only"
 }
 
@@ -80,7 +81,9 @@ Use ONLY these types. Never invent new ones:
 
 8. VALIDATION: Add a regex pattern only for string fields where the expected format is clear and constrained (e.g. port ranges, IP addresses). Do not add validation for free-form text.
 
-9. EXAMPLES vs ENUM: If a flag accepts well-known common values but the docs indicate other values are also valid (look for phrases like "see list," "available options include," "supported values," or open-ended descriptions), set the type to "string" and populate the "examples" array with the most common values listed in the docs. Do NOT use enum for these — enum is only for flags where the set of valid values is strictly closed. examples provides suggestions that help the user without restricting them.
+9. ELEVATED: Set elevated to "optional" if the tool works without root/admin but certain features require it (e.g. nmap basic scans work unprivileged, but SYN scans need root). Set to "always" if the docs indicate the tool must be run as root/admin (e.g. systemctl restart, iptables). Set to null or "never" for tools that never need elevation. When in doubt, set null.
+
+10. EXAMPLES vs ENUM: If a flag accepts well-known common values but the docs indicate other values are also valid (look for phrases like "see list," "available options include," "supported values," or open-ended descriptions), set the type to "string" and populate the "examples" array with the most common values listed in the docs. Do NOT use enum for these — enum is only for flags where the set of valid values is strictly closed. examples provides suggestions that help the user without restricting them.
 
 === COMMAND ASSEMBLY ORDER ===
 
@@ -93,6 +96,7 @@ Place positional arguments at the END of the arguments array, in the order they 
 === FINAL CHECKLIST ===
 
 Before returning, verify:
+- The top-level object includes the "elevated" field (null, "never", "optional", or "always")
 - Every argument object has ALL 15 fields (name, flag, short_flag, type, description, required, default, choices, group, depends_on, repeatable, separator, positional, validation, examples)
 - No field is missing or has an undefined value — use null, false, or "space" as appropriate
 - type is one of: boolean, string, text, integer, float, enum, multi_enum, file, directory

@@ -2,6 +2,7 @@
   "tool": "nmap",
   "binary": "nmap",
   "description": "Network exploration tool and security/port scanner.",
+  "elevated": "optional",
   "subcommands": null,
   "arguments": [
     {

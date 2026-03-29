@@ -2,6 +2,7 @@
   "tool": "git",
   "binary": "git",
   "description": "Distributed version control system.",
+  "elevated": null,
   "subcommands": [
     {
       "name": "clone",

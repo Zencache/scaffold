@@ -9,6 +9,7 @@ from pathlib import Path
 
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory"}
 VALID_SEPARATORS = {"space", "equals", "none"}
+VALID_ELEVATED = {"never", "optional", "always"}
 
 ARG_DEFAULTS = {
     "short_flag": None,
@@ -60,6 +61,13 @@ def validate_tool(data):
         _validate_args(data["arguments"], "top-level", errors)
         _check_duplicate_flags(data["arguments"], "top-level", errors)
         _check_groups(data["arguments"], "top-level", errors)
+
+    if data.get("elevated") is not None:
+        if data["elevated"] not in VALID_ELEVATED:
+            errors.append(
+                f"Invalid \"elevated\" value \"{data['elevated']}\" "
+                f"(must be one of: {', '.join(sorted(VALID_ELEVATED))}, or null)"
+            )
 
     if data.get("subcommands") is not None:
         if not isinstance(data["subcommands"], list):
@@ -148,6 +156,7 @@ def normalize_tool(data):
     """Fill in missing optional fields with safe defaults."""
     data.setdefault("subcommands", None)
     data.setdefault("description", "")
+    data.setdefault("elevated", None)
 
     def _normalize_args(args):
         for arg in args:
@@ -165,11 +174,84 @@ def normalize_tool(data):
 
 
 # ---------------------------------------------------------------------------
+# Elevation helpers
+# ---------------------------------------------------------------------------
+
+_elevation_tool = None  # cached result: str path or None
+_already_elevated = None  # cached result: bool
+
+
+def _check_already_elevated():
+    """Check if the app is already running with elevated privileges."""
+    global _already_elevated
+    if _already_elevated is not None:
+        return _already_elevated
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            _already_elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            _already_elevated = False
+    else:
+        import os
+        _already_elevated = os.geteuid() == 0
+    return _already_elevated
+
+
+def _find_elevation_tool():
+    """Find the platform-appropriate elevation tool. Cached after first call."""
+    global _elevation_tool
+    if _elevation_tool is not None:
+        return _elevation_tool
+    if sys.platform == "win32":
+        _elevation_tool = shutil.which("gsudo") or ""
+    else:
+        _elevation_tool = shutil.which("pkexec") or ""
+    return _elevation_tool
+
+
+def get_elevation_command(cmd_list):
+    """
+    Returns (elevated_cmd_list, error_message).
+    If elevation is available, returns the modified command and None.
+    If not available, returns the original command and an error message.
+    """
+    tool = _find_elevation_tool()
+    if tool:
+        return [tool] + cmd_list, None
+
+    if sys.platform == "win32":
+        return cmd_list, (
+            "Elevated execution requires gsudo.\n"
+            "Install it with: winget install gerardog.gsudo\n"
+            "Or relaunch Scaffold as Administrator (right-click > Run as administrator)."
+        )
+    elif sys.platform == "darwin":
+        return cmd_list, (
+            "Elevated execution requires pkexec.\n"
+            "Install it with: brew install polkit\n"
+            "Or run Scaffold itself with sudo."
+        )
+    else:
+        return cmd_list, (
+            "Elevated execution requires PolicyKit (pkexec).\n"
+            "Install it with your package manager, or run Scaffold itself with sudo."
+        )
+
+
+def _elevation_label():
+    """Return platform-appropriate label for the elevation checkbox."""
+    if sys.platform == "win32":
+        return "Run as Administrator"
+    return "Run with elevated privileges (sudo)"
+
+
+# ---------------------------------------------------------------------------
 # Phase 4 — GUI Renderer
 # ---------------------------------------------------------------------------
 
 from PySide6.QtCore import QProcess, QSettings, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QKeySequence, QPalette, QShortcut, QTextCharFormat
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QShortcut, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -182,6 +264,34 @@ from PySide6.QtWidgets import (
 
 _dark_mode = False
 _original_palette = None
+_arrow_dir = None
+
+
+def _make_arrow_icons():
+    """Generate small arrow PNGs for dark mode dropdown/spinbox controls."""
+    global _arrow_dir
+    if _arrow_dir is not None:
+        return _arrow_dir
+    import tempfile
+    _arrow_dir = tempfile.mkdtemp(prefix="scaffold_arrows_")
+    color = QColor(DARK_COLORS["text"])
+    for name, points in [
+        ("down", [(1, 2), (5, 6), (9, 2)]),
+        ("up", [(1, 6), (5, 2), (9, 6)]),
+    ]:
+        img = QImage(10, 8, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        from PySide6.QtGui import QPolygon
+        from PySide6.QtCore import QPoint
+        painter.drawPolygon(QPolygon([QPoint(*p) for p in points]))
+        painter.end()
+        img.save(f"{_arrow_dir}/{name}.png")
+    return _arrow_dir
+
 
 DARK_COLORS = {
     "window": "#1e1e2e",
@@ -245,7 +355,8 @@ def apply_theme(dark):
         palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(DARK_COLORS["disabled"]))
         palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["disabled"]))
         app.setPalette(palette)
-        C = DARK_COLORS
+        arrow_dir = _make_arrow_icons().replace("\\", "/")
+        C = {**DARK_COLORS, "arrow_dir": arrow_dir}
         app.setStyleSheet(
             # Menu bar and menus
             "QMenuBar { background-color: %(widget)s; color: %(text)s; }"
@@ -265,13 +376,20 @@ def apply_theme(dark):
             "QComboBox QAbstractItemView { background-color: %(widget)s;"
             "  color: %(text)s; selection-background-color: %(selection)s;"
             "  selection-color: %(text)s; border: 1px solid %(border)s; }"
-            "QComboBox::drop-down { border-left: 1px solid %(border)s; }"
+            "QComboBox::drop-down { border-left: 1px solid %(border)s;"
+            "  background-color: %(selection)s; }"
+            "QComboBox::down-arrow { image: url(%(arrow_dir)s/down.png);"
+            "  width: 10px; height: 8px; }"
             # Spinboxes
             "QSpinBox, QDoubleSpinBox { background-color: %(input)s;"
             "  color: %(text)s; border: 1px solid %(border)s; }"
             "QSpinBox::up-button, QSpinBox::down-button,"
             "  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
-            "  { background-color: %(widget)s; border: 1px solid %(border)s; }"
+            "  { background-color: %(selection)s; border: 1px solid %(border)s; }"
+            "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
+            "  { image: url(%(arrow_dir)s/up.png); width: 10px; height: 8px; }"
+            "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
+            "  { image: url(%(arrow_dir)s/down.png); width: 10px; height: 8px; }"
             # Line edits
             "QLineEdit { background-color: %(input)s; color: %(text)s;"
             "  border: 1px solid %(border)s; }"
@@ -367,6 +485,24 @@ class ToolForm(QWidget):
             desc = QLabel(self.data["description"])
             desc.setWordWrap(True)
             root.addWidget(desc)
+
+        # Elevation control
+        self.elevation_check = None
+        elevated = self.data.get("elevated")
+        if elevated in ("optional", "always") and not _check_already_elevated():
+            elev_row = QHBoxLayout()
+            self.elevation_check = QCheckBox(_elevation_label())
+            if elevated == "always":
+                self.elevation_check.setChecked(True)
+                note = QLabel("This tool requires elevated privileges to function.")
+            else:
+                note = QLabel("Some features of this tool may require elevated privileges.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: gray; font-style: italic;")
+            elev_row.addWidget(self.elevation_check)
+            elev_row.addWidget(note, 1)
+            root.addLayout(elev_row)
+            self.elevation_check.stateChanged.connect(lambda _: self.command_changed.emit())
 
         # Subcommand selector
         self.sub_combo = None
@@ -908,6 +1044,8 @@ class ToolForm(QWidget):
         """Serialize all current field values to a flat dict for preset storage."""
         preset = {}
         preset["_subcommand"] = self.get_current_subcommand()
+        if self.elevation_check is not None:
+            preset["_elevated"] = self.elevation_check.isChecked()
         extra_text = self.extra_flags_edit.toPlainText().strip()
         if self.extra_flags_group.isChecked() and extra_text:
             preset["_extra_flags"] = extra_text
@@ -934,6 +1072,10 @@ class ToolForm(QWidget):
             idx = self.sub_combo.findData(sub)
             if idx >= 0:
                 self.sub_combo.setCurrentIndex(idx)
+
+        # Elevation
+        if self.elevation_check is not None and "_elevated" in preset:
+            self.elevation_check.setChecked(bool(preset["_elevated"]))
 
         # Extra flags
         extra = preset.get("_extra_flags", "")
@@ -966,6 +1108,9 @@ class ToolForm(QWidget):
 
         self.extra_flags_group.setChecked(False)
         self.extra_flags_edit.clear()
+
+        if self.elevation_check is not None:
+            self.elevation_check.setChecked(self.data.get("elevated") == "always")
 
         for key, field in self.fields.items():
             arg = field["arg"]
@@ -1046,6 +1191,12 @@ class ToolForm(QWidget):
     # ------------------------------------------------------------------
     # Phase 5 — Command assembly
     # ------------------------------------------------------------------
+
+    def is_elevation_checked(self):
+        """Return True if the elevation checkbox exists and is checked."""
+        if self.elevation_check is not None:
+            return self.elevation_check.isChecked()
+        return _check_already_elevated() and self.data.get("elevated") in ("optional", "always")
 
     def build_command(self):
         """Build the CLI command. Returns (cmd_list, display_string)."""
@@ -1394,6 +1545,7 @@ class MainWindow(QMainWindow):
         self.tool_path = None
         self.process = None
         self._killed = False
+        self._elevated_run = False
         self.settings = QSettings("Scaffold", "Scaffold")
 
         # Restore geometry
@@ -1422,7 +1574,10 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.form_container)
 
         # Status bar
-        self.statusBar().showMessage("Ready")
+        if _check_already_elevated():
+            self.statusBar().showMessage("Ready — Running as administrator")
+        else:
+            self.statusBar().showMessage("Ready")
 
         self._build_menu()
         self._build_shortcuts()
@@ -1875,6 +2030,9 @@ class MainWindow(QMainWindow):
     def _update_preview(self):
         missing = self.form.validate_required()
         cmd, display = self.form.build_command()
+        if self.form.is_elevation_checked():
+            elev_cmd, _ = get_elevation_command(cmd)
+            display = _format_display(elev_cmd)
         self.preview.setPlainText(display)
         process_running = (
             self.process is not None
@@ -1895,7 +2053,10 @@ class MainWindow(QMainWindow):
             self.run_btn.setEnabled(True)
 
     def _copy_command(self):
-        _, display = self.form.build_command()
+        cmd, display = self.form.build_command()
+        if self.form.is_elevation_checked():
+            elev_cmd, _ = get_elevation_command(cmd)
+            display = _format_display(elev_cmd)
         QApplication.clipboard().setText(display)
         color = DARK_COLORS["success"] if _dark_mode else "green"
         self._show_status("Copied to clipboard.", color)
@@ -1924,6 +2085,17 @@ class MainWindow(QMainWindow):
         cmd, display = self.form.build_command()
         if len(cmd) < 1:
             return
+
+        # Handle elevation
+        self._elevated_run = False
+        if self.form.is_elevation_checked():
+            elev_cmd, error = get_elevation_command(cmd)
+            if error:
+                QMessageBox.warning(self, "Elevation Not Available", error)
+                return
+            cmd = elev_cmd
+            display = _format_display(cmd)
+            self._elevated_run = True
 
         program = cmd[0]
         arguments = cmd[1:]
@@ -1958,6 +2130,11 @@ class MainWindow(QMainWindow):
         if self._killed:
             self._append_output("\n--- Process stopped ---\n", "#e8a838")
             self.statusBar().showMessage("Process stopped")
+        elif self._elevated_run and exit_code in (126, 127):
+            self._append_output(
+                "\n--- Elevation was cancelled by the user. ---\n", "#e8a838"
+            )
+            self.statusBar().showMessage("Elevation cancelled")
         elif exit_code == 0:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", "#4ec94e")
             self.statusBar().showMessage("Process exited with code 0")
@@ -1974,6 +2151,9 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.FailedToStart: (
                 f"Error: '{self.data['binary']}' not found. "
                 "Is it installed and in your PATH?"
+                if not self._elevated_run else
+                f"Error: Failed to start elevated command. "
+                f"Check that '{self.data['binary']}' is installed and in your PATH."
             ),
             QProcess.ProcessError.Crashed: "Process crashed unexpectedly.",
             QProcess.ProcessError.Timedout: "Process timed out.",

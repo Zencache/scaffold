@@ -2,6 +2,24 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v1.3.0] — 2026-03-28
+
+### Added
+- **Elevated execution (sudo/admin) support** — run commands with elevated privileges from within Scaffold
+- New `elevated` schema field: `null`, `"never"`, `"optional"`, or `"always"`
+- Platform-specific elevation: `gsudo` on Windows, `pkexec` on Linux, `pkexec` on macOS
+- Elevation checkbox in tool form with contextual notes for optional vs always
+- "Running as administrator" status bar indicator when app is already elevated
+- Elevation state included in preset save/load
+- Graceful handling of missing elevation tools, cancelled password dialogs (exit 126/127), and binary-not-found errors
+- Custom arrow icons for dropdown and spinbox controls in dark mode
+- Updated `PROMPT.txt` with `elevated` field and decision rule
+- All example tool schemas updated with `elevated` field (nmap: optional, others: null)
+
+### Security
+- Full command injection audit passed — QProcess uses list-based execution, no shell invocation anywhere
+- Malicious schema values (defaults, flags, binary) treated as literal strings, never interpreted
+
 ## [v1.2.3] — 2026-03-28
 
 ### Improved
