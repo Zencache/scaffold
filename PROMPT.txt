@@ -69,7 +69,7 @@ Use ONLY these types. When unsure between file and string, use string.
 
 7. DEFAULTS: Only when docs explicitly state them. Use correct JSON type.
 
-8. COMPLETENESS: Include ALL documented flags. For tools with 100+ flags, focus on the 30-50 most common.
+8. COMPLETENESS: Include ALL documented flags, regardless of how many there are. If output is truncated, the user will re-prompt to continue.
 
 9. ACCURACY: Only include flags from the provided documentation. Do not invent flags.
 
@@ -189,7 +189,13 @@ Before returning, verify:
 5. Booleans have separator: "none"
 6. Positional args are LAST in the array with positional: true
 7. "flag" = long form, "short_flag" = short form — never reversed
-8. No duplicate entries for the same flag
+8. No duplicate flags within the same scope (top-level arguments or a single subcommand). The same flag MAY appear in multiple subcommands.
 9. Output is valid JSON — no trailing commas, no comments, no markdown
+
+=== COVERAGE SELF-CHECK ===
+
+After generating the JSON, count the number of arguments in your output. Compare this to the number of distinct flags in the documentation you were given. If your output covers fewer than 90% of the documented flags, you have likely truncated — go back and add the missing flags.
+
+Add a top-level field "_coverage" with value "full" if all flags are included, or "partial: [list of omitted flags]" if any were intentionally skipped (e.g., deprecated flags, platform-specific flags not relevant to the target OS).
 
 Now convert the following CLI documentation into JSON:

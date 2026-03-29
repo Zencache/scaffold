@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 import json
 import re
@@ -716,11 +716,24 @@ class ToolForm(QWidget):
             "Raw flags appended directly to the command. "
             "Use this for flags not covered by the form above."
         )
+        self.extra_flags_edit.textChanged.connect(self._validate_extra_flags)
         self.extra_flags_edit.textChanged.connect(lambda: self.command_changed.emit())
         layout.addWidget(self.extra_flags_edit)
         group.setLayout(layout)
         self.scroll_layout.addWidget(group)
         self.extra_flags_group = group
+
+    def _validate_extra_flags(self) -> None:
+        """Show a red border on the extra flags field if shlex parsing fails."""
+        text = self.extra_flags_edit.toPlainText().strip()
+        if not text:
+            self.extra_flags_edit.setStyleSheet("")
+            return
+        try:
+            shlex.split(text)
+            self.extra_flags_edit.setStyleSheet("")
+        except ValueError:
+            self.extra_flags_edit.setStyleSheet(_invalid_style())
 
     def _add_args(self, args: list, form_layout: QFormLayout, scope: str) -> None:
         """Create and register a widget row for each arg in args under the given scope."""
@@ -825,9 +838,9 @@ class ToolForm(QWidget):
             if arg["default"] is not None:
                 w.setValue(int(arg["default"]))
             else:
-                w.setValue(0)
+                w.setRange(-1, SPINBOX_RANGE)
+                w.setValue(-1)
                 w.setSpecialValueText(" ")
-                w.setRange(0, SPINBOX_RANGE)
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "float":
@@ -837,9 +850,9 @@ class ToolForm(QWidget):
             if arg["default"] is not None:
                 w.setValue(float(arg["default"]))
             else:
-                w.setValue(0.0)
+                w.setRange(-1.0, SPINBOX_RANGE)
+                w.setValue(-1.0)
                 w.setSpecialValueText(" ")
-                w.setRange(0.0, SPINBOX_RANGE)
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "enum":
@@ -1047,7 +1060,9 @@ class ToolForm(QWidget):
                 return bool(w.currentText().strip())
             return bool(w.currentData())
         if isinstance(w, (QSpinBox, QDoubleSpinBox)):
-            return w.value() != 0
+            if w.specialValueText() and w.value() == w.minimum():
+                return False
+            return True
         if isinstance(w, QListWidget):
             for i in range(w.count()):
                 if w.item(i).checkState() == Qt.CheckState.Checked:
@@ -1117,12 +1132,12 @@ class ToolForm(QWidget):
             return v if v else None
 
         elif t == "integer":
-            if arg["default"] is None and w.value() == 0:
+            if w.specialValueText() and w.value() == w.minimum():
                 return None
             return w.value()
 
         elif t == "float":
-            if arg["default"] is None and w.value() == 0.0:
+            if w.specialValueText() and w.value() == w.minimum():
                 return None
             return w.value()
 
@@ -1173,12 +1188,12 @@ class ToolForm(QWidget):
             return v if v else None
 
         elif t == "integer":
-            if arg["default"] is None and w.value() == 0:
+            if w.specialValueText() and w.value() == w.minimum():
                 return None
             return w.value()
 
         elif t == "float":
-            if arg["default"] is None and w.value() == 0.0:
+            if w.specialValueText() and w.value() == w.minimum():
                 return None
             return w.value()
 
@@ -1315,7 +1330,7 @@ class ToolForm(QWidget):
             elif arg["default"] is not None:
                 w.setValue(int(arg["default"]))
             else:
-                w.setValue(0)
+                w.setValue(w.minimum())
 
         elif t == "float":
             if value is not None:
@@ -1323,7 +1338,7 @@ class ToolForm(QWidget):
             elif arg["default"] is not None:
                 w.setValue(float(arg["default"]))
             else:
-                w.setValue(0.0)
+                w.setValue(w.minimum())
 
         elif t == "enum":
             if value is not None:

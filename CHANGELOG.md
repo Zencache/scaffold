@@ -2,6 +2,203 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.2.0] — 2026-03-29
+
+### Release
+
+Public release of Scaffold. All changes from v2.1.0 and v2.1.1 are included.
+
+### Changed
+- Version bump to 2.2.0
+- README disclaimer updated: assertion count corrected from 157 to 291
+
+### Tested
+- **Full pre-release audit passed** — all recent fixes verified (spinbox 0 vs unset, extra flags validation, coverage field, CLI entry points), visual/theme review, core pipeline, presets, final scan
+- **All 4 test suites pass: 291/291 assertions, 0 failures**
+  - Functional: 121/121
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new dependencies
+
+---
+
+## [v2.1.1] — 2026-03-29
+
+### External Code Review — MiniMax M2.7
+
+The full Scaffold codebase (scaffold.py, PROMPT.txt, README.md, all 9 tool schemas, and both test suites) was submitted to **MiniMax M2.7** for an independent code review. The model evaluated the project across six categories — bugs, code quality, prompt design, documentation, feature requests, and testing gaps — and produced 27 discrete findings.
+
+Each finding was triaged into one of four categories before implementation:
+- **FIX NOW** — real bug or issue that affects users
+- **FIX IF QUICK** — good improvement, worth doing if under ~10 lines changed
+- **LATER** — good idea but not a v2.1.1 concern
+- **SKIP** — over-engineering, already handled, or not applicable
+
+**Triage result:** 3 fixed (BUG 1, BUG 3, P1), 7 deferred, 14 skipped, 3 new test sections added.
+
+---
+
+### Fixed
+
+#### BUG 1 — Spinbox value 0 silently dropped from command (HIGH)
+
+Integer and float fields with no schema default used 0 as both the "empty/unset" sentinel and as a valid user value. This caused flags like `-m 0` (hashcat MD5 mode), `--max-retries 0`, or `--rate 0.0` to be silently omitted from the assembled command. The bug affected five code paths:
+
+- **`_build_widget`** — for integer/float fields without a default, the spinbox range now starts at -1 (integer) or -1.0 (float) instead of 0. The Qt `specialValueText(" ")` is set at this new minimum, making the spinbox appear blank when unset. Value 0 is now one step above the sentinel and is treated as a real user input.
+- **`_is_field_active`** — previously returned `w.value() != 0`, which broke dependency chains (a child field depending on a spinbox parent would stay disabled when the parent was set to 0). Now checks `w.specialValueText() and w.value() == w.minimum()` — only the sentinel state is inactive. Spinboxes with defaults (no special value text) are always considered active.
+- **`get_field_value`** — previously returned `None` when `arg["default"] is None and w.value() == 0`. Now returns `None` only when `w.specialValueText() and w.value() == w.minimum()`. This means 0 is included in the command, and the sentinel -1 is not.
+- **`_raw_field_value`** — same fix as `get_field_value` (this method is used for preset serialization and ignores the widget's enabled state).
+- **`_set_field_value`** — reset now sets the widget to `w.minimum()` (the sentinel) instead of hardcoded 0, so "Reset to Defaults" correctly returns the field to the unset state.
+
+Boundary behavior after the fix:
+| Widget state | `get_field_value` | In command? | Dependency children |
+|---|---|---|---|
+| Unset (sentinel, -1) | `None` | No | Disabled |
+| Set to 0 | `0` | Yes (`-m 0`) | Enabled |
+| Set to 5 | `5` | Yes (`-m 5`) | Enabled |
+| Has default, set to 0 | `0` | Yes | Enabled |
+| Has default, set to -5 | `-5` | Yes | Enabled |
+
+#### BUG 3 — No visual feedback on invalid Additional Flags input (MEDIUM)
+
+The Additional Flags free-text field uses `shlex.split()` to tokenize user input. When the input contains unclosed quotes (e.g., `--flag "unclosed`), `shlex.split()` raises `ValueError` and the code silently falls back to naive `text.split()`. The user had no indication that their input was malformed.
+
+Added `_validate_extra_flags()` method to `ToolForm`, connected to the `textChanged` signal of the extra flags editor. On every keystroke:
+- If the field is empty: clear any error styling
+- If `shlex.split()` succeeds: clear any error styling
+- If `shlex.split()` raises `ValueError`: apply a red border via `_invalid_style()`
+
+The border color is theme-aware — uses `#f38ba8` (Catppuccin error pink) in dark mode and `red` in light mode, matching the existing validation border style used by regex-validated string fields.
+
+The fallback to `text.split()` is preserved — the command still runs with naively-split tokens if the user clicks Run with invalid quotes. The red border serves as a warning, not a blocker.
+
+#### P1 — PROMPT.txt Rule 8 completeness directive (MEDIUM)
+
+Rule 8 originally read: *"Include ALL documented flags. For tools with 100+ flags, focus on the 30-50 most common."* This contradicted itself within one sentence and also conflicted with Rule 9 (*"Only include flags from the provided documentation. Do not invent flags."*).
+
+Updated Rule 8 to: *"Include ALL documented flags, regardless of how many there are. If output is truncated, the user will re-prompt to continue."*
+
+This aligns with the project's goal of complete CLI coverage — if an LLM truncates output mid-JSON on a very large tool, `scaffold.py --validate` catches the broken output and the user can ask the LLM to continue where it left off.
+
+#### PROMPT.txt Checklist item 8 — duplicate flag scoping (LOW)
+
+The no-duplicates checklist rule previously read: *"No duplicate entries for the same flag."* This was ambiguous — it could be read as a global constraint, causing LLMs to deduplicate flags like `--verbose` that legitimately appear in multiple subcommands. Updated to: *"No duplicate flags within the same scope (top-level arguments or a single subcommand). The same flag MAY appear in multiple subcommands."*
+
+This matches how Scaffold's `_check_duplicate_flags()` validator already works — it validates per-scope, not globally.
+
+#### PROMPT.txt Coverage self-check section (NEW)
+
+Added a new `=== COVERAGE SELF-CHECK ===` section after the checklist. Instructs the LLM to count arguments in its output, compare to the source documentation, and include a top-level `_coverage` field with value `"full"` or `"partial: [list of omitted flags]"`. This provides a machine-readable way to verify completeness and catches silent truncation.
+
+The `_coverage` field is silently accepted by `validate_tool()` — no code changes needed. Schemas without it (pre-update) continue to pass validation.
+
+---
+
+### Regenerated Schemas
+
+Three tool schemas were regenerated using the updated PROMPT.txt with full-coverage and self-check directives. The old schemas were generated under the previous Rule 8 which capped output at "30-50 most common" flags. The new schemas include all documented flags.
+
+| Schema | Before | After | `_coverage` |
+|--------|--------|-------|-------------|
+| **nmap.json** | 34 args | 111 args | `full` |
+| **curl.json** | 50 args | 271 args | `partial` (3 meta flags skipped: --help, --manual, --version) |
+| **hashcat.json** | 46 args | 136 args | `full` |
+
+Schemas not regenerated (already comprehensive): gobuster (103 args), ffmpegv2 (123 args), openclaw (213 args), nikto (48 args), ping (19 args), git (76 args across 4 subcommands — regeneration deferred to a future release that adds more subcommands).
+
+All 9 schemas pass `scaffold.py --validate` with zero errors.
+
+---
+
+### Tested
+
+Four test suites now cover the codebase. **Total: 291 assertions, 0 failures.**
+
+#### Functional test suite — 121/121 pass (+16 new vs v2.1.0)
+
+New Section 12 — **Spinbox Value 0 (BUG 1 regression)**:
+- Integer with no default: initially returns `None`, not in command
+- Integer with no default set to 0: returns `0`, flag appears as `-m 0` in command
+- Integer with no default set to 5: returns `5`
+- Float with no default: initially returns `None`
+- Float with no default set to 0.0: returns `0.0`, flag appears in command
+- Integer with default set to 0: returns `0` (no sentinel interference)
+- `_is_field_active` returns `False` at sentinel, `True` at 0
+
+New Section 13 — **Extra Flags Validation (BUG 3 regression)**:
+- Valid input: no error border
+- Unclosed quote: red error border appears
+- Cleared field: error border removed
+
+Note: functional test count increased from 118 to 121 because the regenerated nmap schema (111 args) adds additional tool picker rows, each of which is individually asserted.
+
+#### Examples feature test suite — 52/52 pass (unchanged)
+
+No changes to the examples feature. All existing tests continue to pass — schema normalization, validation rules, editable dropdowns, command assembly, preset round-trips, dependency interaction with examples fields, and validation on examples fields.
+
+#### Manual verification test suite — 61/61 pass (NEW)
+
+`test_manual_verification.py` — exercises edge cases that functional tests don't cover: visual behavior, command execution pipeline, preset persistence across sessions, elevation wrapping, dark mode styling, and boundary conditions.
+
+**Test A — Spinbox Value 0 (10 test groups, 38 assertions):**
+- A1: Zero appears in command preview (`-m 0` visible in preview text)
+- A2: Zero and unset produce genuinely different commands (CRITICAL — the two states must never collapse into the same output)
+- A3: Zero survives full preset round-trip: set to 0 -> serialize -> reset to defaults (confirms unset) -> load preset (confirms 0 restored) -> close app -> reopen -> load preset from disk (confirms 0 persists across sessions)
+- A4: Zero persists through elevation wrapping (`gsudo echo -m 0` or `pkexec echo -m 0`)
+- A5: Float 0.0 — same unset/zero distinction as integer, `--rate 0.0` in command and preview
+- A6: Sentinel boundary — confirms -1 is unset, 0 is valid, integers with defaults have no sentinel (full range including negatives), dependency children enable at 0 and disable at sentinel
+
+**Test B — Extra Flags Validation (8 test groups, 23 assertions):**
+- B1: Valid input baseline — no border, flags in command and preview
+- B2: Unclosed single quote — red border appears, closing quote clears it, flags parse correctly after fix
+- B3: Unclosed double quote — same behavior as B2
+- B4: Run with unclosed quote — command builds without crash, fallback split produces tokens, red border stays visible
+- B5: Red border clears when field is emptied
+- B6: Red border clears immediately when input becomes valid (closing a quote)
+- B7: Dark mode — error border uses theme color `#f38ba8`, not hardcoded `red`; clears correctly in dark mode
+- B8: Corrupted preset (manually edited `_extra_flags` with unclosed quote) — loads without crash, red border fires, rest of preset applies normally
+
+#### Smoke test suite — 57/57 pass (NEW)
+
+`test_smoke.py` — pre-deploy sanity check covering the full user workflow:
+- Section 1 — Launch and load: tool picker renders all 9 tools, form loads with all fields, light/dark mode toggle, widget styling in both themes
+- Section 2 — Form and preview: checkbox, dropdown, text input, positional field all respond to input; live preview updates; copy command works
+- Section 3 — Run a command: process starts, output streams, command echo visible, exit code colored, run button state transitions
+- Section 4 — Preset round-trip: save -> reset (fields clear) -> load (fields restore) -> command preview matches
+- Section 5 — Window behavior: small/large resize, geometry persists across sessions, theme preference persists
+
+---
+
+### Deferred (LATER)
+
+Items from the MiniMax M2.7 review that are valid improvements but not v2.1.1 scope:
+
+- **BUG 5 — Tool picker search/filter** — with many tools, the table is hard to navigate. Add a QLineEdit filter bar. Good for v2.2.
+- **R2 — README troubleshooting section** — consolidate scattered platform notes (PySide6 install, xcb-cursor0, validation errors) into one section.
+- **P3 — Stdin/stdout sentinel guidance in PROMPT.txt** — tools like `ffmpeg -o -` use `-` as a special value. Niche but worth a one-line note.
+- **T2 — Exhaustive preset round-trip tests** — current preset tests don't cover every widget type. Medium effort.
+- **F1-F5 — Feature requests** — environment variable expansion, command history, dry-run mode, schema wizard, keyboard navigation in tool picker. All good ideas, all out of scope for a bugfix release.
+
+### Skipped
+
+Items from the MiniMax M2.7 review that were evaluated and intentionally not implemented:
+
+- **BUG 2** (repeat count on unchecked boolean) — design decision: unchecked = inactive = not saved. The repeat count is a sub-property of an inactive flag.
+- **BUG 4** (tool picker re-scans on back navigation) — scan performance was verified in v1.4.0 Part 3 review with 20+ schemas. Not worth caching complexity.
+- **BUG 6** (Qt < 6.8 scrollbar degradation) — already handled with `try/except AttributeError` and documented in code comments and changelog.
+- **CQ 1** (DARK_COLORS as dataclass) — works fine as a dict. No typo-related bugs have occurred.
+- **CQ 2** (_apply_widget_theme hasattr checks) — works, not buggy, refactoring would add complexity for no functional gain.
+- **CQ 3** (extract sub-methods from long methods) — constraint: don't refactor working code just to make it "cleaner."
+- **CQ 4** (__slots__ on widget subclasses) — negligible memory impact for a desktop app with a handful of widget instances.
+- **CQ 5** (normalize isinstance checks) — cosmetic inconsistency, no behavioral impact.
+- **P2** (flag alias guidance) — already covered by Rule 10 ("Short + long forms = ONE entry") and the argument object spec ("Use the LONG form when available").
+- **P4** (elevated field description too brief) — the field spec already has concrete descriptions; Rule 6 adds examples (`nmap SYN scan`, `iptables`).
+- **P5** (version-gated flags) — already covered by Rule 11 ("If docs mention version requirements, note them").
+- **R1** (disclaimer mentions OpenClaw by name) — OpenClaw is a shipped example schema, not a third-party reference. The concrete example is more useful than a generic statement.
+- **R3** (no comparison with similar tools) — marketing concern, not a code issue.
+- **R4** (screenshots load slowly from GitHub) — cosmetic concern about image hosting.
+
 ## [v2.1.0] — 2026-03-29
 
 ### Added
