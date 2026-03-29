@@ -2,7 +2,7 @@
 
 **Turn any command-line tool into a native desktop GUI — instantly.**
 
-Scaffold dynamically generates interactive GUI forms from simple JSON schema files that describe a CLI tool's arguments. No custom UI code needed. Just describe the tool, and Scaffold builds the form, assembles the command, and runs it.
+Scaffold dynamically generates interactive GUI forms from simple JSON schema files that describe a CLI tool's arguments. No custom UI code needed. Scaffold builds the form based on a json schema file, assembles the command, and runs it.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
