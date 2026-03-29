@@ -9,7 +9,10 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Single File](https://img.shields.io/badge/single%20file-2%2C634%20lines-orange)
 
-![Scaffold — nmap example](nmap%20example.png)
+<p>
+  <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
+  <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
+</p>
 
 > **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (156 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
