@@ -7,14 +7,14 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-2%2C634%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-2%2C646%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (156 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project. It was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) by a non-developer as a learning experiment. While it has an automated test suite (157 passing assertions), it has not been extensively tested in production environments. **Scaffold may not work with all CLI programs** — tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window when generating JSON schemas, resulting in incomplete or inaccurate output. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
 ---
 
@@ -377,7 +377,7 @@ python scaffold.py --prompt
 
 ## About This Project
 
-Scaffold was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) as a hobby project and learning experiment. The author is not a professional software developer. While the project includes an automated test suite with 156 passing assertions across 2 test suites, it should be considered early-stage software.
+Scaffold was built entirely with [Claude Code](https://claude.ai) (Opus 4.6) as a hobby project and learning experiment. The author is not a professional software developer. While the project includes an automated test suite with 157 passing assertions across 2 test suites, it should be considered early-stage software.
 
 If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 

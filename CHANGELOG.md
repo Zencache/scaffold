@@ -2,6 +2,26 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.1.0] — 2026-03-29
+
+### Added
+- **OpenClaw tool schema** (`tools/openclaw.json`) — AI agent platform with 10+ subcommands including gateway, channels, models, browser automation, and node management
+- **Gateway `--restart` flag** — added missing `--restart` boolean to the openclaw gateway subcommand
+- **Linux install troubleshooting** — README note covering `--break-system-packages` workaround and `libxcb-cursor0` dependency for Ubuntu/Debian users
+- **Crypto donation addresses** — updated Support section with BTC, LTC, ETH, BCH, and SOL addresses
+
+### Fixed
+- **Dark mode scrollbars now match light mode exactly** — replaced custom QSS scrollbar styling with `QStyleHints.setColorScheme(Qt.ColorScheme.Dark)`, which tells the Windows platform plugin to render scrollbars using the native dark-mode renderer. This preserves all native behavior — smooth animations, expand-on-hover, arrow buttons appearing — with dark colors, because the exact same native renderer draws both modes. Previous QSS and QProxyStyle approaches could not replicate native behavior because QSS bypasses the native renderer entirely and the Windows theme API ignores QPalette for scrollbar painting. Gracefully falls back on Qt < 6.8.
+
+### Improved
+- **Side-by-side screenshots** in README — nmap and hashcat examples displayed at 48% width
+- **README updates** — line-count badge updated to 2,646; assertion count updated to 157; openclaw added to example schemas table
+
+### Tested
+- **Functional test suite**: 105/105 assertions pass
+- **Examples feature test suite**: 52/52 assertions pass
+- **Scrollbar visual parity**: dark mode scrollbars confirmed identical to light mode (size, animation, hover expansion, arrow buttons) on Windows 11 with PySide6 6.11.0
+
 ## [v2.0.1] — 2026-03-29
 
 ### Fixed

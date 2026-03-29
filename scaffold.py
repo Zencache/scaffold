@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 import json
 import re
@@ -403,6 +403,16 @@ def apply_theme(dark: bool) -> None:
     if _original_palette is None:
         _original_palette = QPalette(app.palette())
     if dark:
+        # Tell the platform to use its native dark mode for controls that
+        # are not overridden by QSS (notably scrollbars).  This preserves
+        # all native behavior — smooth animations, hover expansion, arrow
+        # buttons — with dark colors, because the same native renderer
+        # draws them.  Requires Qt 6.8+ (PySide6 6.8+); gracefully ignored
+        # on older versions where scrollbars will fall back to palette hints.
+        try:
+            app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
+        except AttributeError:
+            pass  # Qt < 6.8 — native dark scrollbars not available
         palette = QPalette()
         palette.setColor(QPalette.ColorRole.Window, QColor(DARK_COLORS["window"]))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(DARK_COLORS["text"]))
@@ -475,13 +485,10 @@ def apply_theme(dark: bool) -> None:
             f"  color: {C['text']}; }}"
             f"QHeaderView::section {{ background-color: {C['widget']};"
             f"  color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}"
-            # Scrollbars
-            f"QScrollBar:horizontal, QScrollBar:vertical"
-            f"  {{ background-color: {C['window']}; }}"
-            f"QScrollBar::handle:horizontal, QScrollBar::handle:vertical"
-            f"  {{ background-color: {C['border']}; border-radius: 3px; }}"
-            f"QScrollBar::handle:horizontal:hover, QScrollBar::handle:vertical:hover"
-            f"  {{ background-color: {C['disabled']}; }}"
+            # NOTE: Scrollbars are NOT styled via QSS — doing so replaces the
+            # native renderer and loses smooth animations, hover expansion, and
+            # arrow buttons.  Instead, setColorScheme(Dark) tells the platform
+            # to render native controls (including scrollbars) in dark mode.
             # Buttons
             f"QPushButton {{ background-color: {C['widget']}; color: {C['text']};"
             f"  border: 1px solid {C['border']}; padding: 4px 12px; }}"
@@ -497,6 +504,11 @@ def apply_theme(dark: bool) -> None:
             f"QStatusBar {{ color: {C['text']}; }}"
         )
     else:
+        # Restore native light color scheme for platform controls.
+        try:
+            app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+        except AttributeError:
+            pass
         app.setPalette(_original_palette)
         app.setStyleSheet("")
 
