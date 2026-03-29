@@ -2,6 +2,50 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v1.4.0] — 2026-03-28
+
+### Improved
+- **Code review — Part 5: Final cleanup**
+  - Added `--help` / `-h` flag with usage summary listing all available CLI modes
+  - Expanded module-level docstring with usage examples and dependency note
+  - Linted with `ruff check` — all checks pass (E402 suppressed for intentional deferred PySide6 imports, E741 fixed by renaming `l` → `le` in browse lambdas)
+  - Updated README line-count badge to 2,441
+  - Verified internal structure follows: constants → helpers → data layer → widget classes → main window → entry point
+- **Code review — Part 4: Functional test**
+  - Fixed `UnicodeEncodeError` in `--prompt` on Windows terminals using cp1252 (PROMPT.txt contains U+2192 arrow character)
+  - Added comprehensive automated functional test suite (`test_functional.py`, 101 assertions) covering: launch/navigation, all 9 widget types, tooltips, required fields, defaults, mutual exclusivity, dependencies, extra flags, command preview, process execution, stop, dark mode, presets, session persistence, subcommands, editable dropdowns, file/directory widgets, output batching, and file size guard
+- **Code review — Part 3: Performance**
+  - Output panel now buffers `readyRead` data and flushes every 100ms via `QTimer`, preventing UI stalls on high-volume output
+  - Output panel capped at 10,000 lines (`setMaximumBlockCount`) — older lines are automatically discarded to bound memory usage
+  - Tool schema loader rejects files over 1 MB with a clear error, preventing accidental hangs from oversized or malicious JSON files
+  - Verified: signal connections are not duplicated on subcommand switch (visibility toggle, not rebuild)
+  - Verified: live preview has no signal loops (`build_command` does not emit signals)
+  - Verified: `ToolForm` cleanup via `deleteLater()` on tool switch — no memory leaks
+  - Verified: `shutil.which()` per-tool during picker scan is fast with 20+ schemas
+- **Code review — Part 1: Cleanup and consistency**
+  - Organized imports: moved `tempfile` to stdlib section, consolidated PySide6 imports (`QPoint`, `QPolygon`) at top level
+  - Extracted magic numbers into named constants: `SPINBOX_RANGE`, `REPEAT_SPIN_MAX`, `REPEAT_SPIN_WIDTH`, `TEXT_WIDGET_HEIGHT`, `MULTI_ENUM_HEIGHT`, `DEFAULT_WINDOW_WIDTH`, `DEFAULT_WINDOW_HEIGHT`
+  - Extracted theme-independent output/status colors into named constants: `COLOR_OK`, `COLOR_ERR`, `COLOR_WARN`, `COLOR_CMD`, `COLOR_DIM`, `OUTPUT_BG`, `OUTPUT_FG`, `LIGHT_WARNING_BG`, `LIGHT_WARNING_FG`, `LIGHT_WARNING_BORDER`
+  - Converted `apply_theme` QSS stylesheet from `%` dict formatting to f-strings
+  - Renamed signal handlers for clarity: `_read_stdout` → `_on_stdout_ready`, `_read_stderr` → `_on_stderr_ready`
+  - Removed misleading phase-number comments from section banners
+  - Simplified `reset_to_defaults` by collapsing redundant `elif`/`else` branches
+  - Simplified `_is_field_active` with tuple-form `isinstance`
+  - Simplified `_on_run_stop` empty-list check to idiomatic `if not cmd:`
+  - Removed unused local variable in `_apply_widget_theme`
+  - Removed trivial inline comments in `_build_shortcuts`
+  - Removed stale comment referencing removed `radio` field type
+  - Added docstrings to `MainWindow`, `ToolForm`, `ToolPicker`, and 40+ methods
+  - Added Python 3.10+ type hints (`str | None` style) to all key function signatures
+- **Code review — Part 2: Error handling audit**
+  - `load_tool`: added separate `PermissionError` handler before generic `OSError`
+  - `_on_save_preset`: wrapped `write_text()` in try/except `OSError` with user-facing error dialog
+  - `_on_delete_preset`: wrapped `unlink()` in try/except `OSError` with user-facing error dialog
+  - `_tools_dir` / `_presets_dir`: added guard against file-at-directory-path before `mkdir()`
+  - `print_prompt`: wrapped `read_text()` in try/except `OSError` with stderr fallback
+  - Audited all QProcess error paths — confirmed Run button and command preview reset correctly in all cases
+  - Audited all empty-state edge cases — confirmed all already handled
+
 ## [v1.3.1] — 2026-03-28
 
 ### Improved

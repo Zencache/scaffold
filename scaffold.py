@@ -1,10 +1,26 @@
-"""Scaffold — CLI-to-GUI Translation Layer."""
+"""Scaffold — CLI-to-GUI Translation Layer.
+
+Turn any command-line tool into a native desktop GUI. Scaffold reads a JSON
+schema describing a CLI tool's arguments and dynamically generates an
+interactive form with live command preview, process execution, presets, and
+dark mode support.
+
+Usage:
+    python scaffold.py                        Launch the tool picker GUI
+    python scaffold.py tools/nmap.json        Open a specific tool directly
+    python scaffold.py --validate FILE        Validate a schema (no GUI)
+    python scaffold.py --prompt               Print the LLM schema-generation prompt
+    python scaffold.py --help                 Show this help and exit
+
+Requires: PySide6 (pip install PySide6) — no other dependencies.
+"""
 
 import json
 import re
 import shlex
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory"}
@@ -26,18 +42,46 @@ ARG_DEFAULTS = {
     "examples": None,
 }
 
+# Widget size constants
+SPINBOX_RANGE = 999999
+REPEAT_SPIN_MAX = 10
+REPEAT_SPIN_WIDTH = 60
+TEXT_WIDGET_HEIGHT = 80
+MULTI_ENUM_HEIGHT = 120
+
+# Default window dimensions
+DEFAULT_WINDOW_WIDTH = 700
+DEFAULT_WINDOW_HEIGHT = 750
+
+# Output panel limits
+OUTPUT_MAX_BLOCKS = 10000       # Max lines kept in the output panel
+OUTPUT_FLUSH_MS = 100           # Milliseconds between output buffer flushes
+
+# Tool schema file size limit (bytes)
+MAX_SCHEMA_SIZE = 1_000_000     # 1 MB — skip files larger than this
+
 
 # ---------------------------------------------------------------------------
-# Phase 3 — JSON loader, validator, normalizer
+# JSON loader, validator, normalizer
 # ---------------------------------------------------------------------------
 
-def load_tool(path):
+def load_tool(path: str | Path) -> dict:
     """Read and parse a JSON tool file. Raises RuntimeError on failure."""
     p = Path(path)
     if not p.exists():
         raise RuntimeError(f"File not found: {p}")
     try:
+        size = p.stat().st_size
+    except OSError:
+        size = 0
+    if size > MAX_SCHEMA_SIZE:
+        raise RuntimeError(
+            f"Schema file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}): {p.name}"
+        )
+    try:
         text = p.read_text(encoding="utf-8")
+    except PermissionError:
+        raise RuntimeError(f"Permission denied: {p}")
     except OSError as e:
         raise RuntimeError(f"Cannot read file: {p} — {e}")
     try:
@@ -46,7 +90,7 @@ def load_tool(path):
         raise RuntimeError(f"Invalid JSON in {p} — {e}")
 
 
-def validate_tool(data):
+def validate_tool(data: dict) -> list[str]:
     """Validate a tool dict against the schema. Returns a list of error strings."""
     errors = []
 
@@ -94,7 +138,7 @@ def validate_tool(data):
     return errors
 
 
-def _validate_args(args, scope, errors):
+def _validate_args(args: list, scope: str, errors: list) -> None:
     for i, arg in enumerate(args):
         if not isinstance(arg, dict):
             errors.append(f"{scope} argument[{i}]: must be an object")
@@ -125,7 +169,7 @@ def _validate_args(args, scope, errors):
                 errors.append(f"{prefix}: has both \"choices\" and \"examples\" set. For enum types, \"choices\" is used and \"examples\" is ignored")
 
 
-def _check_duplicate_flags(args, scope, errors):
+def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
     seen = {}
     for arg in args:
         if not isinstance(arg, dict):
@@ -139,7 +183,7 @@ def _check_duplicate_flags(args, scope, errors):
             seen[flag] = arg.get("name", "?")
 
 
-def _check_groups(args, scope, errors):
+def _check_groups(args: list, scope: str, errors: list) -> None:
     groups = {}
     for arg in args:
         if not isinstance(arg, dict):
@@ -152,7 +196,7 @@ def _check_groups(args, scope, errors):
             errors.append(f"{scope}: group \"{g}\" has only 1 member (\"{members[0]}\") — mutual exclusivity requires at least 2")
 
 
-def normalize_tool(data):
+def normalize_tool(data: dict) -> dict:
     """Fill in missing optional fields with safe defaults."""
     data.setdefault("subcommands", None)
     data.setdefault("description", "")
@@ -210,7 +254,7 @@ def _find_elevation_tool():
     return _elevation_tool
 
 
-def get_elevation_command(cmd_list):
+def get_elevation_command(cmd_list: list[str]) -> tuple[list[str], str | None]:
     """
     Returns (elevated_cmd_list, error_message).
     If elevation is available, returns the modified command and None.
@@ -247,12 +291,12 @@ def _elevation_label():
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — GUI Renderer
+# GUI renderer
 # ---------------------------------------------------------------------------
 
-from PySide6.QtCore import QProcess, QSettings, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QShortcut, QTextCharFormat
-from PySide6.QtWidgets import (
+from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPolygon, QShortcut, QTextCharFormat  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
@@ -272,7 +316,6 @@ def _make_arrow_icons():
     global _arrow_dir
     if _arrow_dir is not None:
         return _arrow_dir
-    import tempfile
     _arrow_dir = tempfile.mkdtemp(prefix="scaffold_arrows_")
     color = QColor(DARK_COLORS["text"])
     for name, points in [
@@ -285,8 +328,6 @@ def _make_arrow_icons():
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
-        from PySide6.QtGui import QPolygon
-        from PySide6.QtCore import QPoint
         painter.drawPolygon(QPolygon([QPoint(*p) for p in points]))
         painter.end()
         img.save(f"{_arrow_dir}/{name}.png")
@@ -316,7 +357,23 @@ DARK_COLORS = {
 }
 
 
-def _detect_system_dark():
+# Status/output colors — theme-independent (output panel is always dark)
+COLOR_OK = "#4ec94e"       # success green
+COLOR_ERR = "#e05555"      # error red
+COLOR_WARN = "#e8a838"     # warning amber (stderr, stopped, cancelled)
+COLOR_CMD = "#569cd6"      # command echo blue
+COLOR_DIM = "#888888"      # dimmed text (unavailable tools in picker)
+OUTPUT_BG = "#1e1e1e"      # output panel background
+OUTPUT_FG = "#d4d4d4"      # output panel default foreground
+
+# Light-mode warning bar colors
+LIGHT_WARNING_BG = "#fff3cd"
+LIGHT_WARNING_FG = "#856404"
+LIGHT_WARNING_BORDER = "#ffc107"
+
+
+def _detect_system_dark() -> bool:
+    """Return True if the OS is currently using a dark color scheme."""
     try:
         scheme = QApplication.styleHints().colorScheme()
         return scheme == Qt.ColorScheme.Dark
@@ -330,7 +387,8 @@ def _detect_system_dark():
     return False
 
 
-def apply_theme(dark):
+def apply_theme(dark: bool) -> None:
+    """Apply or remove the dark palette and stylesheet application-wide."""
     global _dark_mode, _original_palette
     _dark_mode = dark
     app = QApplication.instance()
@@ -359,89 +417,90 @@ def apply_theme(dark):
         C = {**DARK_COLORS, "arrow_dir": arrow_dir}
         app.setStyleSheet(
             # Menu bar and menus
-            "QMenuBar { background-color: %(widget)s; color: %(text)s; }"
-            "QMenuBar::item:selected { background-color: %(selection)s; }"
-            "QMenu { background-color: %(widget)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; }"
-            "QMenu::item:selected { background-color: %(selection)s; }"
+            f"QMenuBar {{ background-color: {C['widget']}; color: {C['text']}; }}"
+            f"QMenuBar::item:selected {{ background-color: {C['selection']}; }}"
+            f"QMenu {{ background-color: {C['widget']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; }}"
+            f"QMenu::item:selected {{ background-color: {C['selection']}; }}"
             # Checkboxes
-            "QCheckBox { color: %(text)s; }"
-            "QCheckBox::indicator { background-color: %(selection)s;"
-            "  border: 1px solid %(border)s; }"
-            "QCheckBox::indicator:checked { background-color: %(accent)s;"
-            "  border: 1px solid %(accent)s; }"
+            f"QCheckBox {{ color: {C['text']}; }}"
+            f"QCheckBox::indicator {{ background-color: {C['selection']};"
+            f"  border: 1px solid {C['border']}; }}"
+            f"QCheckBox::indicator:checked {{ background-color: {C['accent']};"
+            f"  border: 1px solid {C['accent']}; }}"
             # Comboboxes (dropdowns)
-            "QComboBox { background-color: %(input)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; padding: 2px 4px; }"
-            "QComboBox QAbstractItemView { background-color: %(widget)s;"
-            "  color: %(text)s; selection-background-color: %(selection)s;"
-            "  selection-color: %(text)s; border: 1px solid %(border)s; }"
-            "QComboBox::drop-down { border-left: 1px solid %(border)s;"
-            "  background-color: %(selection)s; }"
-            "QComboBox::down-arrow { image: url(%(arrow_dir)s/down.png);"
-            "  width: 10px; height: 8px; }"
+            f"QComboBox {{ background-color: {C['input']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; padding: 2px 4px; }}"
+            f"QComboBox QAbstractItemView {{ background-color: {C['widget']};"
+            f"  color: {C['text']}; selection-background-color: {C['selection']};"
+            f"  selection-color: {C['text']}; border: 1px solid {C['border']}; }}"
+            f"QComboBox::drop-down {{ border-left: 1px solid {C['border']};"
+            f"  background-color: {C['selection']}; }}"
+            f"QComboBox::down-arrow {{ image: url({C['arrow_dir']}/down.png);"
+            f"  width: 10px; height: 8px; }}"
             # Spinboxes
-            "QSpinBox, QDoubleSpinBox { background-color: %(input)s;"
-            "  color: %(text)s; border: 1px solid %(border)s; }"
-            "QSpinBox::up-button, QSpinBox::down-button,"
-            "  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
-            "  { background-color: %(selection)s; border: 1px solid %(border)s; }"
-            "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
-            "  { image: url(%(arrow_dir)s/up.png); width: 10px; height: 8px; }"
-            "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
-            "  { image: url(%(arrow_dir)s/down.png); width: 10px; height: 8px; }"
+            f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']};"
+            f"  color: {C['text']}; border: 1px solid {C['border']}; }}"
+            f"QSpinBox::up-button, QSpinBox::down-button,"
+            f"  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
+            f"  {{ background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
+            f"QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
+            f"  {{ image: url({C['arrow_dir']}/up.png); width: 10px; height: 8px; }}"
+            f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
+            f"  {{ image: url({C['arrow_dir']}/down.png); width: 10px; height: 8px; }}"
             # Line edits
-            "QLineEdit { background-color: %(input)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; }"
+            f"QLineEdit {{ background-color: {C['input']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; }}"
             # List widgets (multi_enum)
-            "QListWidget { background-color: %(input)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; }"
-            "QListWidget::item:selected { background-color: %(selection)s;"
-            "  color: %(text)s; }"
+            f"QListWidget {{ background-color: {C['input']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; }}"
+            f"QListWidget::item:selected {{ background-color: {C['selection']};"
+            f"  color: {C['text']}; }}"
             # Group boxes
-            "QGroupBox { color: %(text)s; border: 1px solid %(border)s;"
-            "  margin-top: 6px; padding-top: 6px; }"
-            "QGroupBox::title { color: %(text)s; }"
+            f"QGroupBox {{ color: {C['text']}; border: 1px solid {C['border']};"
+            f"  margin-top: 6px; padding-top: 6px; }}"
+            f"QGroupBox::title {{ color: {C['text']}; }}"
             # Table (tool picker)
-            "QTableWidget { background-color: %(input)s; color: %(text)s;"
-            "  gridline-color: %(border)s; }"
-            "QTableWidget::item:selected { background-color: %(selection)s;"
-            "  color: %(text)s; }"
-            "QHeaderView::section { background-color: %(widget)s;"
-            "  color: %(text)s; border: 1px solid %(border)s; padding: 4px; }"
+            f"QTableWidget {{ background-color: {C['input']}; color: {C['text']};"
+            f"  gridline-color: {C['border']}; }}"
+            f"QTableWidget::item:selected {{ background-color: {C['selection']};"
+            f"  color: {C['text']}; }}"
+            f"QHeaderView::section {{ background-color: {C['widget']};"
+            f"  color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}"
             # Scrollbars
-            "QScrollBar:horizontal, QScrollBar:vertical"
-            "  { background-color: %(window)s; }"
-            "QScrollBar::handle:horizontal, QScrollBar::handle:vertical"
-            "  { background-color: %(border)s; border-radius: 3px; }"
-            "QScrollBar::handle:horizontal:hover, QScrollBar::handle:vertical:hover"
-            "  { background-color: %(disabled)s; }"
+            f"QScrollBar:horizontal, QScrollBar:vertical"
+            f"  {{ background-color: {C['window']}; }}"
+            f"QScrollBar::handle:horizontal, QScrollBar::handle:vertical"
+            f"  {{ background-color: {C['border']}; border-radius: 3px; }}"
+            f"QScrollBar::handle:horizontal:hover, QScrollBar::handle:vertical:hover"
+            f"  {{ background-color: {C['disabled']}; }}"
             # Buttons
-            "QPushButton { background-color: %(widget)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; padding: 4px 12px; }"
-            "QPushButton:hover { background-color: %(selection)s; }"
-            "QPushButton:pressed { background-color: %(input)s; }"
+            f"QPushButton {{ background-color: {C['widget']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; padding: 4px 12px; }}"
+            f"QPushButton:hover {{ background-color: {C['selection']}; }}"
+            f"QPushButton:pressed {{ background-color: {C['input']}; }}"
             # Plain text edits (extra flags, text-type fields)
-            "QPlainTextEdit { background-color: %(input)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; }"
+            f"QPlainTextEdit {{ background-color: {C['input']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; }}"
             # Tooltips
-            "QToolTip { background-color: %(widget)s; color: %(text)s;"
-            "  border: 1px solid %(border)s; }"
+            f"QToolTip {{ background-color: {C['widget']}; color: {C['text']};"
+            f"  border: 1px solid {C['border']}; }}"
             # Status bar
-            "QStatusBar { color: %(text)s; }"
-            % C
+            f"QStatusBar {{ color: {C['text']}; }}"
         )
     else:
         app.setPalette(_original_palette)
         app.setStyleSheet("")
 
 
-def _invalid_style():
-    return "border: 1px solid #f38ba8;" if _dark_mode else "border: 1px solid red;"
+def _invalid_style() -> str:
+    """Return a QSS border style string for invalid/failed-validation fields."""
+    c = DARK_COLORS["required"]
+    return f"border: 1px solid {c};" if _dark_mode else "border: 1px solid red;"
 
 
-def _required_color():
-    return "#f38ba8" if _dark_mode else "red"
+def _required_color() -> str:
+    return DARK_COLORS["required"] if _dark_mode else "red"
 
 
 class ToolForm(QWidget):
@@ -455,7 +514,7 @@ class ToolForm(QWidget):
     def __init__(self, data, parent=None):
         super().__init__(parent)
         self.data = data
-        # (scope, flag) -> {arg, widget, label, radio, repeat_spin}
+        # (scope, flag) -> {arg, widget, label, repeat_spin}
         self.fields = {}
         # (scope, group_name) -> list of (scope, flag) keys
         self.groups = {}
@@ -466,14 +525,16 @@ class ToolForm(QWidget):
         self._apply_groups()
         self._apply_dependencies()
 
-    def _field_key(self, scope, flag):
+    def _field_key(self, scope: str, flag: str) -> tuple:
+        """Return the canonical (scope, flag) key used to look up a field."""
         return (scope, flag)
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
+        """Build and lay out all widgets for the form."""
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
 
@@ -559,13 +620,14 @@ class ToolForm(QWidget):
 
         self.scroll_layout.addStretch()
 
-    def _build_extra_flags(self):
+    def _build_extra_flags(self) -> None:
+        """Build the collapsible 'Additional Flags' free-text section."""
         group = QGroupBox("Additional Flags")
         group.setCheckable(True)
         group.setChecked(False)
         layout = QVBoxLayout()
         self.extra_flags_edit = QPlainTextEdit()
-        self.extra_flags_edit.setMaximumHeight(80)
+        self.extra_flags_edit.setMaximumHeight(TEXT_WIDGET_HEIGHT)
         self.extra_flags_edit.setToolTip(
             "Raw flags appended directly to the command. "
             "Use this for flags not covered by the form above."
@@ -576,7 +638,8 @@ class ToolForm(QWidget):
         self.scroll_layout.addWidget(group)
         self.extra_flags_group = group
 
-    def _add_args(self, args, form_layout, scope):
+    def _add_args(self, args: list, form_layout: QFormLayout, scope: str) -> None:
+        """Create and register a widget row for each arg in args under the given scope."""
         for arg in args:
             flag = arg["flag"]
             key = self._field_key(scope, flag)
@@ -595,11 +658,11 @@ class ToolForm(QWidget):
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(widget, 1)
                 repeat_spin = QSpinBox()
-                repeat_spin.setRange(1, 10)
+                repeat_spin.setRange(1, REPEAT_SPIN_MAX)
                 repeat_spin.setValue(1)
                 repeat_spin.setPrefix("x")
                 repeat_spin.setToolTip("Number of times to repeat this flag")
-                repeat_spin.setMaximumWidth(60)
+                repeat_spin.setMaximumWidth(REPEAT_SPIN_WIDTH)
                 repeat_spin.valueChanged.connect(lambda _: self.command_changed.emit())
                 row_layout.addWidget(repeat_spin)
                 form_layout.addRow(label, row_widget)
@@ -621,7 +684,8 @@ class ToolForm(QWidget):
     # Widget factory
     # ------------------------------------------------------------------
 
-    def _build_widget(self, arg, key):
+    def _build_widget(self, arg: dict, key: tuple) -> QWidget:
+        """Instantiate and return the appropriate widget for the given arg's type."""
         t = arg["type"]
 
         if t == "boolean":
@@ -666,32 +730,32 @@ class ToolForm(QWidget):
 
         elif t == "text":
             w = QPlainTextEdit()
-            w.setMaximumHeight(80)
+            w.setMaximumHeight(TEXT_WIDGET_HEIGHT)
             if arg["default"] is not None:
                 w.setPlainText(str(arg["default"]))
             w.textChanged.connect(lambda: self.command_changed.emit())
 
         elif t == "integer":
             w = QSpinBox()
-            w.setRange(-999999, 999999)
+            w.setRange(-SPINBOX_RANGE, SPINBOX_RANGE)
             if arg["default"] is not None:
                 w.setValue(int(arg["default"]))
             else:
                 w.setValue(0)
                 w.setSpecialValueText(" ")
-                w.setRange(0, 999999)
+                w.setRange(0, SPINBOX_RANGE)
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "float":
             w = QDoubleSpinBox()
-            w.setRange(-999999.0, 999999.0)
+            w.setRange(-SPINBOX_RANGE, SPINBOX_RANGE)
             w.setDecimals(2)
             if arg["default"] is not None:
                 w.setValue(float(arg["default"]))
             else:
                 w.setValue(0.0)
                 w.setSpecialValueText(" ")
-                w.setRange(0.0, 999999.0)
+                w.setRange(0.0, SPINBOX_RANGE)
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "enum":
@@ -708,7 +772,7 @@ class ToolForm(QWidget):
 
         elif t == "multi_enum":
             w = QListWidget()
-            w.setMaximumHeight(120)
+            w.setMaximumHeight(MULTI_ENUM_HEIGHT)
             for choice in (arg["choices"] or []):
                 item = QListWidgetItem(choice)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -726,7 +790,7 @@ class ToolForm(QWidget):
             if arg["description"]:
                 line.setPlaceholderText(arg["description"])
             btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, l=line: self._browse_file(l))
+            btn.clicked.connect(lambda checked, le=line: self._browse_file(le))
             layout.addWidget(line, 1)
             layout.addWidget(btn)
             line.textChanged.connect(lambda _: self.command_changed.emit())
@@ -742,7 +806,7 @@ class ToolForm(QWidget):
             if arg["description"]:
                 line.setPlaceholderText(arg["description"])
             btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, l=line: self._browse_directory(l))
+            btn.clicked.connect(lambda checked, le=line: self._browse_directory(le))
             layout.addWidget(line, 1)
             layout.addWidget(btn)
             line.textChanged.connect(lambda _: self.command_changed.emit())
@@ -760,12 +824,14 @@ class ToolForm(QWidget):
     # Browse dialogs
     # ------------------------------------------------------------------
 
-    def _browse_file(self, line_edit):
+    def _browse_file(self, line_edit: QLineEdit) -> None:
+        """Open a file-picker dialog and write the chosen path into line_edit."""
         path, _ = QFileDialog.getOpenFileName(self, "Select File")
         if path:
             line_edit.setText(path)
 
-    def _browse_directory(self, line_edit):
+    def _browse_directory(self, line_edit: QLineEdit) -> None:
+        """Open a directory-picker dialog and write the chosen path into line_edit."""
         path = QFileDialog.getExistingDirectory(self, "Select Directory")
         if path:
             line_edit.setText(path)
@@ -774,7 +840,8 @@ class ToolForm(QWidget):
     # Validation
     # ------------------------------------------------------------------
 
-    def _validate_input(self, widget, regex, text):
+    def _validate_input(self, widget: QLineEdit, regex, text: str) -> None:
+        """Apply a red border to widget if text is non-empty and fails regex."""
         if text and not regex.search(text):
             widget.setStyleSheet(_invalid_style())
         else:
@@ -784,7 +851,8 @@ class ToolForm(QWidget):
     # Group exclusivity
     # ------------------------------------------------------------------
 
-    def _apply_groups(self):
+    def _apply_groups(self) -> None:
+        """Wire up mutual-exclusivity signals for all groups."""
         for group_key, field_keys in self.groups.items():
             for fk in field_keys:
                 field = self.fields[fk]
@@ -794,7 +862,8 @@ class ToolForm(QWidget):
                         lambda state, active=fk, gk=group_key: self._on_group_toggled(gk, active, state)
                     )
 
-    def _on_group_toggled(self, group_key, active_key, state):
+    def _on_group_toggled(self, group_key: tuple, active_key: tuple, state: int) -> None:
+        """Uncheck all other members of a mutual-exclusivity group when one is checked."""
         if state != Qt.CheckState.Checked.value:
             return
         for fk in self.groups[group_key]:
@@ -811,7 +880,8 @@ class ToolForm(QWidget):
     # Dependencies
     # ------------------------------------------------------------------
 
-    def _apply_dependencies(self):
+    def _apply_dependencies(self) -> None:
+        """Wire up enable/disable signals for all fields that have a depends_on parent."""
         for key, field in self.fields.items():
             dep_flag = field["arg"]["depends_on"]
             if not dep_flag:
@@ -830,7 +900,8 @@ class ToolForm(QWidget):
             # Connect parent changes
             self._connect_dependency(parent_key, parent_field, child_field=field)
 
-    def _connect_dependency(self, parent_key, parent_field, child_field):
+    def _connect_dependency(self, parent_key: tuple, parent_field: dict, child_field: dict) -> None:
+        """Connect the appropriate change signal on the parent widget to update the child's enabled state."""
         pw = parent_field["widget"]
         if isinstance(pw, QCheckBox):
             pw.stateChanged.connect(
@@ -871,12 +942,13 @@ class ToolForm(QWidget):
                 lambda: self._update_dependent(parent_key, child_field)
             )
 
-    def _update_dependent(self, parent_key, child_field):
+    def _update_dependent(self, parent_key: tuple, child_field: dict) -> None:
+        """Enable or disable a dependent field based on the parent's current value."""
         active = self._is_field_active(parent_key)
         child_field["widget"].setEnabled(active)
         child_field["label"].setEnabled(active)
 
-    def _is_field_active(self, key):
+    def _is_field_active(self, key: tuple) -> bool:
         """Return True if the given field's widget has a meaningful value."""
         field = self.fields[key]
         w = field["widget"]
@@ -890,7 +962,7 @@ class ToolForm(QWidget):
             if w.isEditable():
                 return bool(w.currentText().strip())
             return bool(w.currentData())
-        if isinstance(w, QSpinBox) or isinstance(w, QDoubleSpinBox):
+        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
             return w.value() != 0
         if isinstance(w, QListWidget):
             for i in range(w.count()):
@@ -905,7 +977,8 @@ class ToolForm(QWidget):
     # Subcommand switching
     # ------------------------------------------------------------------
 
-    def _on_subcommand_changed(self, index):
+    def _on_subcommand_changed(self, index: int) -> None:
+        """Show only the selected subcommand's options section."""
         for i, section in enumerate(self.sub_sections):
             section.setVisible(i == index)
         self.command_changed.emit()
@@ -914,12 +987,14 @@ class ToolForm(QWidget):
     # Value reading (for command assembly in Phase 5)
     # ------------------------------------------------------------------
 
-    def get_current_subcommand(self):
+    def get_current_subcommand(self) -> str | None:
+        """Return the currently selected subcommand name, or None if no subcommands."""
         if self.sub_combo is not None:
             return self.sub_combo.currentData()
         return None
 
-    def get_extra_flags(self):
+    def get_extra_flags(self) -> list[str]:
+        """Return the parsed extra-flags tokens, or an empty list if the section is disabled."""
         if not self.extra_flags_group.isChecked():
             return []
         text = self.extra_flags_edit.toPlainText().strip()
@@ -930,7 +1005,7 @@ class ToolForm(QWidget):
         except ValueError:
             return text.split()
 
-    def get_field_value(self, key):
+    def get_field_value(self, key: tuple) -> int | str | list | None:
         """Return the current widget value for a field key, or None if empty/unchecked."""
         field = self.fields.get(key)
         if not field:
@@ -986,10 +1061,10 @@ class ToolForm(QWidget):
         return None
 
     # ------------------------------------------------------------------
-    # Phase 8 — Preset serialization
+    # Preset serialization
     # ------------------------------------------------------------------
 
-    def _raw_field_value(self, key):
+    def _raw_field_value(self, key: tuple) -> int | str | list | None:
         """Like get_field_value but ignores enabled state (reads widget regardless)."""
         field = self.fields.get(key)
         if not field:
@@ -1040,7 +1115,7 @@ class ToolForm(QWidget):
 
         return None
 
-    def serialize_values(self):
+    def serialize_values(self) -> dict:
         """Serialize all current field values to a flat dict for preset storage."""
         preset = {}
         preset["_subcommand"] = self.get_current_subcommand()
@@ -1062,7 +1137,7 @@ class ToolForm(QWidget):
 
         return preset
 
-    def apply_values(self, preset):
+    def apply_values(self, preset: dict) -> None:
         """Apply a preset dict to the form, resetting unmentioned fields to defaults."""
         self.blockSignals(True)
 
@@ -1099,7 +1174,7 @@ class ToolForm(QWidget):
         self.blockSignals(False)
         self.command_changed.emit()
 
-    def reset_to_defaults(self):
+    def reset_to_defaults(self) -> None:
         """Reset all fields to their schema defaults."""
         self.blockSignals(True)
 
@@ -1118,15 +1193,13 @@ class ToolForm(QWidget):
             t = arg["type"]
             if t == "boolean":
                 self._set_field_value(key, True if default is True else None)
-            elif t in ("integer", "float"):
-                self._set_field_value(key, default)
             else:
                 self._set_field_value(key, default)
 
         self.blockSignals(False)
         self.command_changed.emit()
 
-    def _set_field_value(self, key, value):
+    def _set_field_value(self, key: tuple, value) -> None:
         """Set a widget's value. None resets to empty/default."""
         field = self.fields.get(key)
         if not field:
@@ -1189,16 +1262,16 @@ class ToolForm(QWidget):
             w._line_edit.setText(str(value) if value is not None else "")
 
     # ------------------------------------------------------------------
-    # Phase 5 — Command assembly
+    # Command assembly
     # ------------------------------------------------------------------
 
-    def is_elevation_checked(self):
+    def is_elevation_checked(self) -> bool:
         """Return True if the elevation checkbox exists and is checked."""
         if self.elevation_check is not None:
             return self.elevation_check.isChecked()
         return _check_already_elevated() and self.data.get("elevated") in ("optional", "always")
 
-    def build_command(self):
+    def build_command(self) -> tuple[list[str], str]:
         """Build the CLI command. Returns (cmd_list, display_string)."""
         cmd = [self.data["binary"]]
         positional = []
@@ -1225,7 +1298,8 @@ class ToolForm(QWidget):
 
         return cmd, display
 
-    def _assemble_args(self, args, scope, cmd, positional):
+    def _assemble_args(self, args: list, scope: str, cmd: list, positional: list) -> None:
+        """Append active flag tokens to cmd and active positional tokens to positional."""
         for arg in args:
             flag = arg["flag"]
             key = self._field_key(scope, flag)
@@ -1266,7 +1340,7 @@ class ToolForm(QWidget):
                 else:
                     cmd.append(f"{flag}{sv}")
 
-    def update_theme(self):
+    def update_theme(self) -> None:
         """Update theme-sensitive widget styles (required labels, validation borders)."""
         color = _required_color()
         for key, field in self.fields.items():
@@ -1281,8 +1355,8 @@ class ToolForm(QWidget):
             if hasattr(w, "_line_edit") and w._line_edit.styleSheet() and "border" in w._line_edit.styleSheet():
                 w._line_edit.setStyleSheet(_invalid_style())
 
-    def validate_required(self):
-        """Check required fields. Returns list of (key, name) tuples that are missing."""
+    def validate_required(self) -> list[tuple]:
+        """Check required fields. Returns list of field keys that are missing values."""
         missing = []
         # Determine active scopes
         scopes = [(self.GLOBAL, self.data["arguments"])]
@@ -1317,7 +1391,7 @@ class ToolForm(QWidget):
         return missing
 
 
-def _format_display(cmd):
+def _format_display(cmd: list[str]) -> str:
     """Format a command list as a human-readable display string."""
     parts = []
     for token in cmd:
@@ -1332,33 +1406,38 @@ def _format_display(cmd):
     return " ".join(parts)
 
 
-def _monospace_font():
+def _monospace_font() -> QFont:
+    """Return a Consolas/monospace QFont for use in command preview and output panels."""
     font = QFont("Consolas")
     font.setStyleHint(QFont.StyleHint.Monospace)
     return font
 
 
-def _tools_dir():
+def _tools_dir() -> Path:
     """Return the tools/ directory next to this script, creating it if needed."""
     d = Path(__file__).parent / "tools"
+    if d.exists() and not d.is_dir():
+        raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(exist_ok=True)
     return d
 
 
-def _presets_dir(tool_name):
+def _presets_dir(tool_name: str) -> Path:
     """Return the presets/{tool_name}/ directory, creating it if needed."""
     d = Path(__file__).parent / "presets" / tool_name
+    if d.exists() and not d.is_dir():
+        raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _binary_in_path(binary):
+def _binary_in_path(binary: str) -> bool:
     """Check if binary is found in PATH."""
     return shutil.which(binary) is not None
 
 
 # ---------------------------------------------------------------------------
-# Phase 7 — Tool Picker
+# Tool picker
 # ---------------------------------------------------------------------------
 
 class ToolPicker(QWidget):
@@ -1452,7 +1531,8 @@ class ToolPicker(QWidget):
         self._entries.sort(key=_sort_key)
         self._populate_table()
 
-    def _populate_table(self):
+    def _populate_table(self) -> None:
+        """Render self._entries into the tool-picker table."""
         self.table.setRowCount(len(self._entries))
 
         for row, (path, data, error, available) in enumerate(self._entries):
@@ -1463,11 +1543,11 @@ class ToolPicker(QWidget):
                 status_item = QTableWidgetItem("")
             elif available:
                 status_item = QTableWidgetItem("\u2714")  # checkmark
-                status_item.setForeground(QColor("#4ec94e"))
+                status_item.setForeground(QColor(COLOR_OK))
                 status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
             else:
                 status_item = QTableWidgetItem("\u2716")  # X mark
-                status_item.setForeground(QColor("#e05555"))
+                status_item.setForeground(QColor(COLOR_ERR))
                 status_item.setToolTip(
                     f"'{data['binary']}' not found in PATH. "
                     "Install it or add its location to your PATH."
@@ -1488,9 +1568,8 @@ class ToolPicker(QWidget):
                     item.setToolTip(error)
             elif not available:
                 # Dim unavailable tools slightly but keep them selectable
-                dim = QColor("#888888")
                 for item in (name_item, desc_item, path_item):
-                    item.setForeground(dim)
+                    item.setForeground(QColor(COLOR_DIM))
 
             self.table.setItem(row, 0, status_item)
             self.table.setItem(row, 1, name_item)
@@ -1502,7 +1581,8 @@ class ToolPicker(QWidget):
         self.empty_label.setVisible(not has_items)
         self.open_btn.setEnabled(False)
 
-    def _on_selection(self):
+    def _on_selection(self) -> None:
+        """Enable or disable the Open button based on whether a valid tool row is selected."""
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             self.open_btn.setEnabled(False)
@@ -1511,13 +1591,15 @@ class ToolPicker(QWidget):
         _, data, _, _ = self._entries[row]
         self.open_btn.setEnabled(data is not None)
 
-    def _on_double_click(self, index):
+    def _on_double_click(self, index) -> None:
+        """Emit tool_selected for the double-clicked row if the tool is valid."""
         row = index.row()
         path, data, _, _ = self._entries[row]
         if data is not None:
             self.tool_selected.emit(path)
 
-    def _on_open(self):
+    def _on_open(self) -> None:
+        """Emit tool_selected for the currently selected table row."""
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             return
@@ -1526,7 +1608,8 @@ class ToolPicker(QWidget):
         if data is not None:
             self.tool_selected.emit(path)
 
-    def _on_load_file(self):
+    def _on_load_file(self) -> None:
+        """Open a file-picker dialog and emit tool_selected for the chosen JSON."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Tool JSON", str(_tools_dir()), "JSON Files (*.json)"
         )
@@ -1539,6 +1622,8 @@ class ToolPicker(QWidget):
 # ---------------------------------------------------------------------------
 
 class MainWindow(QMainWindow):
+    """Main application window managing the tool picker, form view, and process execution."""
+
     def __init__(self, tool_path=None):
         super().__init__()
         self.data = None
@@ -1553,7 +1638,7 @@ class MainWindow(QMainWindow):
         if geo:
             self.restoreGeometry(geo)
         else:
-            self.resize(700, 750)
+            self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
         # Drag and drop
         self.setAcceptDrops(True)
@@ -1592,7 +1677,8 @@ class MainWindow(QMainWindow):
             else:
                 self._show_picker()
 
-    def _build_menu(self):
+    def _build_menu(self) -> None:
+        """Build the menu bar with File, Presets, and View menus."""
         menu = self.menuBar().addMenu("File")
 
         self.act_load = menu.addAction("Load Tool...")
@@ -1655,13 +1741,15 @@ class MainWindow(QMainWindow):
         toggle_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
         toggle_shortcut.activated.connect(self._toggle_dark_mode)
 
-    def _sync_theme_checks(self):
+    def _sync_theme_checks(self) -> None:
+        """Update View > Theme check marks to match the stored preference."""
         pref = self.settings.value("appearance/theme", "system")
         self.act_theme_light.setChecked(pref == "light")
         self.act_theme_dark.setChecked(pref == "dark")
         self.act_theme_system.setChecked(pref == "system")
 
-    def _set_theme(self, pref):
+    def _set_theme(self, pref: str) -> None:
+        """Persist theme preference and apply it immediately."""
         self.settings.setValue("appearance/theme", pref)
         if pref == "dark":
             apply_theme(True)
@@ -1671,26 +1759,27 @@ class MainWindow(QMainWindow):
             apply_theme(_detect_system_dark())
         self._apply_widget_theme()
 
-    def _toggle_dark_mode(self):
+    def _toggle_dark_mode(self) -> None:
+        """Toggle between dark and light themes (Ctrl+D)."""
         self._set_theme("dark" if not _dark_mode else "light")
         self._sync_theme_checks()
 
-    def _apply_widget_theme(self):
-        dark = _dark_mode
+    def _apply_widget_theme(self) -> None:
+        """Re-apply theme-sensitive inline stylesheets for output panel, preview bar, and warning bar."""
         # Output panel
         if hasattr(self, "output"):
-            if dark:
+            if _dark_mode:
                 self.output.setStyleSheet(
                     f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
                     f" color: {DARK_COLORS['output_text']}; }}"
                 )
             else:
                 self.output.setStyleSheet(
-                    "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
+                    f"QPlainTextEdit {{ background-color: {OUTPUT_BG}; color: {OUTPUT_FG}; }}"
                 )
         # Preview bar
         if hasattr(self, "preview"):
-            if dark:
+            if _dark_mode:
                 self.preview.setStyleSheet(
                     f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
                     f" color: {DARK_COLORS['text']}; }}"
@@ -1706,7 +1795,8 @@ class MainWindow(QMainWindow):
         # Force repaint
         QApplication.instance().setStyle(QApplication.instance().style().name())
 
-    def _style_warning_bar(self):
+    def _style_warning_bar(self) -> None:
+        """Apply theme-appropriate styling to the binary-not-found warning bar."""
         if _dark_mode:
             self.warning_bar.setStyleSheet(
                 f"background-color: {DARK_COLORS['warning_bg']};"
@@ -1717,24 +1807,26 @@ class MainWindow(QMainWindow):
             )
         else:
             self.warning_bar.setStyleSheet(
-                "background-color: #fff3cd; color: #856404; padding: 6px 12px;"
-                " border: 1px solid #ffc107; font-weight: bold;"
+                f"background-color: {LIGHT_WARNING_BG}; color: {LIGHT_WARNING_FG};"
+                f" padding: 6px 12px; border: 1px solid {LIGHT_WARNING_BORDER};"
+                " font-weight: bold;"
             )
 
-    def _build_shortcuts(self):
-        # Ctrl+Enter to Run
+    def _build_shortcuts(self) -> None:
+        """Register global keyboard shortcuts for Run (Ctrl+Enter) and Stop (Escape)."""
         run_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
         run_shortcut.activated.connect(self._shortcut_run)
-        # Escape to Stop
         stop_shortcut = QShortcut(QKeySequence("Escape"), self)
         stop_shortcut.activated.connect(self._shortcut_stop)
 
-    def _shortcut_run(self):
+    def _shortcut_run(self) -> None:
+        """Trigger Run via Ctrl+Enter when the form view is active and no process is running."""
         if self.data and self.stack.currentIndex() == 1:
             if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
                 self._on_run_stop()
 
-    def _shortcut_stop(self):
+    def _shortcut_stop(self) -> None:
+        """Trigger Stop via Escape when a process is running."""
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self._on_run_stop()
 
@@ -1742,7 +1834,8 @@ class MainWindow(QMainWindow):
     # Session persistence
     # ------------------------------------------------------------------
 
-    def closeEvent(self, event):
+    def closeEvent(self, event) -> None:
+        """Persist window geometry and session state; kill any running process on exit."""
         self.settings.setValue("window/geometry", self.saveGeometry())
         if self.tool_path:
             self.settings.setValue("session/last_tool", self.tool_path)
@@ -1756,14 +1849,16 @@ class MainWindow(QMainWindow):
     # Drag and drop
     # ------------------------------------------------------------------
 
-    def dragEnterEvent(self, event: QDragEnterEvent):
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """Accept drag events that contain at least one .json file URL."""
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 if url.toLocalFile().endswith(".json"):
                     event.acceptProposedAction()
                     return
 
-    def dropEvent(self, event: QDropEvent):
+    def dropEvent(self, event: QDropEvent) -> None:
+        """Load the first .json file dropped onto the window."""
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if path.endswith(".json"):
@@ -1774,7 +1869,8 @@ class MainWindow(QMainWindow):
     # Navigation
     # ------------------------------------------------------------------
 
-    def _show_picker(self):
+    def _show_picker(self) -> None:
+        """Switch to the tool-picker view and reset form-specific menu items."""
         self.picker.scan()
         self.stack.setCurrentIndex(0)
         self.setWindowTitle("Scaffold")
@@ -1783,7 +1879,8 @@ class MainWindow(QMainWindow):
         self.preset_menu.setEnabled(False)
         self.statusBar().showMessage("Ready")
 
-    def _load_tool_path(self, path):
+    def _load_tool_path(self, path: str) -> None:
+        """Load, validate, and display the tool at path; show an error dialog on failure."""
         try:
             data = load_tool(path)
         except RuntimeError as e:
@@ -1819,7 +1916,8 @@ class MainWindow(QMainWindow):
         else:
             self.warning_bar.setVisible(False)
 
-    def _show_load_error(self, msg):
+    def _show_load_error(self, msg: str) -> None:
+        """Display a warning dialog for tool-load failures."""
         QMessageBox.warning(self, "Load Error", msg)
 
     def _build_form_view(self):
@@ -1903,6 +2001,7 @@ class MainWindow(QMainWindow):
         self.output.setReadOnly(True)
         self.output.setFont(_monospace_font())
         self.output.setMinimumHeight(150)
+        self.output.setMaximumBlockCount(OUTPUT_MAX_BLOCKS)
         if _dark_mode:
             self.output.setStyleSheet(
                 f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
@@ -1910,9 +2009,15 @@ class MainWindow(QMainWindow):
             )
         else:
             self.output.setStyleSheet(
-                "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
+                f"QPlainTextEdit {{ background-color: {OUTPUT_BG}; color: {OUTPUT_FG}; }}"
             )
         layout.addWidget(self.output)
+
+        # Output batching buffer — collect readyRead data and flush on a timer
+        self._output_buffer: list[tuple[str, str]] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(OUTPUT_FLUSH_MS)
+        self._flush_timer.timeout.connect(self._flush_output)
 
         # Connect live preview
         self.form.command_changed.connect(self._update_preview)
@@ -1922,18 +2027,21 @@ class MainWindow(QMainWindow):
     # Menu actions
     # ------------------------------------------------------------------
 
-    def _on_load_file(self):
+    def _on_load_file(self) -> None:
+        """Open a file-picker dialog and load the chosen JSON tool schema."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Tool JSON", str(_tools_dir()), "JSON Files (*.json)"
         )
         if path:
             self._load_tool_path(path)
 
-    def _on_reload(self):
+    def _on_reload(self) -> None:
+        """Reload the current tool schema from disk."""
         if self.tool_path:
             self._load_tool_path(self.tool_path)
 
-    def _on_back(self):
+    def _on_back(self) -> None:
+        """Return to the tool picker, stopping any running process first."""
         # Kill any running process before going back
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.kill()
@@ -1945,7 +2053,8 @@ class MainWindow(QMainWindow):
     # Presets
     # ------------------------------------------------------------------
 
-    def _on_save_preset(self):
+    def _on_save_preset(self) -> None:
+        """Prompt for a name and save the current form state as a preset JSON file."""
         if not self.data:
             return
         name, ok = QInputDialog.getText(
@@ -1960,13 +2069,18 @@ class MainWindow(QMainWindow):
         preset_path = preset_dir / f"{safe_name}.json"
 
         preset = self.form.serialize_values()
-        preset_path.write_text(
-            json.dumps(preset, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            preset_path.write_text(
+                json.dumps(preset, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            self.statusBar().showMessage(f"Error saving preset: {e}")
+            return
         self.statusBar().showMessage(f"Preset saved: {safe_name}")
 
-    def _on_load_preset(self):
+    def _on_load_preset(self) -> None:
+        """Show a preset picker and restore the selected preset to the form."""
         if not self.data:
             return
         preset_dir = _presets_dir(self.data["tool"])
@@ -1992,7 +2106,8 @@ class MainWindow(QMainWindow):
         self.form.apply_values(preset)
         self.statusBar().showMessage(f"Preset loaded: {name}")
 
-    def _on_delete_preset(self):
+    def _on_delete_preset(self) -> None:
+        """Show a preset picker and delete the selected preset file after confirmation."""
         if not self.data:
             return
         preset_dir = _presets_dir(self.data["tool"])
@@ -2015,10 +2130,15 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            preset_path.unlink(missing_ok=True)
+            try:
+                preset_path.unlink(missing_ok=True)
+            except OSError as e:
+                self.statusBar().showMessage(f"Error deleting preset: {e}")
+                return
             self.statusBar().showMessage(f"Preset deleted: {name}")
 
-    def _on_reset_defaults(self):
+    def _on_reset_defaults(self) -> None:
+        """Reset all form fields to their schema-defined defaults."""
         if self.data:
             self.form.reset_to_defaults()
             self.statusBar().showMessage("Reset to defaults")
@@ -2027,7 +2147,8 @@ class MainWindow(QMainWindow):
     # Preview
     # ------------------------------------------------------------------
 
-    def _update_preview(self):
+    def _update_preview(self) -> None:
+        """Rebuild the command preview and toggle Run button availability."""
         missing = self.form.validate_required()
         cmd, display = self.form.build_command()
         if self.form.is_elevation_checked():
@@ -2052,7 +2173,8 @@ class MainWindow(QMainWindow):
             self.status.setStyleSheet("padding: 0 8px 4px 8px;")
             self.run_btn.setEnabled(True)
 
-    def _copy_command(self):
+    def _copy_command(self) -> None:
+        """Copy the current command (including elevation prefix if active) to the clipboard."""
         cmd, display = self.form.build_command()
         if self.form.is_elevation_checked():
             elev_cmd, _ = get_elevation_command(cmd)
@@ -2061,17 +2183,19 @@ class MainWindow(QMainWindow):
         color = DARK_COLORS["success"] if _dark_mode else "green"
         self._show_status("Copied to clipboard.", color)
 
-    def _show_status(self, text, color=None):
+    def _show_status(self, text: str, color: str | None = None) -> None:
+        """Display a colored message in the status label below the command preview."""
         if color is None:
             color = DARK_COLORS["error"] if _dark_mode else "red"
         self.status.setText(text)
         self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
 
     # ------------------------------------------------------------------
-    # Phase 6 — Process execution
+    # Process execution
     # ------------------------------------------------------------------
 
-    def _on_run_stop(self):
+    def _on_run_stop(self) -> None:
+        """Run the command if idle, or stop the running process if one is active."""
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self._killed = True
             self.process.kill()
@@ -2083,7 +2207,7 @@ class MainWindow(QMainWindow):
             return
 
         cmd, display = self.form.build_command()
-        if len(cmd) < 1:
+        if not cmd:
             return
 
         # Handle elevation
@@ -2103,48 +2227,72 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         self.process.setProgram(program)
         self.process.setArguments(arguments)
-        self.process.readyReadStandardOutput.connect(self._read_stdout)
-        self.process.readyReadStandardError.connect(self._read_stderr)
+        self.process.readyReadStandardOutput.connect(self._on_stdout_ready)
+        self.process.readyReadStandardError.connect(self._on_stderr_ready)
         self.process.finished.connect(self._on_finished)
         self.process.errorOccurred.connect(self._on_error)
 
         # Show what we're running
-        self._append_output(f"$ {display}\n", "#569cd6")
+        self._append_output(f"$ {display}\n", COLOR_CMD)
 
         self._killed = False
         self.run_btn.setText("Stop")
         self.statusBar().showMessage("Running...")
         self.process.start()
 
-    def _read_stdout(self):
+    def _on_stdout_ready(self) -> None:
+        """Buffer available stdout data for the next flush cycle."""
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._append_output(text, "#d4d4d4")
+        self._output_buffer.append((text, OUTPUT_FG))
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
 
-    def _read_stderr(self):
+    def _on_stderr_ready(self) -> None:
+        """Buffer available stderr data for the next flush cycle."""
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._append_output(text, "#e8a838")
+        self._output_buffer.append((text, COLOR_WARN))
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
 
-    def _on_finished(self, exit_code, exit_status):
+    def _flush_output(self) -> None:
+        """Flush buffered output to the panel in a single batch update."""
+        self._flush_timer.stop()
+        if not self._output_buffer:
+            return
+        cursor = self.output.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        for text, color in self._output_buffer:
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(color))
+            cursor.insertText(text, fmt)
+        self._output_buffer.clear()
+        self.output.setTextCursor(cursor)
+        self.output.ensureCursorVisible()
+
+    def _on_finished(self, exit_code: int, exit_status) -> None:
+        """Handle process termination: print exit status and re-enable the Run button."""
+        self._flush_output()
         if self._killed:
-            self._append_output("\n--- Process stopped ---\n", "#e8a838")
+            self._append_output("\n--- Process stopped ---\n", COLOR_WARN)
             self.statusBar().showMessage("Process stopped")
         elif self._elevated_run and exit_code in (126, 127):
             self._append_output(
-                "\n--- Elevation was cancelled by the user. ---\n", "#e8a838"
+                "\n--- Elevation was cancelled by the user. ---\n", COLOR_WARN
             )
             self.statusBar().showMessage("Elevation cancelled")
         elif exit_code == 0:
-            self._append_output(f"\n--- Process exited with code {exit_code} ---\n", "#4ec94e")
+            self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_OK)
             self.statusBar().showMessage("Process exited with code 0")
         else:
-            self._append_output(f"\n--- Process exited with code {exit_code} ---\n", "#e05555")
+            self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Process exited with code {exit_code}")
         self.run_btn.setText("Run")
         self._update_preview()
 
-    def _on_error(self, error):
+    def _on_error(self, error) -> None:
+        """Handle QProcess errors, printing a descriptive message to the output panel."""
         if error == QProcess.ProcessError.Crashed and self._killed:
             return  # Handled by _on_finished
         error_messages = {
@@ -2161,12 +2309,13 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.ReadError: "Read error communicating with process.",
         }
         msg = error_messages.get(error, f"Unknown process error ({error}).")
-        self._append_output(f"\n--- {msg} ---\n", "#e05555")
+        self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
         self.run_btn.setText("Run")
         self._update_preview()
 
-    def _append_output(self, text, color):
+    def _append_output(self, text: str, color: str) -> None:
+        """Append text to the output panel in the given hex color string."""
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))
         cursor = self.output.textCursor()
@@ -2175,7 +2324,8 @@ class MainWindow(QMainWindow):
         self.output.setTextCursor(cursor)
         self.output.ensureCursorVisible()
 
-    def _clear_output(self):
+    def _clear_output(self) -> None:
+        """Clear all text from the output panel."""
         self.output.clear()
 
 
@@ -2183,15 +2333,39 @@ class MainWindow(QMainWindow):
 # CLI entry points
 # ---------------------------------------------------------------------------
 
-def print_prompt():
+def print_prompt() -> None:
+    """Print the LLM schema-generation prompt from PROMPT.txt to stdout."""
     prompt_path = Path(__file__).parent / "PROMPT.txt"
     if not prompt_path.exists():
         print("Error: PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
         sys.exit(1)
-    print(prompt_path.read_text(encoding="utf-8"))
+    try:
+        text = prompt_path.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"Error reading PROMPT.txt: {e}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
+        sys.stdout.buffer.write(b"\n")
 
 
-def main():
+def main() -> None:
+    """Entry point: handle --help / --prompt / --validate CLI flags, then launch the GUI."""
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(
+            "Scaffold — CLI-to-GUI Translation Layer\n"
+            "\n"
+            "Usage:\n"
+            "  python scaffold.py                        Launch the tool picker GUI\n"
+            "  python scaffold.py <tool.json>            Open a specific tool directly\n"
+            "  python scaffold.py --validate <tool.json> Validate a schema (no GUI)\n"
+            "  python scaffold.py --prompt               Print the LLM schema-generation prompt\n"
+            "  python scaffold.py --help                 Show this help and exit\n"
+        )
+        sys.exit(0)
+
     if "--prompt" in sys.argv:
         print_prompt()
         sys.exit(0)
