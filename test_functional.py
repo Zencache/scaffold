@@ -2329,6 +2329,112 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 27 — Output Search (Ctrl+Shift+F)
+# =====================================================================
+print("\n--- Section 27: Output Search ---")
+
+# Reload a known tool for a clean state
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# Add known text to the output panel
+window.output.clear()
+window.output.appendPlainText("Line one: error occurred")
+window.output.appendPlainText("Line two: all good")
+window.output.appendPlainText("Line three: another error here")
+window.output.appendPlainText("Line four: Error in uppercase")
+app.processEvents()
+
+# 27a: output search bar is initially hidden
+check(window._output_search_widget.isHidden(), "27a: output search bar initially hidden")
+
+# 27b: Ctrl+Shift+F makes it visible
+window._shortcut_output_find()
+app.processEvents()
+check(not window._output_search_widget.isHidden(), "27b: output search bar shown after Ctrl+Shift+F")
+
+# 27c: _shortcut_output_find calls setFocus on the search bar
+check(hasattr(window, '_output_search_bar'), "27c: output search bar exists on MainWindow")
+
+# 27d: type a term that appears 3 times (case-insensitive "error")
+window._output_search_bar.setText("error")
+app.processEvents()
+check(len(window._output_search_matches) == 3, f"27d: 3 matches for 'error' (got {len(window._output_search_matches)})")
+
+# 27e: match count label shows "1 of 3"
+check(window._output_search_count_label.text() == "1 of 3", f"27e: count label shows '1 of 3' (got '{window._output_search_count_label.text()}')")
+
+# 27f: current match index is 0
+check(window._output_search_index == 0, "27f: current match index is 0")
+
+# 27g: press Enter to advance to next match
+window._output_search_next()
+app.processEvents()
+check(window._output_search_index == 1, "27g: after Enter, match index is 1")
+check(window._output_search_count_label.text() == "2 of 3", f"27g: count label shows '2 of 3' (got '{window._output_search_count_label.text()}')")
+
+# 27h: press Enter again — advances to 3rd match
+window._output_search_next()
+app.processEvents()
+check(window._output_search_index == 2, "27h: after second Enter, match index is 2")
+check(window._output_search_count_label.text() == "3 of 3", f"27h: count label shows '3 of 3' (got '{window._output_search_count_label.text()}')")
+
+# 27i: Enter wraps around to first match
+window._output_search_next()
+app.processEvents()
+check(window._output_search_index == 0, "27i: Enter wraps around to index 0")
+check(window._output_search_count_label.text() == "1 of 3", f"27i: count label shows '1 of 3' after wrap (got '{window._output_search_count_label.text()}')")
+
+# 27j: Shift+Enter goes to previous (wraps to last)
+window._output_search_prev()
+app.processEvents()
+check(window._output_search_index == 2, "27j: Shift+Enter wraps to last match")
+
+# 27k: extraSelections are applied (3 highlights)
+sels = window.output.extraSelections()
+check(len(sels) == 3, f"27k: 3 extra selections applied (got {len(sels)})")
+
+# 27l: current match has orange background, others have yellow
+from PySide6.QtGui import QColor
+for i, sel in enumerate(sels):
+    bg = sel.format.background().color().name()
+    if i == window._output_search_index:
+        check(bg == "#ff9800", f"27l: current match (index {i}) has orange bg (got {bg})")
+    else:
+        check(bg == "#fff176", f"27l: non-current match (index {i}) has yellow bg (got {bg})")
+
+# 27m: Escape closes search bar and clears highlights
+window._close_output_search()
+app.processEvents()
+check(window._output_search_widget.isHidden(), "27m: search bar hidden after Escape")
+check(len(window.output.extraSelections()) == 0, "27m: extra selections cleared after Escape")
+check(window._output_search_count_label.text() == "", "27m: count label cleared after Escape")
+
+# 27n: search for term with 0 matches
+window._shortcut_output_find()
+app.processEvents()
+window._output_search_bar.setText("nonexistent_term_xyz")
+app.processEvents()
+check(len(window._output_search_matches) == 0, "27n: 0 matches for nonexistent term")
+check(window._output_search_count_label.text() == "0 matches", f"27n: count label shows '0 matches' (got '{window._output_search_count_label.text()}')")
+
+# 27o: case insensitivity — "ERROR" matches "error" and "Error"
+window._output_search_bar.setText("ERROR")
+app.processEvents()
+check(len(window._output_search_matches) == 3, f"27o: case-insensitive: 'ERROR' matches 3 times (got {len(window._output_search_matches)})")
+
+# 27p: clearing search text clears highlights
+window._output_search_bar.setText("")
+app.processEvents()
+check(len(window.output.extraSelections()) == 0, "27p: clearing search text clears highlights")
+check(window._output_search_count_label.text() == "", "27p: count label empty when search cleared")
+
+# Clean up
+window._close_output_search()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

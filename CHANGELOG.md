@@ -2,6 +2,43 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.3] — 2026-03-30
+
+### Added
+
+#### Output Search (Ctrl+Shift+F)
+
+Search within the output panel to find text in command output. Separate from the form field search (Ctrl+F).
+
+- **Search bar:** A `QLineEdit` + match count label appears above the output panel when Ctrl+Shift+F is pressed. Initially hidden. Placeholder: "Search output... (Ctrl+Shift+F)".
+- **Highlighting:** Uses `QPlainTextEdit.extraSelections` to highlight all matches — yellow (`#fff176`) for non-current matches, orange (`#ff9800`) for the current match. Highlights are cleared when the search bar is closed.
+- **Navigation:** Enter jumps to next match, Shift+Enter to previous. Wrap-around at both ends. Each jump scrolls the output panel to the current match via `ensureCursorVisible()`.
+- **Match count:** Label next to search bar shows "X of Y" (e.g., "2 of 5") or "0 matches" when nothing is found.
+- **Case-insensitive:** Uses `QTextDocument.find()` without `FindCaseSensitively` flag — "ERROR" matches "error", "Error", etc.
+- **Escape handling:** Escape closes the output search bar only when it has focus — does not steal Escape from the Stop button or the field search bar. Priority: output search → field search → stop process.
+- **`MainWindow.eventFilter()`** — new override to intercept Enter/Shift+Enter/Escape on the output search bar.
+- **`MainWindow._close_output_search()`** — hides bar, clears matches, clears extraSelections.
+- **`MainWindow._on_output_search_changed()`** — recomputes all matches when search text changes.
+- **`MainWindow._apply_output_search_highlights()`** — builds extraSelections list with current-match and other-match formatting.
+- **`MainWindow._output_search_next()` / `_output_search_prev()`** — cycle through matches with wrap-around.
+- **`QTextCursor`** added to `PySide6.QtGui` import line.
+
+### Changed
+- Version bump 2.5.2 → 2.5.3
+- scaffold.py line count: 3,144 → 3,291
+
+### Tested
+- **Section 27** — Output Search (25 assertions): search bar initially hidden, Ctrl+Shift+F shows it, search bar exists on MainWindow, 3 matches for "error" found, count label shows "1 of 3", current match index starts at 0, Enter advances through matches with correct count labels, Enter wraps around to first match, Shift+Enter wraps to last match, 3 extraSelections applied, current match has orange background while others have yellow, Escape hides bar and clears highlights and count label, 0-match search shows "0 matches" without crash, case-insensitive "ERROR" matches 3 times, clearing search text clears highlights and count label
+
+#### Full suite results
+- **All 4 test suites pass: 553/553 assertions, 0 failures**
+  - Functional: 383/383 (+25 Section 27)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+
+---
+
 ## [v2.5.2] — 2026-03-30
 
 ### Fixed

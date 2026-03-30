@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.2"
+__version__ = "2.5.3"
 
 import hashlib
 import json
@@ -342,7 +342,7 @@ def _elevation_label():
 # ---------------------------------------------------------------------------
 
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
-from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat  # noqa: E402
+from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -2411,13 +2411,15 @@ class MainWindow(QMainWindow):
             )
 
     def _build_shortcuts(self) -> None:
-        """Register global keyboard shortcuts for Run (Ctrl+Enter), Stop (Escape), Find (Ctrl+F)."""
+        """Register global keyboard shortcuts for Run (Ctrl+Enter), Stop (Escape), Find (Ctrl+F), Output Search (Ctrl+Shift+F)."""
         run_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
         run_shortcut.activated.connect(self._shortcut_run)
         stop_shortcut = QShortcut(QKeySequence("Escape"), self)
         stop_shortcut.activated.connect(self._shortcut_stop)
         find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         find_shortcut.activated.connect(self._shortcut_find)
+        output_find_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
+        output_find_shortcut.activated.connect(self._shortcut_output_find)
 
     def _shortcut_run(self) -> None:
         """Trigger Run via Ctrl+Enter when the form view is active and no process is running."""
@@ -2426,7 +2428,10 @@ class MainWindow(QMainWindow):
                 self._on_run_stop()
 
     def _shortcut_stop(self) -> None:
-        """Trigger Stop via Escape — close search bar first, then stop process."""
+        """Trigger Stop via Escape — close output search first, then field search, then stop process."""
+        if self._output_search_widget.isVisible() and self._output_search_bar.hasFocus():
+            self._close_output_search()
+            return
         if self.form and self.form._search_row_widget.isVisible():
             self.form.close_search()
             return
@@ -2437,6 +2442,130 @@ class MainWindow(QMainWindow):
         """Open field search bar via Ctrl+F when form view is active."""
         if self.form and self.stack.currentIndex() == 1:
             self.form.open_search()
+
+    def _shortcut_output_find(self) -> None:
+        """Open output search bar via Ctrl+Shift+F when form view is active."""
+        if self.stack.currentIndex() == 1:
+            self._output_search_widget.setVisible(True)
+            self._output_search_bar.setFocus()
+            self._output_search_bar.selectAll()
+
+    # ------------------------------------------------------------------
+    # Output search (Ctrl+Shift+F)
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj, event) -> bool:
+        """Handle key events on the output search bar for Enter/Shift+Enter/Escape."""
+        if obj is self._output_search_bar and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._output_search_prev()
+                else:
+                    self._output_search_next()
+                return True
+            if key == Qt.Key.Key_Escape:
+                self._close_output_search()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _close_output_search(self) -> None:
+        """Hide output search bar and clear all highlights."""
+        self._output_search_bar.clear()
+        self._output_search_widget.setVisible(False)
+        self._output_search_matches = []
+        self._output_search_index = -1
+        self._output_search_count_label.setText("")
+        self.output.setExtraSelections([])
+        self._output_search_bar.clearFocus()
+
+    def _on_output_search_changed(self, text: str) -> None:
+        """Recompute all matches and highlight them when search text changes."""
+        self._output_search_matches = []
+        self._output_search_index = -1
+        query = text.strip()
+        if not query:
+            self._output_search_count_label.setText("")
+            self.output.setExtraSelections([])
+            return
+
+        # Find all matches (case-insensitive)
+        doc = self.output.document()
+        cursor = QTextCursor(doc)
+        flags = doc.FindFlag(0)  # no flags = forward, case-insensitive by default
+        # QTextDocument.find is case-sensitive by default, so we don't set FindCaseSensitively
+        while True:
+            cursor = doc.find(query, cursor)
+            if cursor.isNull():
+                break
+            start = cursor.selectionStart()
+            length = cursor.selectionEnd() - start
+            self._output_search_matches.append((start, length))
+
+        if self._output_search_matches:
+            self._output_search_index = 0
+            self._output_search_count_label.setText(
+                f"1 of {len(self._output_search_matches)}"
+            )
+        else:
+            self._output_search_count_label.setText("0 matches")
+
+        self._apply_output_search_highlights()
+
+    def _apply_output_search_highlights(self) -> None:
+        """Apply extraSelections to highlight all matches, current match in orange."""
+        selections = []
+
+        # Yellow for all matches
+        yellow_fmt = QTextCharFormat()
+        yellow_fmt.setBackground(QColor("#fff176"))
+        yellow_fmt.setForeground(QColor("#000000"))
+
+        # Orange for current match
+        orange_fmt = QTextCharFormat()
+        orange_fmt.setBackground(QColor("#ff9800"))
+        orange_fmt.setForeground(QColor("#000000"))
+
+        for i, (start, length) in enumerate(self._output_search_matches):
+            sel = QTextEdit.ExtraSelection()
+            cursor = QTextCursor(self.output.document())
+            cursor.setPosition(start)
+            cursor.setPosition(start + length, QTextCursor.MoveMode.KeepAnchor)
+            sel.cursor = cursor
+            sel.format = orange_fmt if i == self._output_search_index else yellow_fmt
+            selections.append(sel)
+
+        self.output.setExtraSelections(selections)
+
+        # Scroll to current match
+        if self._output_search_index >= 0 and self._output_search_matches:
+            start, length = self._output_search_matches[self._output_search_index]
+            cursor = QTextCursor(self.output.document())
+            cursor.setPosition(start)
+            self.output.setTextCursor(cursor)
+            self.output.ensureCursorVisible()
+
+    def _output_search_next(self) -> None:
+        """Jump to the next output search match (Enter key)."""
+        if not self._output_search_matches:
+            return
+        self._output_search_index = (self._output_search_index + 1) % len(self._output_search_matches)
+        total = len(self._output_search_matches)
+        self._output_search_count_label.setText(
+            f"{self._output_search_index + 1} of {total}"
+        )
+        self._apply_output_search_highlights()
+
+    def _output_search_prev(self) -> None:
+        """Jump to the previous output search match (Shift+Enter)."""
+        if not self._output_search_matches:
+            return
+        self._output_search_index = (self._output_search_index - 1) % len(self._output_search_matches)
+        total = len(self._output_search_matches)
+        self._output_search_count_label.setText(
+            f"{self._output_search_index + 1} of {total}"
+        )
+        self._apply_output_search_highlights()
 
     # ------------------------------------------------------------------
     # Session persistence
@@ -2657,6 +2786,24 @@ class MainWindow(QMainWindow):
         self.output_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._style_section_label(self.output_label)
         layout.addWidget(self.output_label)
+
+        # Output search bar (Ctrl+Shift+F) — initially hidden
+        self._output_search_bar = QLineEdit()
+        self._output_search_bar.setPlaceholderText("Search output...  (Ctrl+Shift+F)")
+        self._output_search_bar.textChanged.connect(self._on_output_search_changed)
+        self._output_search_bar.installEventFilter(self)
+        self._output_search_matches: list[tuple[int, int]] = []  # (start, length)
+        self._output_search_index = -1
+        self._output_search_count_label = QLabel("")
+        self._output_search_count_label.setStyleSheet("margin-left: 4px;")
+        output_search_row = QHBoxLayout()
+        output_search_row.setContentsMargins(0, 0, 0, 0)
+        output_search_row.addWidget(self._output_search_bar, 1)
+        output_search_row.addWidget(self._output_search_count_label)
+        self._output_search_widget = QWidget()
+        self._output_search_widget.setLayout(output_search_row)
+        self._output_search_widget.setVisible(False)
+        layout.addWidget(self._output_search_widget)
 
         # Output panel (create first so DragHandle can reference it)
         saved_height = int(self.settings.value("output/height", OUTPUT_DEFAULT_HEIGHT))
