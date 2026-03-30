@@ -2,6 +2,38 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.2] — 2026-03-30
+
+### Fixed
+
+#### Output Panel Drag Handle Off-Screen Bug
+
+The output panel resize handle allowed dragging the panel taller than the visible window area. The oversized height was saved to QSettings, so the problem persisted across restarts and could only be fixed by fullscreening the window.
+
+- **Root cause:** `DragHandle.mouseMoveEvent` clamped height to a static `OUTPUT_MAX_HEIGHT` (800px) which can exceed available space on smaller windows.
+- **`DragHandle._effective_max_height()`** — new method that returns `min(OUTPUT_MAX_HEIGHT, window.height() // 2)`, dynamically capping the drag limit to half the actual window height.
+- **`DragHandle.mouseMoveEvent()`** — now uses `_effective_max_height()` instead of the static `OUTPUT_MAX_HEIGHT`.
+- **`MainWindow._clamp_output_height()`** — new method that checks if the output panel exceeds the effective max and shrinks it, updating QSettings.
+- **`MainWindow.resizeEvent()`** — new override that calls `_clamp_output_height()` when the window shrinks.
+- **`MainWindow.showEvent()`** — new override that calls `_clamp_output_height()` on first display, clamping any oversized height restored from QSettings.
+- `OUTPUT_MIN_HEIGHT` and `OUTPUT_MAX_HEIGHT` constants are unchanged; the effective maximum is now `min(OUTPUT_MAX_HEIGHT, window_height // 2)`.
+
+### Changed
+- Version bump 2.5.1 → 2.5.2
+- scaffold.py line count: 3,116 → 3,144
+
+### Tested
+- **Section 26** — Output Panel Height Clamping (8 assertions): direct clamping reduces height to half window, OUTPUT_MIN_HEIGHT floor respected, effective max calculation correct, resizeEvent and showEvent overrides exist, QSettings updated on clamp, height within limits left unchanged
+
+#### Full suite results
+- **All 4 test suites pass: 528/528 assertions, 0 failures**
+  - Functional: 358/358 (+8 Section 26)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+
+---
+
 ## [v2.5.1] — 2026-03-30
 
 ### Added

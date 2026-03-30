@@ -2271,6 +2271,64 @@ check(scaffold.LIGHT_PREVIEW["flag"] in _s25_eq_result or scaffold.DARK_PREVIEW[
 
 
 # =====================================================================
+# Section 26 — Output Panel Height Clamping (BUG: off-screen drag)
+# =====================================================================
+print("\n--- Section 26: Output Panel Height Clamping ---")
+
+# 26a: _clamp_output_height reduces height when it exceeds half the window
+window.resize(600, 400)
+app.processEvents()
+window.output.setFixedHeight(350)  # exceeds 400 // 2 = 200
+app.processEvents()
+window._clamp_output_height()
+app.processEvents()
+check(window.output.height() <= 200, f"26a: output clamped to half window height ({window.output.height()} <= 200)")
+
+# 26b: height stays at or above OUTPUT_MIN_HEIGHT
+window.resize(600, 100)  # half = 50, but min is 80
+app.processEvents()
+window.output.setFixedHeight(300)
+window._clamp_output_height()
+app.processEvents()
+check(window.output.height() >= scaffold.OUTPUT_MIN_HEIGHT,
+      f"26b: output height >= OUTPUT_MIN_HEIGHT ({window.output.height()} >= {scaffold.OUTPUT_MIN_HEIGHT})")
+
+# 26c: DragHandle._effective_max_height respects window size
+window.resize(600, 400)
+app.processEvents()
+eff_max = window.output_handle._effective_max_height()
+check(eff_max <= 200, f"26c: effective max <= half window height ({eff_max} <= 200)")
+check(eff_max <= scaffold.OUTPUT_MAX_HEIGHT, f"26c: effective max <= OUTPUT_MAX_HEIGHT ({eff_max} <= {scaffold.OUTPUT_MAX_HEIGHT})")
+
+# 26d: MainWindow has resizeEvent and showEvent that handle clamping
+check(hasattr(scaffold.MainWindow, "resizeEvent"), "26d: MainWindow has resizeEvent override")
+check(hasattr(scaffold.MainWindow, "showEvent"), "26d: MainWindow has showEvent override")
+
+# 26e: QSettings is updated when clamping occurs
+window.resize(600, 400)
+app.processEvents()
+window.output.setFixedHeight(350)
+app.processEvents()
+window._clamp_output_height()
+app.processEvents()
+saved = int(window.settings.value("output/height", 0))
+check(saved <= 200, f"26e: QSettings updated after clamp ({saved} <= 200)")
+
+# 26f: height within limits is not altered
+window.resize(600, 600)
+app.processEvents()
+window.output.setFixedHeight(150)
+app.processEvents()
+window._clamp_output_height()
+app.processEvents()
+check(window.output.height() == 150, f"26f: height within limits unchanged ({window.output.height()} == 150)")
+
+# Restore window size for cleanup
+window.resize(scaffold.DEFAULT_WINDOW_WIDTH, scaffold.DEFAULT_WINDOW_HEIGHT)
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

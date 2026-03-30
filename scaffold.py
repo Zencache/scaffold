@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.1"
+__version__ = "2.5.2"
 
 import hashlib
 import json
@@ -620,10 +620,17 @@ class DragHandle(QWidget):
             self._drag_start_h = self._target.height()
             event.accept()
 
+    def _effective_max_height(self) -> int:
+        """Return the effective maximum output height, capped to half the window."""
+        win = self._target.window()
+        if win:
+            return min(OUTPUT_MAX_HEIGHT, win.height() // 2)
+        return OUTPUT_MAX_HEIGHT
+
     def mouseMoveEvent(self, event) -> None:
         if self._dragging:
             delta = int(self._drag_start_y - event.globalPosition().y())
-            new_h = max(OUTPUT_MIN_HEIGHT, min(OUTPUT_MAX_HEIGHT, self._drag_start_h + delta))
+            new_h = max(OUTPUT_MIN_HEIGHT, min(self._effective_max_height(), self._drag_start_h + delta))
             self._target.setFixedHeight(new_h)
             event.accept()
 
@@ -2434,6 +2441,27 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Session persistence
     # ------------------------------------------------------------------
+
+    def _clamp_output_height(self) -> None:
+        """Ensure the output panel height fits within the current window."""
+        max_h = min(OUTPUT_MAX_HEIGHT, self.height() // 2)
+        cur_h = self.output.height()
+        if cur_h > max_h:
+            clamped = max(OUTPUT_MIN_HEIGHT, max_h)
+            self.output.setFixedHeight(clamped)
+            self.settings.setValue("output/height", clamped)
+
+    def resizeEvent(self, event) -> None:
+        """Clamp output panel height when the window shrinks."""
+        super().resizeEvent(event)
+        if hasattr(self, "output"):
+            self._clamp_output_height()
+
+    def showEvent(self, event) -> None:
+        """Clamp restored output height against actual window size on first show."""
+        super().showEvent(event)
+        if hasattr(self, "output"):
+            self._clamp_output_height()
 
     def closeEvent(self, event) -> None:
         """Persist window geometry and session state; kill any running process on exit."""
