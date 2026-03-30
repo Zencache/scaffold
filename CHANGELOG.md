@@ -2,6 +2,55 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.3.1] — 2026-03-30
+
+### Added
+
+#### Tool Picker Search/Filter (Step 2)
+- Search bar at the top of the tool picker with placeholder "Filter tools..."
+- Filters by tool name, description, and path columns (case-insensitive)
+- Clear button restores all rows; auto-focuses on picker display
+
+#### Keyboard Navigation (Step 3)
+- Enter/Return key opens the selected tool from the picker
+- Tab order: search bar → table for natural keyboard flow
+- Numpad Enter also supported
+
+#### Enhanced Tooltips (Step 4)
+- Tooltips now show flag, short_flag, type, separator mode, description, and validation regex
+- Applied to both field labels and widgets
+- Boolean fields hide separator; positional fields show placeholder name
+
+#### Status Bar Improvements (Step 5)
+- On tool load: shows field count and required count — `Loaded {tool} — {N} fields ({M} required)`
+- During execution: elapsed timer ticks every second — `Running... (Ns)`
+- On completion: elapsed time in exit message — `Exit 0 (N.1fs)` or `Process stopped (N.1fs)`
+
+#### Exhaustive Preset Round-Trip Tests (Step 1)
+- Section 18: all 9 widget types, edge cases (integer 0, float 0.0, empty multi_enum, paths with spaces), subcommand presets
+
+### Changed
+- Version bump to 2.3.1
+- `time` added to stdlib imports (no new external dependencies)
+- scaffold.py line count: 2,739 → 2,823
+- Test files and test schemas now tracked in git (removed `test_*.py` from .gitignore)
+
+### Tested
+- **Section 19** — Search/Filter (11 assertions): bar existence, placeholder, name/description/case filtering, clear restore, no-match
+- **Section 20** — Keyboard Navigation (6 assertions): Enter opens tool, no-selection safety, tab order, numpad Enter
+- **Section 21** — Tooltip Flag Reference (11 assertions): flag, short_flag, type, validation, separator, positional, widget/label match
+- **Section 22** — Status Bar Improvements (12 assertions): field counts, required counts, subcommand totals, timer attributes
+
+#### Full suite results
+- **All 4 test suites pass: 441/441 assertions, 0 failures**
+  - Functional: 271/271 (+98 new: 58 Step 1, 11 Step 2, 6 Step 3, 11 Step 4, 12 Step 5)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.3.0] — 2026-03-29
 
 ### External Code Review Inputs

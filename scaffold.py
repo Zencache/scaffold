@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.3.0"
+__version__ = "2.3.1"
 
 import hashlib
 import json
