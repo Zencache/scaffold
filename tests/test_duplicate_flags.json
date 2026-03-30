@@ -1,0 +1,17 @@
+{
+  "tool": "broken",
+  "binary": "broken",
+  "description": "Two arguments sharing the same flag.",
+  "arguments": [
+    {
+      "name": "Port",
+      "flag": "-p",
+      "type": "string"
+    },
+    {
+      "name": "Protocol",
+      "flag": "-p",
+      "type": "string"
+    }
+  ]
+}

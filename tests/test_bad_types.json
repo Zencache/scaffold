@@ -1,0 +1,22 @@
+{
+  "tool": "broken",
+  "binary": "broken",
+  "description": "Arguments with hallucinated type values.",
+  "arguments": [
+    {
+      "name": "Path Arg",
+      "flag": "--path",
+      "type": "filepath"
+    },
+    {
+      "name": "Toggle",
+      "flag": "--toggle",
+      "type": "bool"
+    },
+    {
+      "name": "Number",
+      "flag": "--num",
+      "type": "number"
+    }
+  ]
+}

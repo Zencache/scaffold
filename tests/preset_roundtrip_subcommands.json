@@ -1,0 +1,157 @@
+{
+  "tool": "subcmd_roundtrip",
+  "binary": "echo",
+  "description": "Test schema with subcommands for preset round-trip testing.",
+  "subcommands": [
+    {
+      "name": "build",
+      "description": "Build the project",
+      "arguments": [
+        {
+          "name": "Optimize",
+          "flag": "--optimize",
+          "short_flag": null,
+          "type": "boolean",
+          "description": "Enable optimization",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "none",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        },
+        {
+          "name": "Target Platform",
+          "flag": "--platform",
+          "short_flag": null,
+          "type": "enum",
+          "description": "Target platform",
+          "required": false,
+          "default": null,
+          "choices": ["linux", "windows", "macos"],
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        },
+        {
+          "name": "Jobs",
+          "flag": "--jobs",
+          "short_flag": "-j",
+          "type": "integer",
+          "description": "Number of parallel jobs",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        }
+      ]
+    },
+    {
+      "name": "deploy",
+      "description": "Deploy the project",
+      "arguments": [
+        {
+          "name": "Environment",
+          "flag": "--env",
+          "short_flag": null,
+          "type": "string",
+          "description": "Deployment environment",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": ["staging", "production"]
+        },
+        {
+          "name": "Dry Run",
+          "flag": "--dry-run",
+          "short_flag": null,
+          "type": "boolean",
+          "description": "Simulate deployment",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "none",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        },
+        {
+          "name": "Timeout",
+          "flag": "--timeout",
+          "short_flag": null,
+          "type": "float",
+          "description": "Deploy timeout in seconds",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        },
+        {
+          "name": "Config",
+          "flag": "--config",
+          "short_flag": null,
+          "type": "file",
+          "description": "Deploy config file",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null
+        }
+      ]
+    }
+  ],
+  "arguments": [
+    {
+      "name": "Verbose",
+      "flag": "--verbose",
+      "short_flag": null,
+      "type": "boolean",
+      "description": "Global verbose flag",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "none",
+      "positional": false,
+      "validation": null,
+      "examples": null
+    }
+  ]
+}

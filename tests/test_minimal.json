@@ -1,0 +1,12 @@
+{
+  "tool": "minimal",
+  "binary": "true",
+  "description": "Bare minimum valid file.",
+  "arguments": [
+    {
+      "name": "Verbose",
+      "flag": "-v",
+      "type": "boolean"
+    }
+  ]
+}

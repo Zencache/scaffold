@@ -1,0 +1,18 @@
+{
+  "tool": "bad-dep",
+  "binary": "echo",
+  "description": "Schema with a broken depends_on reference.",
+  "arguments": [
+    {
+      "name": "Verbose",
+      "flag": "-v",
+      "type": "boolean"
+    },
+    {
+      "name": "Detail Level",
+      "flag": "--detail",
+      "type": "integer",
+      "depends_on": "--nonexistent"
+    }
+  ]
+}

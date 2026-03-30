@@ -1,0 +1,18 @@
+{
+  "tool": "good-dep",
+  "binary": "echo",
+  "description": "Schema with a valid depends_on reference.",
+  "arguments": [
+    {
+      "name": "Service Detection",
+      "flag": "-sV",
+      "type": "boolean"
+    },
+    {
+      "name": "Version Intensity",
+      "flag": "--version-intensity",
+      "type": "integer",
+      "depends_on": "-sV"
+    }
+  ]
+}

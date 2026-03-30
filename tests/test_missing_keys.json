@@ -1,0 +1,15 @@
+{
+  "tool": "broken",
+  "description": "Missing binary at top level, missing type on an argument.",
+  "arguments": [
+    {
+      "name": "Good Arg",
+      "flag": "-g",
+      "type": "boolean"
+    },
+    {
+      "name": "Bad Arg",
+      "flag": "-b"
+    }
+  ]
+}

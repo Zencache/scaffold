@@ -1,0 +1,18 @@
+{
+  "tool": "broken",
+  "binary": "broken",
+  "description": "Enum with missing and empty choices.",
+  "arguments": [
+    {
+      "name": "Format",
+      "flag": "--format",
+      "type": "enum"
+    },
+    {
+      "name": "Mode",
+      "flag": "--mode",
+      "type": "multi_enum",
+      "choices": []
+    }
+  ]
+}
