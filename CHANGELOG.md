@@ -2,6 +2,67 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.0] — 2026-03-30
+
+### Added
+
+#### Collapsible Argument Groups — `display_group` field (Step 6 / 4A)
+
+New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
+
+- **Schema field:** `"display_group": null` added to `ARG_DEFAULTS` as the 16th argument field. Accepts a string (group name) or null (ungrouped — renders flat as before).
+- **Normalization:** `normalize_tool()` automatically fills missing `display_group` keys with null via the existing `ARG_DEFAULTS` loop. All existing schemas remain valid with no changes.
+- **Validation:** `_validate_args()` accepts `display_group` as an optional string-or-null field. Non-string, non-null values produce a validation error.
+- **Form rendering:** `_add_args()` partitions arguments by `display_group` value. Ungrouped arguments render directly in the form layout. Grouped arguments are collected into a `QGroupBox` per unique `display_group` name, with a `QFormLayout` inside. The group box title is clickable (pointer cursor) and toggles content visibility via `_toggle_display_group()`.
+- **Collapse state:** Tracked via `_dg_collapsed` property on each `QGroupBox`. Default: expanded (False). State does not persist across sessions.
+- **Subcommand support:** Display groups work identically within subcommand argument sections.
+- **No impact on existing behavior:** Command assembly (`build_command()`), preset serialization/deserialization (`serialize_values()` / `apply_values()` / `reset_to_defaults()`), mutual exclusivity groups, dependencies, and all existing widget types are completely unchanged.
+- **New `ToolForm` attributes:**
+  - `self.display_groups` — dict keyed by scope → `{display_group_name: QGroupBox}`
+  - `_add_single_arg()` — extracted from `_add_args` loop body for reuse by both ungrouped and grouped code paths
+  - `_toggle_display_group(box)` — toggles collapsed state and content visibility of a display group QGroupBox
+- **PROMPT.txt updated:** Field count 15 → 16, `display_group` documented in the argument object spec, added to all example arguments, checklist updated.
+
+#### Field Search / Jump — Ctrl+F (Step 7 / 4B)
+
+Always-visible `QLineEdit` search bar positioned below the tool name, description, and separator. Users can type to search or press Ctrl+F to focus it. Searches field names and flag names across all visible fields (global args + current subcommand).
+
+- **Search bar widget:** `QLineEdit` with placeholder text `"Find field...  (Ctrl+F)"`, always visible at the top of the form area (below tool header, above elevation/subcommand controls). Paired with a `QLabel` "No matches" indicator that appears when a query has zero results.
+- **Search behavior:** Case-insensitive substring matching against both the argument `name` (human-readable label) and `flag` (CLI flag string). As the user types, the first matching field's label receives a yellow highlight (`background-color: #fff176`) and the `QScrollArea` scrolls to make it visible via `ensureWidgetVisible()`.
+- **Match cycling:** Enter key jumps to the next match (`_search_next`), Shift+Enter jumps to the previous match (`_search_prev`). Index wraps around at both ends.
+- **Display group integration:** If a match is found inside a collapsed `display_group` section, the section is automatically expanded before scrolling.
+- **Scope filtering:** Only searches fields in visible scopes — global args (`__global__`) and the currently selected subcommand. Hidden subcommand sections are excluded.
+- **Keyboard shortcuts:** Ctrl+F focuses the search bar and selects all text. Escape clears the search text, removes all highlights, and defocuses the bar. Enter/Shift+Enter handled via `eventFilter` installed on the search bar.
+- **Implementation:** `open_search()` focuses the bar, `close_search()` clears text/highlights/state and defocuses. `_on_search_text_changed()` rebuilds the match list on every keystroke. `_highlight_and_scroll()` applies the highlight stylesheet and scrolls. `_clear_search_highlights()` resets all highlighted labels.
+- **No impact on existing behavior:** No schema changes, no command assembly changes, no preset changes. Ctrl+F does not conflict with any existing shortcut (Ctrl+Enter, Escape, Ctrl+S, Ctrl+L, Ctrl+O, Ctrl+R, Ctrl+D, Ctrl+B, Ctrl+Q).
+
+### Changed
+- Version bump to 2.5.0
+- scaffold.py line count: 2,823 → 3,023
+- Argument field count: 15 → 16 (`display_group` added)
+- PROMPT.txt: argument object field count 15 → 16, example arguments updated with `display_group: null`, checklist updated
+- `QScrollArea` in `ToolForm._build_ui()` stored as `self._scroll` (was local variable `scroll`) to support `ensureWidgetVisible()` in field search
+- `_shortcut_stop()` in `MainWindow` now checks if the search bar is active and clears it before attempting to stop a running process
+
+### Tested
+- **Section 23** — Collapsible Argument Groups (24 assertions): QGroupBox creation with correct title, field containment (3 grouped fields inside box, 2 ungrouped fields outside), `_dg_content` property existence, initial expanded state, collapse toggle, expand toggle, `build_command()` output unchanged with grouped fields, preset serialization/deserialization round-trip, `display_groups` dict populated correctly, subcommand schema with display groups
+- **Section 24** — Field Search / Jump (29 assertions): search bar always visible with correct placeholder text, open_search focuses bar, partial name match highlights correct label with `background-color` style, close_search clears text/highlights/state while bar remains visible, flag name search (`--top-ports`) finds exact match, no-match query shows "No matches" label without crash, clearing text hides "No matches" label, Enter cycles to next match (index advances, previous highlight cleared, new highlight applied), Shift+Enter cycles backward, Escape clears search state, single-match wrap-around
+
+#### Test schemas added
+- `tests/test_display_groups.json` — 5 arguments: 3 with `display_group: "Network"` (string, integer, enum types), 2 with `display_group: null` (boolean, file types)
+- `tests/test_display_groups_subcmd.json` — subcommand schema with `display_group: "Scan Options"` on 2 of 3 subcommand arguments, plus 1 ungrouped global argument
+
+#### Full suite results
+- **All 4 test suites pass: 494/494 assertions, 0 failures**
+  - Functional: 324/324 (+24 Section 23, +29 Section 24)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.4.0] — 2026-03-30
 
 ### Added
