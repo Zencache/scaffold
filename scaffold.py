@@ -47,6 +47,7 @@ ARG_DEFAULTS = {
     "positional": False,
     "validation": None,
     "examples": None,
+    "display_group": None,
 }
 
 # Widget size constants
@@ -179,6 +180,10 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
                 errors.append(f"{prefix}: \"examples\" must be a list of strings or null")
             if "type" in arg and arg["type"] == "enum":
                 errors.append(f"{prefix}: has both \"choices\" and \"examples\" set. For enum types, \"choices\" is used and \"examples\" is ignored")
+
+        if "display_group" in arg and arg["display_group"] is not None:
+            if not isinstance(arg["display_group"], str):
+                errors.append(f"{prefix}: \"display_group\" must be a string or null")
 
 
 def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
@@ -628,6 +633,8 @@ class ToolForm(QWidget):
         self.groups = {}
         # (scope, flag) -> compiled regex
         self.validators = {}
+        # scope -> {display_group_name: QGroupBox}
+        self.display_groups = {}
 
         self._build_ui()
         self._apply_groups()
@@ -771,46 +778,101 @@ class ToolForm(QWidget):
 
     def _add_args(self, args: list, form_layout: QFormLayout, scope: str) -> None:
         """Create and register a widget row for each arg in args under the given scope."""
+        # Partition args by display_group while preserving order
+        ungrouped = []
+        display_groups: dict[str, list] = {}
+        display_group_order: list[str] = []
         for arg in args:
-            flag = arg["flag"]
-            key = self._field_key(scope, flag)
-            widget = self._build_widget(arg, key)
-            label_text = arg["name"]
-            if arg["required"]:
-                label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
-            label = QLabel(label_text)
-            label.setTextFormat(Qt.TextFormat.RichText)
-            label.setToolTip(self._build_tooltip(arg))
-
-            # Repeatable: add a count spinner next to the widget
-            repeat_spin = None
-            if arg["repeatable"] and arg["type"] == "boolean":
-                row_widget = QWidget()
-                row_layout = QHBoxLayout(row_widget)
-                row_layout.setContentsMargins(0, 0, 0, 0)
-                row_layout.addWidget(widget, 1)
-                repeat_spin = QSpinBox()
-                repeat_spin.setRange(1, REPEAT_SPIN_MAX)
-                repeat_spin.setValue(1)
-                repeat_spin.setPrefix("x")
-                repeat_spin.setToolTip("Number of times to repeat this flag")
-                repeat_spin.setMaximumWidth(REPEAT_SPIN_WIDTH)
-                repeat_spin.valueChanged.connect(lambda _: self.command_changed.emit())
-                row_layout.addWidget(repeat_spin)
-                form_layout.addRow(label, row_widget)
+            dg = arg.get("display_group")
+            if dg:
+                if dg not in display_groups:
+                    display_groups[dg] = []
+                    display_group_order.append(dg)
+                display_groups[dg].append(arg)
             else:
-                form_layout.addRow(label, widget)
+                ungrouped.append(arg)
 
-            if arg["group"]:
-                group_key = (scope, arg["group"])
-                self.groups.setdefault(group_key, []).append(key)
+        # Add ungrouped args directly to the form layout
+        for arg in ungrouped:
+            self._add_single_arg(arg, form_layout, scope)
 
-            self.fields[key] = {
-                "arg": arg,
-                "widget": widget,
-                "label": label,
-                "repeat_spin": repeat_spin,
-            }
+        # Add each display_group as a collapsible section
+        for dg_name in display_group_order:
+            dg_args = display_groups[dg_name]
+            box = QGroupBox(dg_name)
+            box_inner = QWidget()
+            box_form = QFormLayout(box_inner)
+            box_form.setContentsMargins(0, 0, 0, 0)
+            box_layout = QVBoxLayout()
+            box_layout.setContentsMargins(4, 4, 4, 4)
+            box_layout.addWidget(box_inner)
+            box.setLayout(box_layout)
+
+            for arg in dg_args:
+                self._add_single_arg(arg, box_form, scope)
+
+            # Make the group box collapsible via title click
+            box.setProperty("_dg_content", box_inner)
+            box.setProperty("_dg_collapsed", False)
+            box.mousePressEvent = lambda event, b=box: self._toggle_display_group(b)
+            box.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+            # Store in parent layout — form_layout is a QFormLayout,
+            # so wrap the group box in a row spanning both columns.
+            form_layout.addRow(box)
+
+            self.display_groups.setdefault(scope, {})[dg_name] = box
+
+    def _toggle_display_group(self, box: QGroupBox) -> None:
+        """Toggle visibility of a collapsible display group's contents."""
+        content = box.property("_dg_content")
+        if content is not None:
+            collapsed = box.property("_dg_collapsed")
+            collapsed = not collapsed
+            box.setProperty("_dg_collapsed", collapsed)
+            content.setVisible(not collapsed)
+
+    def _add_single_arg(self, arg: dict, form_layout: QFormLayout, scope: str) -> None:
+        """Create and register a single widget row for an arg under the given scope."""
+        flag = arg["flag"]
+        key = self._field_key(scope, flag)
+        widget = self._build_widget(arg, key)
+        label_text = arg["name"]
+        if arg["required"]:
+            label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
+        label = QLabel(label_text)
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setToolTip(self._build_tooltip(arg))
+
+        # Repeatable: add a count spinner next to the widget
+        repeat_spin = None
+        if arg["repeatable"] and arg["type"] == "boolean":
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(widget, 1)
+            repeat_spin = QSpinBox()
+            repeat_spin.setRange(1, REPEAT_SPIN_MAX)
+            repeat_spin.setValue(1)
+            repeat_spin.setPrefix("x")
+            repeat_spin.setToolTip("Number of times to repeat this flag")
+            repeat_spin.setMaximumWidth(REPEAT_SPIN_WIDTH)
+            repeat_spin.valueChanged.connect(lambda _: self.command_changed.emit())
+            row_layout.addWidget(repeat_spin)
+            form_layout.addRow(label, row_widget)
+        else:
+            form_layout.addRow(label, widget)
+
+        if arg["group"]:
+            group_key = (scope, arg["group"])
+            self.groups.setdefault(group_key, []).append(key)
+
+        self.fields[key] = {
+            "arg": arg,
+            "widget": widget,
+            "label": label,
+            "repeat_spin": repeat_spin,
+        }
 
     # ------------------------------------------------------------------
     # Widget factory

@@ -13,7 +13,7 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
   "arguments": "<array> Argument objects. If subcommands exist, these are GLOBAL flags only"
 }
 
-=== ARGUMENT OBJECT (every argument MUST have ALL 15 fields) ===
+=== ARGUMENT OBJECT (every argument MUST have ALL 16 fields) ===
 
 {
   "name": "<string> Human-readable label",
@@ -30,7 +30,8 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
   "separator": "<string> \"space\" for --flag VALUE, \"equals\" for --flag=VALUE, \"none\" for -T4 or booleans. Default \"space\"",
   "positional": "<bool> true if no flag prefix. Default false",
   "validation": "<string or null> Regex for constrained string formats only. null otherwise",
-  "examples": "<array of strings or null> Suggestions for string fields. See examples vs enum rule below"
+  "examples": "<array of strings or null> Suggestions for string fields. See examples vs enum rule below",
+  "display_group": "<string or null> Visual grouping label. Arguments sharing the same display_group value are rendered together in a collapsible section. null if none"
 }
 
 === SUBCOMMAND OBJECT ===
@@ -106,7 +107,8 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": null
+      "examples": null,
+      "display_group": null
     },
     {
       "name": "Output Format",
@@ -123,7 +125,8 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": null
+      "examples": null,
+      "display_group": null
     },
     {
       "name": "Quality",
@@ -140,7 +143,8 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "separator": "equals",
       "positional": false,
       "validation": null,
-      "examples": null
+      "examples": null,
+      "display_group": null
     },
     {
       "name": "Resize Filter",
@@ -157,7 +161,8 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["lanczos", "bicubic", "nearest", "bilinear"]
+      "examples": ["lanczos", "bicubic", "nearest", "bilinear"],
+      "display_group": null
     },
     {
       "name": "Input File",
@@ -174,7 +179,8 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "separator": "space",
       "positional": true,
       "validation": null,
-      "examples": null
+      "examples": null,
+      "display_group": null
     }
   ]
 }
@@ -183,7 +189,7 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
 
 Before returning, verify:
 1. Top-level has: tool, binary, description, arguments, elevated
-2. Every argument has ALL 15 fields — no missing keys
+2. Every argument has ALL 16 fields — no missing keys
 3. type is from the valid list. separator is "space", "equals", or "none"
 4. enum/multi_enum have non-empty choices. All other types have choices: null
 5. Booleans have separator: "none"

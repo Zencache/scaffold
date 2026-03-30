@@ -1939,6 +1939,116 @@ shutil.rmtree(_s22_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 23 — Collapsible Argument Groups (display_group)
+# =====================================================================
+print("\n--- Section 23: Collapsible Argument Groups ---")
+
+from PySide6.QtWidgets import QGroupBox, QFormLayout
+
+# 23a: Load test schema with display_group fields
+_s23_tmpdir = tempfile.mkdtemp()
+_s23_schema = str(Path(__file__).parent / "tests" / "test_display_groups.json")
+shutil.copy(_s23_schema, _s23_tmpdir)
+
+_s23_w = scaffold.MainWindow()
+_s23_w._load_tool_path(str(Path(_s23_tmpdir) / "test_display_groups.json"))
+app.processEvents()
+
+_s23_f = _s23_w.form
+_s23_G = _s23_f.GLOBAL
+
+# 23b: Assert a QGroupBox titled "Network" exists within the form
+_s23_group_boxes = _s23_f.findChildren(QGroupBox, "")
+_s23_network_boxes = [b for b in _s23_group_boxes if b.title() == "Network"]
+check(len(_s23_network_boxes) == 1, "exactly one QGroupBox titled 'Network' exists")
+_s23_net_box = _s23_network_boxes[0]
+
+# 23c: Assert 3 grouped fields are inside the Network group box
+_s23_host_widget = _s23_f.fields[(_s23_G, "--host")]["widget"]
+_s23_port_widget = _s23_f.fields[(_s23_G, "--port")]["widget"]
+_s23_proto_widget = _s23_f.fields[(_s23_G, "--protocol")]["widget"]
+check(_s23_net_box.isAncestorOf(_s23_host_widget), "--host widget is inside Network group box")
+check(_s23_net_box.isAncestorOf(_s23_port_widget), "--port widget is inside Network group box")
+check(_s23_net_box.isAncestorOf(_s23_proto_widget), "--protocol widget is inside Network group box")
+
+# 23d: Assert ungrouped fields are NOT inside the Network group box
+_s23_verbose_widget = _s23_f.fields[(_s23_G, "-v")]["widget"]
+_s23_output_widget = _s23_f.fields[(_s23_G, "--output")]["widget"]
+check(not _s23_net_box.isAncestorOf(_s23_verbose_widget), "-v widget is NOT inside Network group box")
+check(not _s23_net_box.isAncestorOf(_s23_output_widget), "--output widget is NOT inside Network group box")
+
+# 23e: Group box is initially expanded (not collapsed)
+_s23_content = _s23_net_box.property("_dg_content")
+check(_s23_content is not None, "group box has _dg_content property")
+check(_s23_net_box.property("_dg_collapsed") == False, "group box initially not collapsed (expanded)")
+
+# 23f: Collapse the group — collapsed flag becomes True
+_s23_f._toggle_display_group(_s23_net_box)
+app.processEvents()
+check(_s23_net_box.property("_dg_collapsed") == True, "group box collapsed after toggle")
+
+# 23g: Expand again — collapsed flag becomes False
+_s23_f._toggle_display_group(_s23_net_box)
+app.processEvents()
+check(_s23_net_box.property("_dg_collapsed") == False, "group box expanded after second toggle")
+
+# 23h: Command assembly works correctly with grouped fields
+_s23_f.fields[(_s23_G, "--host")]["widget"].setText("example.com")
+app.processEvents()
+_s23_cmd, _s23_display = _s23_f.build_command()
+check("--host" in _s23_cmd, "build_command includes --host from display group")
+check("example.com" in _s23_cmd, "build_command includes host value from display group")
+check("echo" == _s23_cmd[0], "build_command binary is correct")
+
+# 23i: Preset round-trip works with grouped fields
+_s23_f.fields[(_s23_G, "--host")]["widget"].setText("test.local")
+_s23_vals = _s23_f.serialize_values()
+check("--host" in _s23_vals, "serialized preset contains grouped field key")
+check(_s23_vals["--host"] == "test.local", "serialized preset has correct grouped field value")
+
+# Reset and apply
+_s23_f.reset_to_defaults()
+app.processEvents()
+check(_s23_f.fields[(_s23_G, "--host")]["widget"].text() == "", "field cleared after reset")
+_s23_f.apply_values(_s23_vals)
+app.processEvents()
+check(_s23_f.fields[(_s23_G, "--host")]["widget"].text() == "test.local", "field restored after apply_values")
+
+# 23j: display_groups dict is populated correctly
+check(_s23_G in _s23_f.display_groups, "display_groups has GLOBAL scope")
+check("Network" in _s23_f.display_groups[_s23_G], "display_groups[GLOBAL] has 'Network' key")
+check(_s23_f.display_groups[_s23_G]["Network"] is _s23_net_box, "display_groups points to correct QGroupBox")
+
+# 23k: Test with subcommand schema
+_s23_subcmd_schema = str(Path(__file__).parent / "tests" / "test_display_groups_subcmd.json")
+shutil.copy(_s23_subcmd_schema, _s23_tmpdir)
+_s23_w2 = scaffold.MainWindow()
+_s23_w2._load_tool_path(str(Path(_s23_tmpdir) / "test_display_groups_subcmd.json"))
+app.processEvents()
+
+_s23_f2 = _s23_w2.form
+_s23_scan_boxes = [b for b in _s23_f2.findChildren(QGroupBox) if b.title() == "Scan Options"]
+check(len(_s23_scan_boxes) == 1, "subcommand schema has QGroupBox titled 'Scan Options'")
+_s23_scan_box = _s23_scan_boxes[0]
+
+_s23_target_widget = _s23_f2.fields[("scan", "--target")]["widget"]
+_s23_depth_widget = _s23_f2.fields[("scan", "--depth")]["widget"]
+check(_s23_scan_box.isAncestorOf(_s23_target_widget), "--target is inside 'Scan Options' group box")
+check(_s23_scan_box.isAncestorOf(_s23_depth_widget), "--depth is inside 'Scan Options' group box")
+
+# Ungrouped subcommand arg is NOT in the display group box
+_s23_quiet_widget = _s23_f2.fields[("scan", "--quiet")]["widget"]
+check(not _s23_scan_box.isAncestorOf(_s23_quiet_widget), "--quiet is NOT inside 'Scan Options' group box")
+
+_s23_w.close()
+_s23_w.deleteLater()
+_s23_w2.close()
+_s23_w2.deleteLater()
+app.processEvents()
+shutil.rmtree(_s23_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

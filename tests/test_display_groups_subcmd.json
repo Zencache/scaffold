@@ -1,0 +1,87 @@
+{
+  "tool": "display_group_subcmd_test",
+  "binary": "echo",
+  "description": "Test schema for display groups with subcommands.",
+  "subcommands": [
+    {
+      "name": "scan",
+      "description": "Scan targets",
+      "arguments": [
+        {
+          "name": "Target",
+          "flag": "--target",
+          "short_flag": null,
+          "type": "string",
+          "description": "Scan target",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null,
+          "display_group": "Scan Options"
+        },
+        {
+          "name": "Depth",
+          "flag": "--depth",
+          "short_flag": null,
+          "type": "integer",
+          "description": "Scan depth",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "space",
+          "positional": false,
+          "validation": null,
+          "examples": null,
+          "display_group": "Scan Options"
+        },
+        {
+          "name": "Quiet",
+          "flag": "--quiet",
+          "short_flag": null,
+          "type": "boolean",
+          "description": "Suppress output",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "group": null,
+          "depends_on": null,
+          "repeatable": false,
+          "separator": "none",
+          "positional": false,
+          "validation": null,
+          "examples": null,
+          "display_group": null
+        }
+      ]
+    }
+  ],
+  "arguments": [
+    {
+      "name": "Verbose",
+      "flag": "-v",
+      "short_flag": null,
+      "type": "boolean",
+      "description": "Enable verbose output",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "group": null,
+      "depends_on": null,
+      "repeatable": false,
+      "separator": "none",
+      "positional": false,
+      "validation": null,
+      "examples": null,
+      "display_group": null
+    }
+  ]
+}
