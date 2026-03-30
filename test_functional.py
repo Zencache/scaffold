@@ -1889,6 +1889,56 @@ shutil.rmtree(_s21_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 22 — Status Bar Improvements
+# =====================================================================
+print("\n--- Section 22: Status Bar Improvements ---")
+
+import re as _s22_re
+import time as _s22_time
+
+# 22a: Load a tool with required fields — status bar shows field count and required count
+_s22_tmpdir = tempfile.mkdtemp()
+_s22_schema_req = str(Path(__file__).parent / "tests" / "preset_roundtrip_all_types.json")
+shutil.copy(_s22_schema_req, _s22_tmpdir)
+
+_s22_w = scaffold.MainWindow()
+_s22_w._load_tool_path(str(Path(_s22_tmpdir) / "preset_roundtrip_all_types.json"))
+app.processEvents()
+
+_s22_msg = _s22_w.statusBar().currentMessage()
+check("roundtrip_test" in _s22_msg, f"status bar contains tool name: {repr(_s22_msg)}")
+check(_s22_re.search(r"\d+ fields", _s22_msg) is not None, f"status bar contains field count: {repr(_s22_msg)}")
+check("12 fields" in _s22_msg, f"status bar shows correct total field count (12): {repr(_s22_msg)}")
+check(_s22_re.search(r"\d+ required", _s22_msg) is not None, f"status bar contains required count: {repr(_s22_msg)}")
+check("1 required" in _s22_msg, f"status bar shows 1 required: {repr(_s22_msg)}")
+
+# 22b: Load a tool with NO required fields — status bar shows (0 required)
+_s22_schema_norq = str(Path(__file__).parent / "tests" / "preset_roundtrip_subcommands.json")
+shutil.copy(_s22_schema_norq, _s22_tmpdir)
+_s22_w._load_tool_path(str(Path(_s22_tmpdir) / "preset_roundtrip_subcommands.json"))
+app.processEvents()
+
+_s22_msg2 = _s22_w.statusBar().currentMessage()
+check("subcmd_roundtrip" in _s22_msg2, f"status bar contains subcommand tool name: {repr(_s22_msg2)}")
+check("0 required" in _s22_msg2, f"status bar shows 0 required for no-required tool: {repr(_s22_msg2)}")
+
+# 22c: Subcommand tool counts global + all subcommand args
+# preset_roundtrip_subcommands.json: 1 global + 3 build + 4 deploy = 8 total
+check("8 fields" in _s22_msg2, f"status bar shows correct total for subcommand tool (8): {repr(_s22_msg2)}")
+
+# 22d: Elapsed timer attributes exist
+check(hasattr(_s22_w, '_run_start_time'), "MainWindow has _run_start_time attribute")
+check(_s22_w._run_start_time is None, "_run_start_time is None when no process running")
+check(hasattr(_s22_w, '_elapsed_timer'), "MainWindow has _elapsed_timer attribute")
+check(not _s22_w._elapsed_timer.isActive(), "_elapsed_timer is not active when no process running")
+
+_s22_w.close()
+_s22_w.deleteLater()
+app.processEvents()
+shutil.rmtree(_s22_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

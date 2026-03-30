@@ -27,6 +27,7 @@ import shlex
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory"}
@@ -1849,6 +1850,10 @@ class MainWindow(QMainWindow):
         self.process = None
         self._killed = False
         self._elevated_run = False
+        self._run_start_time: float | None = None
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed)
         self.settings = QSettings("Scaffold", "Scaffold")
 
         # Restore geometry
@@ -2212,7 +2217,20 @@ class MainWindow(QMainWindow):
         self.act_back.setEnabled(True)
         self.preset_menu.setEnabled(True)
         self.settings.setValue("session/last_tool", path)
-        self.statusBar().showMessage(f"Loaded {data['tool']}")
+        # Count fields and required fields for status message
+        total_fields = len(data.get("arguments") or [])
+        required_fields = sum(
+            1 for a in (data.get("arguments") or []) if a.get("required")
+        )
+        if data.get("subcommands"):
+            for sub in data["subcommands"]:
+                total_fields += len(sub.get("arguments") or [])
+                required_fields += sum(
+                    1 for a in (sub.get("arguments") or []) if a.get("required")
+                )
+        self.statusBar().showMessage(
+            f"Loaded {data['tool']} — {total_fields} fields ({required_fields} required)"
+        )
 
         # Binary-in-PATH warning
         if not _binary_in_path(data["binary"]):
@@ -2230,6 +2248,8 @@ class MainWindow(QMainWindow):
     def _build_form_view(self):
         """Tear down old form widgets and build fresh ones for self.data."""
         # Kill any running process
+        self._elapsed_timer.stop()
+        self._run_start_time = None
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.kill()
             self.process.waitForFinished(2000)
@@ -2576,9 +2596,11 @@ class MainWindow(QMainWindow):
         self._append_output(f"$ {display}\n", COLOR_CMD)
 
         self._killed = False
+        self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
         self._style_run_btn()
-        self.statusBar().showMessage("Running...")
+        self.statusBar().showMessage("Running... (0s)")
+        self._elapsed_timer.start()
         self.process.start()
 
     def _on_stdout_ready(self) -> None:
@@ -2612,12 +2634,24 @@ class MainWindow(QMainWindow):
         self.output.setTextCursor(cursor)
         self.output.ensureCursorVisible()
 
+    def _update_elapsed(self) -> None:
+        """Tick the status bar with elapsed seconds while a process is running."""
+        if self._run_start_time is not None:
+            elapsed = int(time.monotonic() - self._run_start_time)
+            self.statusBar().showMessage(f"Running... ({elapsed}s)")
+
     def _on_finished(self, exit_code: int, exit_status) -> None:
         """Handle process termination: print exit status and re-enable the Run button."""
+        self._elapsed_timer.stop()
         self._flush_output()
+        elapsed_str = ""
+        if self._run_start_time is not None:
+            elapsed = time.monotonic() - self._run_start_time
+            elapsed_str = f" ({elapsed:.1f}s)"
+            self._run_start_time = None
         if self._killed:
             self._append_output("\n--- Process stopped ---\n", COLOR_WARN)
-            self.statusBar().showMessage("Process stopped")
+            self.statusBar().showMessage(f"Process stopped{elapsed_str}")
         elif self._elevated_run and exit_code in (126, 127):
             self._append_output(
                 "\n--- Elevation was cancelled by the user. ---\n", COLOR_WARN
@@ -2625,10 +2659,10 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Elevation cancelled")
         elif exit_code == 0:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_OK)
-            self.statusBar().showMessage("Process exited with code 0")
+            self.statusBar().showMessage(f"Exit 0{elapsed_str}")
         else:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
-            self.statusBar().showMessage(f"Process exited with code {exit_code}")
+            self.statusBar().showMessage(f"Exit {exit_code}{elapsed_str}")
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
