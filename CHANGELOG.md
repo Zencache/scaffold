@@ -38,7 +38,7 @@ The output panel resize handle allowed dragging the panel taller than the visibl
 
 ### Added
 
-#### Syntax-Colored Command Preview (Step 8 / 2A)
+#### Syntax-Colored Command Preview
 
 The command preview panel now displays syntax-colored output. Each token type is rendered in a distinct color for instant visual parsing of the assembled command.
 
@@ -84,7 +84,7 @@ The command preview panel now displays syntax-colored output. Each token type is
 
 ### Added
 
-#### Collapsible Argument Groups — `display_group` field (Step 6 / 4A)
+#### Collapsible Argument Groups — `display_group` field
 
 New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
 
@@ -101,7 +101,7 @@ New optional argument field `display_group` (string or null) enables visual grou
   - `_toggle_display_group(box)` — toggles collapsed state and content visibility of a display group QGroupBox
 - **PROMPT.txt updated:** Field count 15 → 16, `display_group` documented in the argument object spec, added to all example arguments, checklist updated.
 
-#### Field Search / Jump — Ctrl+F (Step 7 / 4B)
+#### Field Search / Jump — Ctrl+F
 
 Always-visible `QLineEdit` search bar positioned below the tool name, description, and separator. Users can type to search or press Ctrl+F to focus it. Searches field names and flag names across all visible fields (global args + current subcommand).
 
@@ -145,7 +145,7 @@ Always-visible `QLineEdit` search bar positioned below the tool name, descriptio
 
 ### Added
 
-#### Collapsible Argument Groups — `display_group` field (Step 6 / 4A)
+#### Collapsible Argument Groups — `display_group` field
 
 New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
 
@@ -190,27 +190,27 @@ New optional argument field `display_group` (string or null) enables visual grou
 
 ### Added
 
-#### Tool Picker Search/Filter (Step 2)
+#### Tool Picker Search/Filter
 - Search bar at the top of the tool picker with placeholder "Filter tools..."
 - Filters by tool name, description, and path columns (case-insensitive)
 - Clear button restores all rows; auto-focuses on picker display
 
-#### Keyboard Navigation (Step 3)
+#### Keyboard Navigation
 - Enter/Return key opens the selected tool from the picker
 - Tab order: search bar → table for natural keyboard flow
 - Numpad Enter also supported
 
-#### Enhanced Tooltips (Step 4)
+#### Enhanced Tooltips
 - Tooltips now show flag, short_flag, type, separator mode, description, and validation regex
 - Applied to both field labels and widgets
 - Boolean fields hide separator; positional fields show placeholder name
 
-#### Status Bar Improvements (Step 5)
+#### Status Bar Improvements
 - On tool load: shows field count and required count — `Loaded {tool} — {N} fields ({M} required)`
 - During execution: elapsed timer ticks every second — `Running... (Ns)`
 - On completion: elapsed time in exit message — `Exit 0 (N.1fs)` or `Process stopped (N.1fs)`
 
-#### Exhaustive Preset Round-Trip Tests (Step 1)
+#### Exhaustive Preset Round-Trip Tests
 - Section 18: all 9 widget types, edge cases (integer 0, float 0.0, empty multi_enum, paths with spaces), subcommand presets
 
 ### Changed
@@ -227,7 +227,7 @@ New optional argument field `display_group` (string or null) enables visual grou
 
 #### Full suite results
 - **All 4 test suites pass: 441/441 assertions, 0 failures**
-  - Functional: 271/271 (+98 new: 58 Step 1, 11 Step 2, 6 Step 3, 11 Step 4, 12 Step 5)
+  - Functional: 271/271 (+98 new)
   - Examples: 52/52 (unchanged)
   - Manual Verification: 61/61 (unchanged)
   - Smoke: 57/57 (unchanged)
