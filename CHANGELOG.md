@@ -2,6 +2,51 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.4.0] — 2026-03-30
+
+### Added
+
+#### Collapsible Argument Groups — `display_group` field (Step 6 / 4A)
+
+New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
+
+- **Schema field:** `"display_group": null` added to `ARG_DEFAULTS` as the 16th argument field. Accepts a string (group name) or null (ungrouped — renders flat as before).
+- **Normalization:** `normalize_tool()` automatically fills missing `display_group` keys with null via the existing `ARG_DEFAULTS` loop. All existing schemas remain valid with no changes.
+- **Validation:** `_validate_args()` accepts `display_group` as an optional string-or-null field. Non-string, non-null values produce a validation error.
+- **Form rendering:** `_add_args()` partitions arguments by `display_group` value. Ungrouped arguments render directly in the form layout. Grouped arguments are collected into a `QGroupBox` per unique `display_group` name, with a `QFormLayout` inside. The group box title is clickable (pointer cursor) and toggles content visibility via `_toggle_display_group()`.
+- **Collapse state:** Tracked via `_dg_collapsed` property on each `QGroupBox`. Default: expanded (False). State does not persist across sessions.
+- **Subcommand support:** Display groups work identically within subcommand argument sections.
+- **No impact on existing behavior:** Command assembly (`build_command()`), preset serialization/deserialization (`serialize_values()` / `apply_values()` / `reset_to_defaults()`), mutual exclusivity groups, dependencies, and all existing widget types are completely unchanged.
+- **New `ToolForm` attributes:**
+  - `self.display_groups` — dict keyed by scope → `{display_group_name: QGroupBox}`
+  - `_add_single_arg()` — extracted from `_add_args` loop body for reuse by both ungrouped and grouped code paths
+  - `_toggle_display_group(box)` — toggles collapsed state and content visibility of a display group QGroupBox
+- **PROMPT.txt updated:** Field count 15 → 16, `display_group` documented in the argument object spec, added to all example arguments, checklist updated.
+
+### Changed
+- Version bump to 2.4.0
+- scaffold.py line count: 2,823 → 2,885
+- Argument field count: 15 → 16 (`display_group` added)
+- PROMPT.txt: argument object field count 15 → 16, example arguments updated with `display_group: null`
+
+### Tested
+- **Section 23** — Collapsible Argument Groups (24 assertions): QGroupBox creation with correct title, field containment (3 grouped fields inside box, 2 ungrouped fields outside), `_dg_content` property existence, initial expanded state, collapse toggle hides content, expand toggle restores content, `build_command()` output unchanged with grouped fields, preset serialization includes grouped field keys with correct values, `reset_to_defaults()` clears grouped fields, `apply_values()` restores grouped fields, `display_groups` dict populated with correct scope/name/QGroupBox references, subcommand schema creates separate display group QGroupBox with correct field containment
+
+#### Test schemas added
+- `tests/test_display_groups.json` — 5 arguments: 3 with `display_group: "Network"` (string, integer, enum types), 2 with `display_group: null` (boolean, file types)
+- `tests/test_display_groups_subcmd.json` — subcommand schema with `display_group: "Scan Options"` on 2 of 3 subcommand arguments, plus 1 ungrouped global argument
+
+#### Full suite results
+- **All 4 test suites pass: 465/465 assertions, 0 failures**
+  - Functional: 295/295 (+24 new in Section 23)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.3.1] — 2026-03-30
 
 ### Added

@@ -7,14 +7,14 @@ Scaffold dynamically generates interactive GUI forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-2%2C823%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-2%2C885%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — the author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (441 passing assertions across 4 suites), it has not been extensively tested in production environments. **Scaffold may not work well with all CLI programs.** This tool has been minimally tested, if you have issues with a specific version try rolling back to a different verson. On the schema generation side, tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window, resulting in incomplete or inaccurate output. On the UI side, complex tools with many subcommands (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are difficult to navigate — the options change with every subcommand selection and important flags can get buried. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — the author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (465 passing assertions across 4 suites), it has not been extensively tested in production environments. **Scaffold may not work well with all CLI programs.** This tool has been minimally tested, if you have issues with a specific version try rolling back to a different verson. On the schema generation side, tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window, resulting in incomplete or inaccurate output. On the UI side, complex tools with many subcommands (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are difficult to navigate — the options change with every subcommand selection and important flags can get buried. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
 
 ---
 
@@ -65,6 +65,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes)
 - **Presets** — save and load form configurations for quick reuse
 - **Subcommand support** — tools like `git` with multiple subcommands work seamlessly
+- **Collapsible display groups** — visually group related arguments into collapsible sections
 - **Mutual exclusivity groups** — radio-button-style behavior for conflicting flags
 - **Dependency chains** — fields that only activate when a parent field is set
 - **Validation** — regex patterns, required field checking
@@ -217,6 +218,7 @@ python scaffold.py --validate tools/mytool.json
 | `positional` | bool | false | If true, only the value appears (no flag), placed after all flags |
 | `validation` | string | null | Regex pattern — field gets red border if input doesn't match |
 | `examples` | array | null | Common values shown as editable suggestions for `string` fields (user can also type custom values) |
+| `display_group` | string | null | Visual grouping label — arguments sharing the same value are rendered in a collapsible section |
 
 ### Widget Types
 
@@ -311,6 +313,19 @@ Use `examples` on `string` type fields to provide common value suggestions witho
 
 This is ideal for flags that accept well-known values but also allow others not listed in the docs. If the set of values is strictly closed (no other values are valid), use `enum` with `choices` instead.
 
+### Display Groups (Collapsible Sections)
+
+Use `display_group` to visually group related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered together inside a titled, clickable group box. Click the group header to collapse or expand the section.
+
+```json
+{ "name": "Host",     "flag": "--host",     "type": "string",  "display_group": "Network", ... },
+{ "name": "Port",     "flag": "--port",     "type": "integer", "display_group": "Network", ... },
+{ "name": "Protocol", "flag": "--protocol", "type": "enum",    "display_group": "Network", ... },
+{ "name": "Verbose",  "flag": "-v",         "type": "boolean", "display_group": null, ... }
+```
+
+This renders Host, Port, and Protocol inside a collapsible "Network" section, while Verbose remains ungrouped. This is purely visual — it does not affect command assembly, presets, or mutual exclusivity (which uses `group`).
+
 ## Presets
 
 Presets save and restore the complete state of a form:
@@ -392,7 +407,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-While the project includes 441 passing test assertions across 4 test suites, it should be considered early-stage software.
+While the project includes 465 passing test assertions across 4 test suites, it should be considered early-stage software.
 
 If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
