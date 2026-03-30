@@ -779,6 +779,7 @@ class ToolForm(QWidget):
                 label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
             label = QLabel(label_text)
             label.setTextFormat(Qt.TextFormat.RichText)
+            label.setToolTip(self._build_tooltip(arg))
 
             # Repeatable: add a count spinner next to the widget
             repeat_spin = None
@@ -962,9 +963,27 @@ class ToolForm(QWidget):
             w = QLabel(f"[unsupported type: {t}]")
 
         if arg["description"]:
-            w.setToolTip(arg["description"])
+            w.setToolTip(self._build_tooltip(arg))
 
         return w
+
+    @staticmethod
+    def _build_tooltip(arg: dict) -> str:
+        """Build a structured tooltip showing flag, type, description, and validation."""
+        parts = [arg["flag"]]
+        if arg.get("short_flag"):
+            parts.append(arg["short_flag"])
+        type_info = arg["type"]
+        sep = arg.get("separator", "space")
+        if sep == "equals" or (sep == "none" and arg["type"] != "boolean"):
+            type_info += f", separator: {sep}"
+        header = f"{' '.join(parts)} ({type_info})"
+        lines = [header]
+        if arg.get("description"):
+            lines.append(arg["description"])
+        if arg.get("validation"):
+            lines.append(f"Validation: {arg['validation']}")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Browse dialogs
@@ -1622,6 +1641,12 @@ class ToolPicker(QWidget):
         header.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header)
 
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter tools...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        layout.addWidget(self.search_bar)
+
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["", "Tool", "Description", "Path"])
@@ -1664,6 +1689,7 @@ class ToolPicker(QWidget):
 
         self._entries = []  # list of (path, data_or_none, error_or_none, binary_available)
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
+        QWidget.setTabOrder(self.search_bar, self.table)
         self.scan()
 
     def scan(self):
@@ -1748,6 +1774,30 @@ class ToolPicker(QWidget):
         self.table.setVisible(has_items)
         self.empty_label.setVisible(not has_items)
         self.open_btn.setEnabled(False)
+        self.search_bar.clear()
+        self.search_bar.setFocus()
+
+    def _on_filter(self, text: str) -> None:
+        """Hide table rows that don't match the search text."""
+        query = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            if not query:
+                self.table.setRowHidden(row, False)
+                continue
+            match = False
+            for col in (1, 2, 3):  # tool name, description, path
+                item = self.table.item(row, col)
+                if item and query in item.text().lower():
+                    match = True
+                    break
+            self.table.setRowHidden(row, not match)
+
+    def keyPressEvent(self, event) -> None:
+        """Handle Enter key to open the selected tool."""
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._on_open()
+        else:
+            super().keyPressEvent(event)
 
     def _on_selection(self) -> None:
         """Enable or disable the Open button based on whether a valid tool row is selected."""
