@@ -687,6 +687,25 @@ class ToolForm(QWidget):
         )
         root.addWidget(header_sep)
 
+        # Field search bar (always visible, Ctrl+F focuses it)
+        self._search_bar = QLineEdit()
+        self._search_bar.setPlaceholderText("Find field...  (Ctrl+F)")
+        self._search_bar.textChanged.connect(self._on_search_text_changed)
+        self._search_bar.installEventFilter(self)
+        self._search_matches = []
+        self._search_index = -1
+        self._search_highlight_timer = None
+        self._search_no_match_label = QLabel("No matches")
+        self._search_no_match_label.setStyleSheet("color: red; font-style: italic; margin-left: 4px;")
+        self._search_no_match_label.setVisible(False)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.addWidget(self._search_bar, 1)
+        search_row.addWidget(self._search_no_match_label)
+        self._search_row_widget = QWidget()
+        self._search_row_widget.setLayout(search_row)
+        root.addWidget(self._search_row_widget)
+
         # Elevation control
         self.elevation_check = None
         elevated = self.data.get("elevated")
@@ -719,32 +738,6 @@ class ToolForm(QWidget):
             row.addWidget(self.sub_combo, 1)
             root.addLayout(row)
             self.sub_combo.currentIndexChanged.connect(self._on_subcommand_changed)
-
-        # Field search bar (hidden by default, toggled by Ctrl+F)
-        self._search_bar = QLineEdit()
-        self._search_bar.setPlaceholderText("Find field...")
-        self._search_bar.setVisible(False)
-        self._search_bar.textChanged.connect(self._on_search_text_changed)
-        self._search_bar.installEventFilter(self)
-        self._search_matches = []
-        self._search_index = -1
-        self._search_highlight_timer = None
-        self._search_no_match_label = QLabel("No matches")
-        self._search_no_match_label.setStyleSheet("color: red; font-style: italic; margin-left: 4px;")
-        self._search_no_match_label.setVisible(False)
-        search_row = QHBoxLayout()
-        search_row.setContentsMargins(0, 0, 0, 0)
-        search_row.addWidget(self._search_bar, 1)
-        search_row.addWidget(self._search_no_match_label)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedWidth(28)
-        close_btn.setToolTip("Close search (Escape)")
-        close_btn.clicked.connect(self.close_search)
-        search_row.addWidget(close_btn)
-        self._search_row_widget = QWidget()
-        self._search_row_widget.setLayout(search_row)
-        self._search_row_widget.setVisible(False)
-        root.addWidget(self._search_row_widget)
 
         # Scroll area
         self._scroll = QScrollArea()
@@ -878,20 +871,18 @@ class ToolForm(QWidget):
     # ------------------------------------------------------------------
 
     def open_search(self) -> None:
-        """Show the field search bar and focus it."""
-        self._search_row_widget.setVisible(True)
-        self._search_bar.setVisible(True)
+        """Focus the field search bar and select all text."""
         self._search_bar.setFocus()
         self._search_bar.selectAll()
 
     def close_search(self) -> None:
-        """Hide the field search bar and clear highlights."""
-        self._search_row_widget.setVisible(False)
-        self._search_bar.setVisible(False)
+        """Clear search text, highlights, and defocus the search bar."""
+        self._search_bar.clear()
         self._search_no_match_label.setVisible(False)
         self._clear_search_highlights()
         self._search_matches = []
         self._search_index = -1
+        self._search_bar.clearFocus()
 
     def _on_search_text_changed(self, text: str) -> None:
         """Called when search bar text changes. Find all matches and highlight first."""

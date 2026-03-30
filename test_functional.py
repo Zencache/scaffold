@@ -2064,15 +2064,14 @@ app.processEvents()
 _s24_f = _s24_w.form
 _s24_G = _s24_f.GLOBAL
 
-# 24a: Search bar initially hidden
-check(_s24_f._search_row_widget.isHidden(), "search bar row initially hidden")
-check(_s24_f._search_bar.isHidden(), "search bar input initially hidden")
+# 24a: Search bar always visible
+check(not _s24_f._search_row_widget.isHidden(), "search bar row always visible")
+check(not _s24_f._search_bar.isHidden(), "search bar input always visible")
+check("Find field" in _s24_f._search_bar.placeholderText(), f"placeholder text: {_s24_f._search_bar.placeholderText()}")
 
-# 24b: Open search — bar becomes visible
+# 24b: open_search focuses the bar
 _s24_f.open_search()
 app.processEvents()
-check(not _s24_f._search_row_widget.isHidden(), "search bar row visible after open_search()")
-check(not _s24_f._search_bar.isHidden(), "search bar input visible after open_search()")
 
 # 24c: Type a partial field name — matching field gets highlighted
 _s24_f._search_bar.setText("Target")
@@ -2083,10 +2082,11 @@ _s24_first_label = _s24_f.fields[_s24_first_key]["label"]
 check(_s24_first_label.property("_search_highlighted") == True, "first match label is highlighted")
 check("background-color" in _s24_first_label.styleSheet(), "highlight uses background-color style")
 
-# 24d: Close search — bar hidden, highlights cleared
+# 24d: Close search — highlights cleared, text cleared, bar stays visible
 _s24_f.close_search()
 app.processEvents()
-check(_s24_f._search_row_widget.isHidden(), "search bar hidden after close_search()")
+check(not _s24_f._search_row_widget.isHidden(), "search bar still visible after close_search()")
+check(_s24_f._search_bar.text() == "", "search text cleared after close")
 check(_s24_first_label.property("_search_highlighted") != True, "highlight cleared after close")
 check(_s24_first_label.styleSheet() == "", "label stylesheet cleared after close")
 
@@ -2137,10 +2137,10 @@ check(_s24_f._search_index == _s24_idx_before, f"search_prev goes back: {_s24_f.
 _s24_back_label = _s24_f.fields[_s24_f._search_matches[_s24_f._search_index]]["label"]
 check(_s24_back_label.property("_search_highlighted") == True, "prev match highlighted after search_prev")
 
-# 24j: Escape closes search (via close_search, simulating what the event filter does)
+# 24j: Escape clears search (via close_search, simulating what the event filter does)
 _s24_f.close_search()
 app.processEvents()
-check(_s24_f._search_row_widget.isHidden(), "Escape closes search bar")
+check(_s24_f._search_bar.text() == "", "Escape clears search text")
 check(len(_s24_f._search_matches) == 0, "matches cleared after close")
 check(_s24_f._search_index == -1, "search index reset after close")
 
