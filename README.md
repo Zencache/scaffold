@@ -112,7 +112,7 @@ The included `PROMPT.txt` file contains a detailed prompt that teaches any LLM (
 
 1. Copy the contents of `PROMPT.txt`
 2. Paste it into your LLM of choice
-3. Then say: *"Generate a Scaffold schema for [tool name]"* and paste the tool's `--help` output
+3. Then say: *"Generate a Scaffold schema for [tool name]"* and paste the tool's `--help` output, man page, or other relevant documentation
 4. Save the JSON response as `tools/toolname.json`
 5. Restart Scaffold (or use File > Reload) — the new tool appears in the picker
 
