@@ -2049,6 +2049,118 @@ shutil.rmtree(_s23_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 24 — Field Search / Jump (Ctrl+F)
+# =====================================================================
+print("\n--- Section 24: Field Search / Jump ---")
+
+# Use nmap tool for plenty of fields
+_s24_tmpdir = tempfile.mkdtemp()
+_s24_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+shutil.copy(_s24_nmap, _s24_tmpdir)
+
+_s24_w = scaffold.MainWindow()
+_s24_w._load_tool_path(str(Path(_s24_tmpdir) / "nmap.json"))
+app.processEvents()
+_s24_f = _s24_w.form
+_s24_G = _s24_f.GLOBAL
+
+# 24a: Search bar initially hidden
+check(_s24_f._search_row_widget.isHidden(), "search bar row initially hidden")
+check(_s24_f._search_bar.isHidden(), "search bar input initially hidden")
+
+# 24b: Open search — bar becomes visible
+_s24_f.open_search()
+app.processEvents()
+check(not _s24_f._search_row_widget.isHidden(), "search bar row visible after open_search()")
+check(not _s24_f._search_bar.isHidden(), "search bar input visible after open_search()")
+
+# 24c: Type a partial field name — matching field gets highlighted
+_s24_f._search_bar.setText("Target")
+app.processEvents()
+check(len(_s24_f._search_matches) > 0, f"'Target' has matches: {len(_s24_f._search_matches)}")
+_s24_first_key = _s24_f._search_matches[0]
+_s24_first_label = _s24_f.fields[_s24_first_key]["label"]
+check(_s24_first_label.property("_search_highlighted") == True, "first match label is highlighted")
+check("background-color" in _s24_first_label.styleSheet(), "highlight uses background-color style")
+
+# 24d: Close search — bar hidden, highlights cleared
+_s24_f.close_search()
+app.processEvents()
+check(_s24_f._search_row_widget.isHidden(), "search bar hidden after close_search()")
+check(_s24_first_label.property("_search_highlighted") != True, "highlight cleared after close")
+check(_s24_first_label.styleSheet() == "", "label stylesheet cleared after close")
+
+# 24e: Search by flag name
+_s24_f.open_search()
+_s24_f._search_bar.setText("--top-ports")
+app.processEvents()
+check(len(_s24_f._search_matches) == 1, f"'--top-ports' has exactly 1 match: {len(_s24_f._search_matches)}")
+check(_s24_f._search_matches[0] == (_s24_G, "--top-ports"), f"match is correct field: {_s24_f._search_matches[0]}")
+_s24_tp_label = _s24_f.fields[(_s24_G, "--top-ports")]["label"]
+check(_s24_tp_label.property("_search_highlighted") == True, "--top-ports label highlighted")
+
+# 24f: No match — no crash, "No matches" indication
+_s24_f._search_bar.setText("zzzznoexist")
+app.processEvents()
+check(len(_s24_f._search_matches) == 0, "no matches for nonsense query")
+check(not _s24_f._search_no_match_label.isHidden(), "'No matches' label shown for no results")
+
+# 24g: Clear search text — "No matches" hidden again
+_s24_f._search_bar.setText("")
+app.processEvents()
+check(_s24_f._search_no_match_label.isHidden(), "'No matches' label hidden when search cleared")
+
+# 24h: Cycle through multiple matches with Enter (next)
+_s24_f._search_bar.setText("scan")
+app.processEvents()
+_s24_scan_count = len(_s24_f._search_matches)
+check(_s24_scan_count > 1, f"'scan' has multiple matches: {_s24_scan_count}")
+_s24_idx_before = _s24_f._search_index
+_s24_key_before = _s24_f._search_matches[_s24_idx_before]
+_s24_f._search_next()
+app.processEvents()
+_s24_idx_after = _s24_f._search_index
+_s24_key_after = _s24_f._search_matches[_s24_idx_after]
+check(_s24_idx_after == _s24_idx_before + 1, f"search_next advances index: {_s24_idx_before} -> {_s24_idx_after}")
+check(_s24_key_before != _s24_key_after, "search_next moves to different field")
+# Previous highlight cleared
+_s24_prev_label = _s24_f.fields[_s24_key_before]["label"]
+check(_s24_prev_label.property("_search_highlighted") != True, "previous match highlight cleared after next")
+# New match highlighted
+_s24_new_label = _s24_f.fields[_s24_key_after]["label"]
+check(_s24_new_label.property("_search_highlighted") == True, "new match highlighted after next")
+
+# 24i: Shift+Enter cycles backward (search_prev)
+_s24_f._search_prev()
+app.processEvents()
+check(_s24_f._search_index == _s24_idx_before, f"search_prev goes back: {_s24_f._search_index} == {_s24_idx_before}")
+_s24_back_label = _s24_f.fields[_s24_f._search_matches[_s24_f._search_index]]["label"]
+check(_s24_back_label.property("_search_highlighted") == True, "prev match highlighted after search_prev")
+
+# 24j: Escape closes search (via close_search, simulating what the event filter does)
+_s24_f.close_search()
+app.processEvents()
+check(_s24_f._search_row_widget.isHidden(), "Escape closes search bar")
+check(len(_s24_f._search_matches) == 0, "matches cleared after close")
+check(_s24_f._search_index == -1, "search index reset after close")
+
+# 24k: Search wraps around at end
+_s24_f.open_search()
+_s24_f._search_bar.setText("--top-ports")
+app.processEvents()
+check(len(_s24_f._search_matches) == 1, "single match for wrap test")
+check(_s24_f._search_index == 0, "index starts at 0")
+_s24_f._search_next()
+app.processEvents()
+check(_s24_f._search_index == 0, "index wraps to 0 with single match")
+
+_s24_w.close()
+_s24_w.deleteLater()
+app.processEvents()
+shutil.rmtree(_s24_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

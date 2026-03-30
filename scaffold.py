@@ -640,6 +640,21 @@ class ToolForm(QWidget):
         self._apply_groups()
         self._apply_dependencies()
 
+    def eventFilter(self, obj, event) -> bool:
+        """Handle key events on the search bar for Enter/Shift+Enter/Escape."""
+        if obj is self._search_bar and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._search_prev()
+                else:
+                    self._search_next()
+                return True
+            if key == Qt.Key.Key_Escape:
+                self.close_search()
+                return True
+        return super().eventFilter(obj, event)
+
     def _field_key(self, scope: str, flag: str) -> tuple:
         """Return the canonical (scope, flag) key used to look up a field."""
         return (scope, flag)
@@ -705,15 +720,41 @@ class ToolForm(QWidget):
             root.addLayout(row)
             self.sub_combo.currentIndexChanged.connect(self._on_subcommand_changed)
 
+        # Field search bar (hidden by default, toggled by Ctrl+F)
+        self._search_bar = QLineEdit()
+        self._search_bar.setPlaceholderText("Find field...")
+        self._search_bar.setVisible(False)
+        self._search_bar.textChanged.connect(self._on_search_text_changed)
+        self._search_bar.installEventFilter(self)
+        self._search_matches = []
+        self._search_index = -1
+        self._search_highlight_timer = None
+        self._search_no_match_label = QLabel("No matches")
+        self._search_no_match_label.setStyleSheet("color: red; font-style: italic; margin-left: 4px;")
+        self._search_no_match_label.setVisible(False)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.addWidget(self._search_bar, 1)
+        search_row.addWidget(self._search_no_match_label)
+        close_btn = QPushButton("✕")
+        close_btn.setFixedWidth(28)
+        close_btn.setToolTip("Close search (Escape)")
+        close_btn.clicked.connect(self.close_search)
+        search_row.addWidget(close_btn)
+        self._search_row_widget = QWidget()
+        self._search_row_widget.setLayout(search_row)
+        self._search_row_widget.setVisible(False)
+        root.addWidget(self._search_row_widget)
+
         # Scroll area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(scroll_widget)
         self.scroll_layout.setContentsMargins(0, 0, 8, 0)
-        scroll.setWidget(scroll_widget)
-        root.addWidget(scroll, 1)
+        self._scroll.setWidget(scroll_widget)
+        root.addWidget(self._scroll, 1)
 
         # Global args section
         if self.data["arguments"]:
@@ -831,6 +872,102 @@ class ToolForm(QWidget):
             collapsed = not collapsed
             box.setProperty("_dg_collapsed", collapsed)
             content.setVisible(not collapsed)
+
+    # ------------------------------------------------------------------
+    # Field search (Ctrl+F)
+    # ------------------------------------------------------------------
+
+    def open_search(self) -> None:
+        """Show the field search bar and focus it."""
+        self._search_row_widget.setVisible(True)
+        self._search_bar.setVisible(True)
+        self._search_bar.setFocus()
+        self._search_bar.selectAll()
+
+    def close_search(self) -> None:
+        """Hide the field search bar and clear highlights."""
+        self._search_row_widget.setVisible(False)
+        self._search_bar.setVisible(False)
+        self._search_no_match_label.setVisible(False)
+        self._clear_search_highlights()
+        self._search_matches = []
+        self._search_index = -1
+
+    def _on_search_text_changed(self, text: str) -> None:
+        """Called when search bar text changes. Find all matches and highlight first."""
+        self._clear_search_highlights()
+        self._search_matches = []
+        self._search_index = -1
+        query = text.strip().lower()
+        if not query:
+            self._search_no_match_label.setVisible(False)
+            return
+
+        # Determine visible scopes
+        visible_scopes = {self.GLOBAL}
+        current_sub = self.get_current_subcommand()
+        if current_sub:
+            visible_scopes.add(current_sub)
+
+        for key, field in self.fields.items():
+            scope, flag = key
+            if scope not in visible_scopes:
+                continue
+            arg = field["arg"]
+            name_lower = arg["name"].lower()
+            flag_lower = flag.lower()
+            if query in name_lower or query in flag_lower:
+                self._search_matches.append(key)
+
+        if self._search_matches:
+            self._search_no_match_label.setVisible(False)
+            self._search_index = 0
+            self._highlight_and_scroll(self._search_matches[0])
+        else:
+            self._search_no_match_label.setVisible(True)
+
+    def _search_next(self) -> None:
+        """Jump to the next search match (Enter key)."""
+        if not self._search_matches:
+            return
+        self._clear_search_highlights()
+        self._search_index = (self._search_index + 1) % len(self._search_matches)
+        self._highlight_and_scroll(self._search_matches[self._search_index])
+
+    def _search_prev(self) -> None:
+        """Jump to the previous search match (Shift+Enter)."""
+        if not self._search_matches:
+            return
+        self._clear_search_highlights()
+        self._search_index = (self._search_index - 1) % len(self._search_matches)
+        self._highlight_and_scroll(self._search_matches[self._search_index])
+
+    def _highlight_and_scroll(self, key: tuple) -> None:
+        """Highlight the matching field's label and scroll it into view."""
+        field = self.fields[key]
+        label = field["label"]
+
+        # Expand any collapsed display_group containing this field
+        scope = key[0]
+        if scope in self.display_groups:
+            for dg_name, box in self.display_groups[scope].items():
+                if box.isAncestorOf(label) and box.property("_dg_collapsed"):
+                    self._toggle_display_group(box)
+
+        # Apply highlight
+        label.setStyleSheet("background-color: #fff176;")
+        label.setProperty("_search_highlighted", True)
+
+        # Scroll into view
+        self._scroll.ensureWidgetVisible(label, 50, 50)
+
+    def _clear_search_highlights(self) -> None:
+        """Remove search highlight from all labels."""
+        for field in self.fields.values():
+            label = field["label"]
+            if label.property("_search_highlighted"):
+                label.setStyleSheet("")
+                label.setProperty("_search_highlighted", False)
 
     def _add_single_arg(self, arg: dict, form_layout: QFormLayout, scope: str) -> None:
         """Create and register a single widget row for an arg under the given scope."""
@@ -2187,11 +2324,13 @@ class MainWindow(QMainWindow):
             )
 
     def _build_shortcuts(self) -> None:
-        """Register global keyboard shortcuts for Run (Ctrl+Enter) and Stop (Escape)."""
+        """Register global keyboard shortcuts for Run (Ctrl+Enter), Stop (Escape), Find (Ctrl+F)."""
         run_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
         run_shortcut.activated.connect(self._shortcut_run)
         stop_shortcut = QShortcut(QKeySequence("Escape"), self)
         stop_shortcut.activated.connect(self._shortcut_stop)
+        find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        find_shortcut.activated.connect(self._shortcut_find)
 
     def _shortcut_run(self) -> None:
         """Trigger Run via Ctrl+Enter when the form view is active and no process is running."""
@@ -2200,9 +2339,17 @@ class MainWindow(QMainWindow):
                 self._on_run_stop()
 
     def _shortcut_stop(self) -> None:
-        """Trigger Stop via Escape when a process is running."""
+        """Trigger Stop via Escape — close search bar first, then stop process."""
+        if self.form and self.form._search_row_widget.isVisible():
+            self.form.close_search()
+            return
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self._on_run_stop()
+
+    def _shortcut_find(self) -> None:
+        """Open field search bar via Ctrl+F when form view is active."""
+        if self.form and self.stack.currentIndex() == 1:
+            self.form.open_search()
 
     # ------------------------------------------------------------------
     # Session persistence
