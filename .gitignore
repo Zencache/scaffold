@@ -34,6 +34,9 @@ presets/
 test.txt
 test_*.py
 
+# Planning docs (local only)
+VERSION*.md
+
 # Secrets / credentials
 .env
 *.pem
