@@ -2,6 +2,112 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.3.0] — 2026-03-29
+
+### External Code Review Inputs
+
+Suggestions from multiple external code reviews (ChatGPT, GitHub Copilot) were triaged and distilled into six implementation phases. Each phase was completed in order, with the full test suite run after every change. Phases were ordered by risk: pure tests and validation first, data changes second, small code changes third.
+
+**Implemented from ChatGPT review:**
+- Validate `depends_on` references at schema load time, not during UI updates (Phase A)
+- Runtime dependency audit in the GUI as defense-in-depth (Phase F)
+
+**Implemented from combined review suggestions (ChatGPT + Copilot):**
+- Comprehensive command assembly property tests (Phase B)
+- Widget creation fallback for malformed arguments (Phase C)
+- Preset schema versioning with hash-based mismatch detection (Phase E)
+- Flagship schema polish with beginner-friendly descriptions and presets (Phase D)
+
+**Declined or deferred:** Command preview coloring (too large for a minor release — requires replacing the preview widget, touching the theme system, and rewriting multiple existing tests).
+
+---
+
+### Added
+
+#### Phase A — Dependency Validation at Schema Load Time
+
+`validate_tool()` now checks that every `depends_on` reference points to an existing flag within the same scope (top-level arguments or within a single subcommand). Previously, a broken `depends_on` reference (e.g., `depends_on: "--nonexistent"`) was silently ignored at load time and only failed at runtime when the GUI tried to wire up the dependency.
+
+- New `_check_dependencies()` validation helper, called for both top-level and per-subcommand argument lists — same pattern as `_check_duplicate_flags` and `_check_groups`
+- Error message format: `{scope}: argument "{name}" depends on "{dep}" which does not exist in this scope`
+- New test schemas: `tests/invalid_bad_dependency.json` (catches broken dep, exits 1) and `tests/valid_good_dependency.json` (passes validation)
+
+#### Phase C — Widget Creation Fallback
+
+`_build_widget()` is now wrapped in a try/except. If an unexpected argument configuration causes an exception during widget construction, the form no longer crashes — instead, a plain `QLineEdit` fallback is returned with a tooltip explaining the rendering failure. The error is logged to stderr for debugging.
+
+- New `_build_widget_inner()` contains the original dispatch logic; `_build_widget()` is now the try/except wrapper
+- Fallback widget marked with `_is_fallback = True` attribute so `get_field_value`, `_raw_field_value`, and `_set_field_value` treat it as a plain string regardless of the declared type
+- One bad field does not break the rest of the form — fields before and after render normally
+- This is defense-in-depth: `validate_tool()` still catches invalid types at load time; this catches edge cases that pass validation but fail rendering
+
+#### Phase E — Preset Schema Versioning
+
+Presets now include a `_schema_hash` field — an 8-character MD5 hash of the tool's argument flags at the time the preset was saved. When loading a preset against a schema that has changed (arguments added or removed), the status bar shows a non-blocking warning: *"Note: This preset was saved with a different schema version. Some fields may not have loaded."*
+
+- New `schema_hash(data)` helper computes the hash from sorted flag names across all scopes (global + subcommands)
+- `serialize_values()` now includes `_schema_hash` in every saved preset
+- `_on_load_preset()` compares the saved hash to the current schema's hash; shows warning on mismatch
+- **Backwards compatible** — old presets without `_schema_hash` load normally with no warning
+- Existing behavior unchanged: missing fields get defaults, extra fields are silently skipped
+
+#### Phase F — Runtime Dependency Audit (GUI)
+
+Defense-in-depth layer for dependency wiring. After `_apply_dependencies()` fails to find a parent widget for a `depends_on` reference, it now logs a warning to stderr and leaves the dependent field enabled (fail-open) instead of silently skipping it.
+
+- `_apply_dependencies()` now prints a warning to stderr when a parent widget is missing: `Warning: dependency wiring failed for "{name}" -- parent "{flag}" not found in form. Field left enabled (fail-open).`
+- This is a startup-time check (runs once when the form is built), not a per-interaction check
+- Complements Phase A's load-time validation — Phase A catches bad references in the schema, Phase F catches anything that slips through to the GUI
+
+### Improved
+
+#### Phase D — Flagship Schema Polish (nmap)
+
+No code changes to scaffold.py. Purely data work on the nmap schema and presets.
+
+- **Description rewrites** — all 111 argument descriptions in `tools/nmap.json` rewritten in plain English that a non-expert can understand. Key flags include beginner-friendly explanations of scan types, timing, port specification, OS detection, scripting, and output formats
+- **Examples fields** — populated on key string fields:
+  - `--script`: `["vuln", "safe", "default", "discovery", "auth", "brute", "http-title"]`
+  - `-p`: `["80", "443", "1-1000", "1-65535", "22,80,443,8080"]`
+  - `TARGET`: `["192.168.1.1", "192.168.1.0/24", "10.0.0.0/8", "scanme.nmap.org"]`
+- **Three ready-to-use presets** in `presets/nmap/`:
+  - `quick_ping_sweep.json` — discover live hosts: `-sn`, target `192.168.1.0/24`
+  - `full_port_scan.json` — thorough scan: `-sS -p 1-65535 -sV -T4`, target `192.168.1.1`
+  - `stealth_recon.json` — slow careful scan: `-sS -T2 -O --script=safe -oN results.txt`, target `192.168.1.1`
+
+### Changed
+- Version bump to 2.3.0
+- `hashlib` added to stdlib imports (no new external dependencies)
+- scaffold.py line count: 2,661 -> 2,739
+
+### Tested
+
+#### Phase B — Command Assembly Property Tests
+
+New Section 14 in `test_functional.py` — 25 assertions testing `build_command()` directly with programmatically constructed tool dicts:
+
+- **Separator tests** (6): `space` produces two list elements, `equals` produces one joined element, `none` concatenates flag+value, each with empty value excludes the flag entirely
+- **Positional tests** (5): positionals appear at end, two positionals maintain schema order, spaces preserved as single element, positionals always after all flagged args
+- **Repeatable tests** (3): unchecked excluded, count 1 produces one flag, count 3 produces three separate flags
+- **Edge cases** (11): all empty produces just `[binary]`, shell metacharacters (`$`, `&`, `;`, `|`, backticks) pass through as literal strings, integer 0 included in command, extra flags appended at end with correct ordering, empty extra flags append nothing, unclosed quote in extra flags falls back without crash
+
+#### New test sections (Phases C, E, F)
+
+- **Section 15 — Widget Creation Fallback** (7 assertions): form renders despite bad field, broken enum falls back to QLineEdit with fallback tooltip, stderr warning logged, good fields before and after render correctly
+- **Section 16 — Preset Schema Versioning** (11 assertions): hash is deterministic and 8 chars, serialize_values includes hash, matching hash produces no warning, adding/removing arguments changes hash, old presets without hash load normally (backwards compat), mismatch detection works
+- **Section 17 — Runtime Dependency Audit** (9 assertions): valid deps produce no warnings with correct enable/disable behavior, broken deps (bypassing validator) produce stderr warning with fail-open behavior, adjacent fields unaffected
+
+#### Full suite results
+
+- **All 4 test suites pass: 343/343 assertions, 0 failures**
+  - Functional: 173/173 (+52 new: 25 Phase B, 7 Phase C, 11 Phase E, 9 Phase F)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.2.0] — 2026-03-29
 
 ### Release

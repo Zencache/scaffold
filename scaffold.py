@@ -18,8 +18,9 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
+import hashlib
 import json
 import re
 import shlex
@@ -113,6 +114,7 @@ def validate_tool(data: dict) -> list[str]:
         _validate_args(data["arguments"], "top-level", errors)
         _check_duplicate_flags(data["arguments"], "top-level", errors)
         _check_groups(data["arguments"], "top-level", errors)
+        _check_dependencies(data["arguments"], "top-level", errors)
 
     if data.get("elevated") is not None:
         if data["elevated"] not in VALID_ELEVATED:
@@ -142,6 +144,7 @@ def validate_tool(data: dict) -> list[str]:
                     _validate_args(sub["arguments"], label, errors)
                     _check_duplicate_flags(sub["arguments"], label, errors)
                     _check_groups(sub["arguments"], label, errors)
+                    _check_dependencies(sub["arguments"], label, errors)
 
     return errors
 
@@ -204,6 +207,24 @@ def _check_groups(args: list, scope: str, errors: list) -> None:
             errors.append(f"{scope}: group \"{g}\" has only 1 member (\"{members[0]}\") — mutual exclusivity requires at least 2")
 
 
+def _check_dependencies(args: list, scope: str, errors: list) -> None:
+    """Validate that every depends_on reference points to an existing flag in the same scope."""
+    flags = set()
+    for arg in args:
+        if not isinstance(arg, dict):
+            continue
+        flag = arg.get("flag")
+        if flag:
+            flags.add(flag)
+    for arg in args:
+        if not isinstance(arg, dict):
+            continue
+        dep = arg.get("depends_on")
+        if dep and dep not in flags:
+            name = arg.get("name", "?")
+            errors.append(f"{scope}: argument \"{name}\" depends on \"{dep}\" which does not exist in this scope")
+
+
 def normalize_tool(data: dict) -> dict:
     """Fill in missing optional fields with safe defaults."""
     data.setdefault("subcommands", None)
@@ -223,6 +244,18 @@ def normalize_tool(data: dict) -> dict:
             _normalize_args(sub.get("arguments", []))
 
     return data
+
+
+def schema_hash(data: dict) -> str:
+    """Compute a short hash of a tool's argument flags for preset versioning."""
+    flags = sorted(arg["flag"] for arg in data.get("arguments", []) if isinstance(arg, dict))
+    if data.get("subcommands"):
+        for sub in data["subcommands"]:
+            for arg in sub.get("arguments", []):
+                if isinstance(arg, dict):
+                    flags.append(f"{sub['name']}:{arg['flag']}")
+        flags.sort()
+    return hashlib.md5(json.dumps(flags).encode()).hexdigest()[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +816,22 @@ class ToolForm(QWidget):
 
     def _build_widget(self, arg: dict, key: tuple) -> QWidget:
         """Instantiate and return the appropriate widget for the given arg's type."""
+        try:
+            return self._build_widget_inner(arg, key)
+        except Exception as exc:
+            import traceback
+            print(f"Warning: failed to render widget for \"{arg.get('name', '?')}\" "
+                  f"(type \"{arg.get('type', '?')}\"): {exc}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            w = QLineEdit()
+            w._is_fallback = True
+            w.setToolTip(f"This field could not be rendered as '{arg.get('type', '?')}' "
+                         f"-- using text input as fallback")
+            w.textChanged.connect(lambda _: self.command_changed.emit())
+            return w
+
+    def _build_widget_inner(self, arg: dict, key: tuple) -> QWidget:
+        """Instantiate and return the appropriate widget for the given arg's type."""
         t = arg["type"]
 
         if t == "boolean":
@@ -989,6 +1038,10 @@ class ToolForm(QWidget):
             if parent_key not in self.fields:
                 parent_key = (self.GLOBAL, dep_flag)
             if parent_key not in self.fields:
+                name = field["arg"].get("name", "?")
+                print(f"Warning: dependency wiring failed for \"{name}\" — "
+                      f"parent \"{dep_flag}\" not found in form. "
+                      f"Field left enabled (fail-open).", file=sys.stderr)
                 continue
             parent_field = self.fields[parent_key]
             # Set initial disabled state
@@ -1115,6 +1168,11 @@ class ToolForm(QWidget):
         arg = field["arg"]
         t = arg["type"]
 
+        # Fallback widget — treat as plain string regardless of declared type
+        if getattr(w, "_is_fallback", False):
+            v = w.text().strip()
+            return v if v else None
+
         if t == "boolean":
             if isinstance(w, QCheckBox) and w.isChecked():
                 count = 1
@@ -1172,6 +1230,11 @@ class ToolForm(QWidget):
         arg = field["arg"]
         t = arg["type"]
 
+        # Fallback widget — treat as plain string regardless of declared type
+        if getattr(w, "_is_fallback", False):
+            v = w.text().strip()
+            return v if v else None
+
         if t == "boolean":
             if isinstance(w, QCheckBox) and w.isChecked():
                 if field["repeat_spin"]:
@@ -1218,6 +1281,7 @@ class ToolForm(QWidget):
         """Serialize all current field values to a flat dict for preset storage."""
         preset = {}
         preset["_subcommand"] = self.get_current_subcommand()
+        preset["_schema_hash"] = schema_hash(self.data)
         if self.elevation_check is not None:
             preset["_elevated"] = self.elevation_check.isChecked()
         extra_text = self.extra_flags_edit.toPlainText().strip()
@@ -1306,6 +1370,11 @@ class ToolForm(QWidget):
         w = field["widget"]
         arg = field["arg"]
         t = arg["type"]
+
+        # Fallback widget — treat as plain string regardless of declared type
+        if getattr(w, "_is_fallback", False):
+            w.setText(str(value) if value is not None else "")
+            return
 
         if t == "boolean":
             if isinstance(w, QCheckBox):
@@ -2316,7 +2385,16 @@ class MainWindow(QMainWindow):
             return
 
         self.form.apply_values(preset)
-        self.statusBar().showMessage(f"Preset loaded: {name}")
+
+        # Check schema hash for version mismatch
+        saved_hash = preset.get("_schema_hash")
+        if saved_hash is not None and saved_hash != schema_hash(self.data):
+            self.statusBar().showMessage(
+                f"Preset loaded: {name} — Note: This preset was saved with a different "
+                "schema version. Some fields may not have loaded."
+            )
+        else:
+            self.statusBar().showMessage(f"Preset loaded: {name}")
 
     def _on_delete_preset(self) -> None:
         """Show a preset picker and delete the selected preset file after confirmation."""
