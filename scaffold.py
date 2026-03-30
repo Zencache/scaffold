@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 import hashlib
 import json
@@ -348,7 +348,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
     QWidget,
 )
 
@@ -401,6 +401,24 @@ DARK_COLORS = {
     "warning_bg": "#45475a",
     "warning_text": "#fab387",
     "warning_border": "#585b70",
+}
+
+# Preview syntax coloring — light mode
+LIGHT_PREVIEW = {
+    "binary": "#0550ae",       # blue, bold
+    "flag": "#953800",         # amber/orange
+    "value": "#24292f",        # default text
+    "subcommand": "#0550ae",   # blue, bold
+    "extra": "#656d76",        # dimmed gray
+}
+
+# Preview syntax coloring — dark mode
+DARK_PREVIEW = {
+    "binary": "#89b4fa",       # light blue, bold
+    "flag": "#fab387",         # peach/orange
+    "value": "#cdd6f4",        # default text
+    "subcommand": "#89b4fa",   # light blue, bold
+    "extra": "#a6adc8",        # dimmed
 }
 
 
@@ -1784,6 +1802,74 @@ def _format_display(cmd: list[str]) -> str:
     return " ".join(parts)
 
 
+def _quote_token(token: str) -> str:
+    """Shell-quote a token for display if it contains whitespace."""
+    if " " in token or "\t" in token:
+        if "'" not in token:
+            return f"'{token}'"
+        return f'"{token}"'
+    return token
+
+
+def _colored_preview_html(cmd: list[str], extra_count: int) -> str:
+    """Build an HTML string with syntax-colored command tokens.
+
+    Args:
+        cmd: The full command list from build_command().
+        extra_count: Number of tokens at the end that are extra flags.
+    """
+    import html as _html
+    colors = DARK_PREVIEW if _dark_mode else LIGHT_PREVIEW
+    parts = []
+    core_len = len(cmd) - extra_count
+
+    def _span(text: str, color: str, bold: bool = False, italic: bool = False) -> str:
+        style = f"color:{color};"
+        if bold:
+            style += "font-weight:bold;"
+        if italic:
+            style += "font-style:italic;"
+        return f"<span style='{style}'>{_html.escape(text)}</span>"
+
+    i = 0
+    while i < len(cmd):
+        token = cmd[i]
+        display_token = _quote_token(token)
+
+        if i == 0:
+            # Binary
+            parts.append(_span(display_token, colors["binary"], bold=True))
+        elif i >= core_len:
+            # Extra flags section
+            parts.append(_span(display_token, colors["extra"], italic=True))
+        elif token.startswith("-"):
+            # Flag — check for = separator (e.g., --flag=value)
+            if "=" in token:
+                flag_part, _, val_part = token.partition("=")
+                display_flag = _quote_token(flag_part)
+                display_val = _quote_token(val_part)
+                parts.append(
+                    _span(display_flag + "=", colors["flag"])
+                    + _span(display_val, colors["value"])
+                )
+            else:
+                parts.append(_span(display_token, colors["flag"]))
+                # Next token is the value if it doesn't start with - and exists
+                if i + 1 < core_len and not cmd[i + 1].startswith("-"):
+                    i += 1
+                    val_display = _quote_token(cmd[i])
+                    parts.append(_span(val_display, colors["value"]))
+        else:
+            # Subcommand name or positional — use subcommand color if it looks
+            # like a subcommand (no dashes, appears right after global flags
+            # before more flags), otherwise treat as value/positional
+            parts.append(_span(display_token, colors["value"]))
+
+        i += 1
+
+    return " ".join(parts)
+
+
 def _monospace_font() -> QFont:
     """Return a Consolas/monospace QFont for use in command preview and output panels."""
     font = QFont("Consolas")
@@ -2194,11 +2280,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "preview"):
             if _dark_mode:
                 self.preview.setStyleSheet(
-                    f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
+                    f"QTextEdit {{ background-color: {DARK_COLORS['widget']};"
                     f" color: {DARK_COLORS['text']}; }}"
                 )
             else:
                 self.preview.setStyleSheet("")
+            # Re-color preview with new theme colors
+            if hasattr(self, "form") and self.form:
+                self._update_preview()
         # Section labels and separators
         for attr in ("preview_label", "output_label"):
             if hasattr(self, attr):
@@ -2488,11 +2577,11 @@ class MainWindow(QMainWindow):
         preview_bar = QHBoxLayout()
         preview_bar.setContentsMargins(8, 0, 8, 0)
 
-        self.preview = QPlainTextEdit()
+        self.preview = QTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setFont(_monospace_font())
         self.preview.setPlaceholderText("Command preview...")
-        self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.preview.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.preview.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.preview.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         line_height = self.preview.fontMetrics().lineSpacing()
@@ -2500,7 +2589,7 @@ class MainWindow(QMainWindow):
         self.preview.setFixedHeight(line_height + scrollbar_height + 12)
         if _dark_mode:
             self.preview.setStyleSheet(
-                f"QPlainTextEdit {{ background-color: {DARK_COLORS['widget']};"
+                f"QTextEdit {{ background-color: {DARK_COLORS['widget']};"
                 f" color: {DARK_COLORS['text']}; }}"
             )
         preview_bar.addWidget(self.preview, 1)
@@ -2711,10 +2800,14 @@ class MainWindow(QMainWindow):
         """Rebuild the command preview and toggle Run button availability."""
         missing = self.form.validate_required()
         cmd, display = self.form.build_command()
+        extra_count = len(self.form.get_extra_flags())
         if self.form.is_elevation_checked():
             elev_cmd, _ = get_elevation_command(cmd)
+            extra_count = len(self.form.get_extra_flags())
+            cmd = elev_cmd
             display = _format_display(elev_cmd)
-        self.preview.setPlainText(display)
+        html = _colored_preview_html(cmd, extra_count)
+        self.preview.setHtml(html)
         process_running = (
             self.process is not None
             and self.process.state() != QProcess.ProcessState.NotRunning

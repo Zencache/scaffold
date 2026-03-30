@@ -20,7 +20,7 @@ from pathlib import Path
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QListWidget, QLabel
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QColor, QKeyEvent
 
@@ -2158,6 +2158,116 @@ _s24_w.close()
 _s24_w.deleteLater()
 app.processEvents()
 shutil.rmtree(_s24_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 25 — Colored Command Preview
+# =====================================================================
+
+print("\n--- Section 25: Colored Command Preview ---")
+
+# Use the existing nmap tool (already loaded in window from earlier sections)
+# Reload to get clean state
+_s25_path = str(Path(__file__).parent / "tools" / "nmap.json")
+window._load_tool_path(_s25_path)
+app.processEvents()
+_s25_form = window.form
+
+# 25a: Preview widget is a QTextEdit (not QPlainTextEdit)
+check(isinstance(window.preview, QTextEdit), "preview widget is QTextEdit")
+check(not isinstance(window.preview, QPlainTextEdit), "preview widget is not QPlainTextEdit")
+
+# 25b: Preview contains the binary name as plain text
+_s25_plain = window.preview.toPlainText()
+check("nmap" in _s25_plain, f"preview plain text contains 'nmap': {_s25_plain[:60]}")
+
+# 25c: Preview HTML contains color/style tags (syntax coloring)
+_s25_html = window.preview.toHtml()
+check("color:" in _s25_html, "preview HTML contains color styles")
+check("<span" in _s25_html, "preview HTML contains span tags")
+
+# 25d: Binary name is bold in HTML
+check("font-weight:bold" in _s25_html or "font-weight:600" in _s25_html or "font-weight:700" in _s25_html,
+      "binary name is bold in preview HTML")
+
+# 25e: Set a value and verify flag + value appear colored
+_s25_target_key = None
+for key, field in _s25_form.fields.items():
+    if field["arg"]["flag"] == "-p":
+        _s25_target_key = key
+        break
+if _s25_target_key:
+    _s25_form._set_field_value(_s25_target_key, "80,443")
+    _s25_form.command_changed.emit()
+    app.processEvents()
+
+    _s25_plain2 = window.preview.toPlainText()
+    check("-p" in _s25_plain2, "preview plain text contains flag -p")
+    check("80,443" in _s25_plain2, "preview plain text contains value 80,443")
+
+    _s25_html2 = window.preview.toHtml()
+    # Flag color should be present (amber/orange)
+    _s25_light_flag = scaffold.LIGHT_PREVIEW["flag"]
+    _s25_dark_flag = scaffold.DARK_PREVIEW["flag"]
+    check(_s25_light_flag in _s25_html2 or _s25_dark_flag in _s25_html2,
+          "flag token has correct color in HTML")
+
+# 25f: Copy Command copies plain text (no HTML tags)
+window._copy_command()
+app.processEvents()
+_s25_clipboard = QApplication.clipboard().text()
+check("<span" not in _s25_clipboard, "clipboard text has no HTML span tags")
+check("</" not in _s25_clipboard, "clipboard text has no HTML closing tags")
+check("nmap" in _s25_clipboard, "clipboard text contains 'nmap'")
+
+# 25g: Toggle to dark mode — preview still has colored content
+scaffold.apply_theme(True)
+window._update_preview()
+app.processEvents()
+_s25_html_dark = window.preview.toHtml()
+check("color:" in _s25_html_dark, "dark mode preview HTML has color styles")
+check("<span" in _s25_html_dark, "dark mode preview HTML has span tags")
+# Dark mode should use dark preview colors
+check(scaffold.DARK_PREVIEW["binary"] in _s25_html_dark,
+      "dark mode uses DARK_PREVIEW binary color")
+check(scaffold.DARK_PREVIEW["flag"] in _s25_html_dark or _s25_target_key is None,
+      "dark mode uses DARK_PREVIEW flag color")
+
+# 25h: Toggle back to light mode — verify light colors used
+scaffold.apply_theme(False)
+window._update_preview()
+app.processEvents()
+_s25_html_light = window.preview.toHtml()
+check(scaffold.LIGHT_PREVIEW["binary"] in _s25_html_light,
+      "light mode uses LIGHT_PREVIEW binary color")
+
+# 25i: Clear all fields — preview shows just binary, still colored
+_s25_form.reset_to_defaults()
+_s25_form.command_changed.emit()
+app.processEvents()
+_s25_plain_reset = window.preview.toPlainText().strip()
+check(_s25_plain_reset == "nmap", f"reset preview shows just binary: '{_s25_plain_reset}'")
+_s25_html_reset = window.preview.toHtml()
+check("color:" in _s25_html_reset, "reset preview still has color styles")
+check("font-weight:bold" in _s25_html_reset or "font-weight:600" in _s25_html_reset or "font-weight:700" in _s25_html_reset,
+      "reset preview binary still bold")
+
+# 25j: _colored_preview_html function directly — basic contract
+_s25_test_cmd = ["nmap", "-sS", "-p", "80", "192.168.1.1"]
+_s25_result = scaffold._colored_preview_html(_s25_test_cmd, 0)
+check("nmap" in _s25_result, "direct call: contains binary text")
+check("-sS" in _s25_result or "-sS" in _s25_result, "direct call: contains flag")
+check("192.168.1.1" in _s25_result, "direct call: contains target")
+check(_s25_result.count("<span") >= 3, f"direct call: at least 3 spans ({_s25_result.count('<span')})")
+
+# 25k: Extra flags appear italic
+_s25_extra_result = scaffold._colored_preview_html(["nmap", "--extra"], 1)
+check("font-style:italic" in _s25_extra_result, "extra flags are italic")
+
+# 25l: Equals separator handled (--flag=value)
+_s25_eq_result = scaffold._colored_preview_html(["nmap", "--port=80"], 0)
+check(scaffold.LIGHT_PREVIEW["flag"] in _s25_eq_result or scaffold.DARK_PREVIEW["flag"] in _s25_eq_result,
+      "equals separator: flag part colored")
 
 
 # =====================================================================

@@ -2,6 +2,52 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.1] — 2026-03-30
+
+### Added
+
+#### Syntax-Colored Command Preview (Step 8 / 2A)
+
+The command preview panel now displays syntax-colored output. Each token type is rendered in a distinct color for instant visual parsing of the assembled command.
+
+- **Color constants:** Two new dicts `LIGHT_PREVIEW` and `DARK_PREVIEW` define per-token-type colors for light and dark modes. Token types: `binary` (bold blue), `flag` (amber/orange), `value` (default text), `subcommand` (bold blue), `extra` (dimmed gray, italic).
+  - Light mode: binary `#0550ae`, flag `#953800`, value `#24292f`, subcommand `#0550ae`, extra `#656d76`
+  - Dark mode: binary `#89b4fa`, flag `#fab387`, value `#cdd6f4`, subcommand `#89b4fa`, extra `#a6adc8`
+- **Preview widget replaced:** `QPlainTextEdit` → `QTextEdit` for rich text support. `QTextEdit` is a built-in PySide6 widget that accepts HTML-like markup for inline styling — no web engine, no external dependencies, no HTML files. `toPlainText()` still works identically for all existing code paths.
+- **`_quote_token(token)`** — helper function that wraps tokens containing spaces or shell metacharacters in single quotes for display, matching the quoting behavior of `_format_display()`.
+- **`_colored_preview_html(cmd, extra_count)`** — walks the command token list and wraps each token in a `<span>` with the appropriate color from the active theme's palette. Handles:
+  - Binary name (index 0): bold + binary color
+  - Flags (`-` prefix): flag color, with `--flag=value` split into flag-colored flag part and value-colored value part
+  - Flag values (token after a flag): value color
+  - Extra flags (last `extra_count` tokens): italic + dimmed extra color
+  - All tokens are HTML-escaped via `html.escape()` to prevent injection
+- **`_update_preview()`** now calls `_colored_preview_html()` and sets the result via `self.preview.setHtml()` instead of `setPlainText()`.
+- **Theme toggle re-colors:** Switching dark/light mode triggers `_update_preview()`, which regenerates HTML with the new color palette. No stale colors.
+- **Copy Command unchanged:** `_copy_command()` still copies plain text via `_format_display()` — no HTML in clipboard.
+- **Dark mode stylesheet:** Updated selector from `QPlainTextEdit` to `QTextEdit` for the preview panel background color.
+- **No new dependencies:** `html` module (stdlib) imported locally inside `_colored_preview_html()`. `QTextEdit` is part of PySide6.QtWidgets (already imported).
+
+### Changed
+- Version bump 2.5.0 → 2.5.1
+- scaffold.py line count: 3,023 → 3,116
+- Preview widget type: `QPlainTextEdit` → `QTextEdit` (rich text capable, same API for plain text extraction)
+- `QTextEdit` added to PySide6.QtWidgets import line
+- Dark mode stylesheet selector updated from `QPlainTextEdit` to `QTextEdit`
+
+### Tested
+- **Section 25** — Colored Command Preview (26 assertions): preview widget is `QTextEdit` (not `QPlainTextEdit`), plain text extraction contains binary name, HTML output contains `color:` styles and `<span>` tags, binary is bold (`font-weight:bold/600/700`), setting a flag value produces correctly colored HTML with flag color from `LIGHT_PREVIEW`/`DARK_PREVIEW`, Copy Command produces plain text with no HTML tags, dark mode toggle updates preview to use `DARK_PREVIEW` colors, light mode toggle restores `LIGHT_PREVIEW` colors, reset-to-defaults shows just binary name still with color and bold styling, direct `_colored_preview_html()` contract tests (token count, span count), extra flags rendered italic, equals separator `--flag=value` splits correctly with flag color on flag part
+
+#### Full suite results
+- **All 4 test suites pass: 520/520 assertions, 0 failures**
+  - Functional: 350/350 (+26 Section 25)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.5.0] — 2026-03-30
 
 ### Added
