@@ -2,7 +2,7 @@
 
 All notable changes to Scaffold are documented here.
 
-## [v2.5.7] — 2026-03-30
+## [v2.5.8] — 2026-03-30
 
 ### Changed
 
@@ -10,7 +10,9 @@ All notable changes to Scaffold are documented here.
 - **Preset deletion** hardened: uses `unlink()` instead of `unlink(missing_ok=True)` and uses early-return pattern for clearer control flow
 - Removed right-click context menu and File menu "Delete Tool..." action
 - Delete button disabled by default, enables only when a valid tool is selected
-- Version bump 2.5.6 → 2.5.7
+- scaffold.py line count: 3,760 → 3,724
+- Test assertion total: 654 across 5 suites
+- Version bump 2.5.7 → 2.5.8
 
 ### Fixed
 
