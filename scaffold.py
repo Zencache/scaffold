@@ -18,14 +18,16 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 import datetime
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
+import signal
 import sys
 import tempfile
 import time
@@ -2753,6 +2755,10 @@ class MainWindow(QMainWindow):
         self._timed_out = False
         self._elevated_run = False
         self._run_start_time: float | None = None
+        self._force_kill_timer = QTimer(self)
+        self._force_kill_timer.setSingleShot(True)
+        self._force_kill_timer.setInterval(2000)
+        self._force_kill_timer.timeout.connect(self._on_force_kill)
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
@@ -2987,15 +2993,21 @@ class MainWindow(QMainWindow):
             )
 
     def _style_run_btn(self) -> None:
-        """Apply green (Run) or red (Stop) styling to the run button."""
-        is_stop = self.run_btn.text() == "Stop"
+        """Apply green (Run), red (Stop), or amber (Stopping...) styling to the run button."""
+        text = self.run_btn.text()
         if _dark_mode:
-            if is_stop:
+            if text == "Stop":
                 self.run_btn.setStyleSheet(
                     f"QPushButton {{ background-color: #45272a; color: {DARK_COLORS['error']};"
                     f" border: 1px solid {DARK_COLORS['error']}; padding: 4px 16px;"
                     f" font-weight: bold; border-radius: 3px; }} "
                     f"QPushButton:hover {{ background-color: #5a3035; }}"
+                )
+            elif text == "Stopping...":
+                self.run_btn.setStyleSheet(
+                    f"QPushButton {{ background-color: #3a3020; color: {COLOR_WARN};"
+                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
+                    f" font-style: italic; border-radius: 3px; }}"
                 )
             else:
                 self.run_btn.setStyleSheet(
@@ -3005,12 +3017,18 @@ class MainWindow(QMainWindow):
                     f"QPushButton:hover {{ background-color: #274d36; }}"
                 )
         else:
-            if is_stop:
+            if text == "Stop":
                 self.run_btn.setStyleSheet(
                     "QPushButton { background-color: #fdecea; color: #c62828;"
                     " border: 1px solid #ef9a9a; padding: 4px 16px;"
                     " font-weight: bold; border-radius: 3px; } "
                     "QPushButton:hover { background-color: #f9d0cd; }"
+                )
+            elif text == "Stopping...":
+                self.run_btn.setStyleSheet(
+                    f"QPushButton {{ background-color: #fdf5e6; color: #b8860b;"
+                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
+                    f" font-style: italic; border-radius: 3px; }}"
                 )
             else:
                 self.run_btn.setStyleSheet(
@@ -3225,9 +3243,9 @@ class MainWindow(QMainWindow):
         if self.tool_path:
             self.settings.setValue("session/last_tool", self.tool_path)
         # Kill any running process
-        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
-            self.process.kill()
-            self.process.waitForFinished(2000)
+        self._stop_process()
+        if self.process:
+            self.process.waitForFinished(3000)
         event.accept()
 
     # ------------------------------------------------------------------
@@ -3327,9 +3345,9 @@ class MainWindow(QMainWindow):
         # Kill any running process
         self._elapsed_timer.stop()
         self._run_start_time = None
-        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
-            self.process.kill()
-            self.process.waitForFinished(2000)
+        self._stop_process()
+        if self.process:
+            self.process.waitForFinished(3000)
         self.process = None
         self._killed = False
         self._timed_out = False
@@ -3507,9 +3525,9 @@ class MainWindow(QMainWindow):
     def _on_back(self) -> None:
         """Return to the tool picker, stopping any running process first."""
         # Kill any running process before going back
-        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
-            self.process.kill()
-            self.process.waitForFinished(2000)
+        self._stop_process()
+        if self.process:
+            self.process.waitForFinished(3000)
         self.process = None
         self._show_picker()
 
@@ -3787,24 +3805,51 @@ class MainWindow(QMainWindow):
         if self.data:
             self.settings.setValue(f"timeout/{self.data['tool']}", value)
 
+    def _stop_process(self) -> None:
+        """Stop the running process. Uses SIGTERM first, SIGKILL as fallback."""
+        if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
+            return
+        self._killed = True
+        self._timeout_timer.stop()
+        self.process.terminate()  # SIGTERM — pkexec can forward this
+        self._force_kill_timer.start()
+
+    def _on_force_kill(self) -> None:
+        """Escalate to SIGKILL if the process did not exit after SIGTERM."""
+        if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
+            return
+        if not self._elevated_run and sys.platform != "win32":
+            pid = self.process.processId()
+            if pid > 0:
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+        self.process.kill()
+
     def _on_timeout_fired(self) -> None:
         """Kill the running process because the timeout expired."""
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             timeout_val = self.timeout_spin.value()
-            self._killed = True
             self._timed_out = True
-            self.process.kill()
             self._append_output(
                 f"\n--- Process timed out after {timeout_val} seconds ---\n",
                 COLOR_WARN,
             )
+            self.run_btn.setText("Stopping...")
+            self.run_btn.setEnabled(False)
+            self._style_run_btn()
+            QApplication.processEvents()  # Force repaint before kill
+            self._stop_process()
 
     def _on_run_stop(self) -> None:
         """Run the command if idle, or stop the running process if one is active."""
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
-            self._killed = True
-            self._timeout_timer.stop()
-            self.process.kill()
+            self.run_btn.setText("Stopping...")
+            self.run_btn.setEnabled(False)
+            self._style_run_btn()
+            QApplication.processEvents()  # Force repaint before kill
+            self._stop_process()
             return
 
         # Validate required fields
@@ -3894,6 +3939,7 @@ class MainWindow(QMainWindow):
         """Handle process termination: print exit status and re-enable the Run button."""
         self._elapsed_timer.stop()
         self._timeout_timer.stop()
+        self._force_kill_timer.stop()
         self._flush_output()
         elapsed_str = ""
         if self._run_start_time is not None:
@@ -3916,9 +3962,11 @@ class MainWindow(QMainWindow):
         else:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Exit {exit_code}{elapsed_str}")
+        self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
+        self.process = None
 
     def _on_error(self, error) -> None:
         """Handle QProcess errors, printing a descriptive message to the output panel."""
@@ -3940,6 +3988,7 @@ class MainWindow(QMainWindow):
         msg = error_messages.get(error, f"Unknown process error ({error}).")
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
+        self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()

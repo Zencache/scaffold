@@ -2,11 +2,64 @@
 
 All notable changes to Scaffold are documented here.
 
-## [v2.6.0] — 2026-03-31
+## [v2.6.1] — 2026-03-31
+
+### Fixed
+
+- **Process kill hardening** — `QProcess.kill()` sends SIGKILL, which pkexec cannot forward to grandchild processes. Elevated commands (via pkexec/gsudo) would orphan the actual tool process when stopped. Now uses SIGTERM first (which pkexec can forward), with SIGKILL as a 2-second fallback.
+- **Centralized kill logic** — all 5 process kill sites (`_on_run_stop`, `_on_timeout_fired`, `closeEvent`, `_on_back`, `_build_form_view`) now call a single `_stop_process()` method instead of calling `self.process.kill()` directly.
+- **"QProcess: Destroyed while process is still running" warning** — `self.process` is now set to `None` in `_on_finished()`, preventing the warning on window close.
+- **"Stopping..." button state** — after clicking Stop, the button shows "Stopping..." in amber/italic and is disabled until the process exits, preventing confusion if SIGTERM takes a moment. `_style_run_btn()` now handles three states: green "Run", red "Stop", and amber italic "Stopping...".
+- **"Stopping..." repaint on Linux** — `QApplication.processEvents()` is called after setting the "Stopping..." state but before `_stop_process()`, forcing Qt to repaint the button immediately. Without this, the process could die before Qt ever painted the intermediate state.
+- **`_on_error()` button re-enable** — `setEnabled(True)` added before text reset, preventing the button from staying disabled if a QProcess error fires while in "Stopping..." state.
 
 ### Added
 
-#### Phase 1 — Integer Min/Max Constraints
+- `_stop_process()` method — sends SIGTERM via `QProcess.terminate()`, starts a 2-second `_force_kill_timer`
+- `_on_force_kill()` method — escalates to SIGKILL; for non-elevated non-Windows processes, also tries `os.killpg()` to kill the process group
+- `_force_kill_timer` — single-shot QTimer (2s) for SIGTERM→SIGKILL escalation
+
+### Changed
+
+- `_on_finished()`: stops `_force_kill_timer`, re-enables run button, sets `self.process = None`
+- `_on_timeout_fired()`: sets "Stopping..." state with `processEvents()` before calling `_stop_process()`
+- `_on_run_stop()`: sets "Stopping..." state with `processEvents()` before calling `_stop_process()`
+- `_style_run_btn()`: handles three button states — "Run" (green), "Stop" (red), "Stopping..." (amber italic)
+- `_on_error()`: re-enables button before resetting text
+- `closeEvent`, `_on_back`, `_build_form_view`: `waitForFinished` timeout increased from 2000ms to 3000ms to allow for SIGTERM + force kill cycle
+
+### Tested
+
+- **Section 39** — Process Kill Hardening (15 assertions): `_force_kill_timer` exists and is single-shot, `_stop_process()` safe with no process, process is `None` after natural finish, process is `None` after stop, button shows "Stopping..." with italic style and warning color then restores to "Run" and re-enabled, `_stop_process()` safe when already stopped
+
+#### Full suite results
+
+- **All 5 test suites pass: 781/781 assertions, 0 failures**
+  - Functional: 588/588 (+15: Section 39)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+  - Preset Validation: 23/23 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+### Metadata
+
+- Version bump 2.6.0 → 2.6.1
+- scaffold.py line count: 4,104 → 4,153
+- Test assertion total: 766 → 781 across 5 suites
+
+---
+
+## [v2.6.0] — 2026-03-31
+
+### External Code Review — MiniMax M2.7 (Round 2)
+
+The updated codebase was submitted to **MiniMax M2.7** for a second review with more targeted instructions. The review informed new features (min/max constraints, deprecated/dangerous indicators, password input type) and schema improvements.
+
+### Added
+
+#### Integer Min/Max Constraints
 
 Optional `min` and `max` fields on integer and float argument types constrain the spinbox range in the GUI.
 
@@ -15,7 +68,7 @@ Optional `min` and `max` fields on integer and float argument types constrain th
 - **Widget behavior:** When `min` or `max` is set, `_build_widget_inner()` calls `setMinimum()`/`setMaximum()` on the `QSpinBox`/`QDoubleSpinBox`. For fields with no default (sentinel system), the sentinel is set to `min - 1` to preserve the unset/0 distinction.
 - **Backwards compatible:** Existing schemas without min/max normalize to null via `ARG_DEFAULTS`. No schema changes required.
 
-#### Phase 2 — Deprecated & Dangerous Flag Indicators
+#### Deprecated & Dangerous Flag Indicators
 
 Two new optional argument fields provide visual indicators for flagged arguments without disabling them.
 
@@ -24,7 +77,7 @@ Two new optional argument fields provide visual indicators for flagged arguments
 - **Theme-aware colors:** Deprecated suffix uses `#856404` (light) / `#fab387` (dark). Dangerous prefix uses `red` (light) / `#f38ba8` (dark).
 - **Both combine:** A field can be both deprecated and dangerous — both indicators render correctly together.
 
-#### Phase 3 — Password Input Type
+#### Password Input Type
 
 New `password` widget type for flags that accept sensitive values like passwords, API keys, and tokens.
 
@@ -484,27 +537,9 @@ New optional argument field `display_group` (string or null) enables visual grou
 
 ## [v2.3.0] — 2026-03-29
 
-### External Code Review Inputs
-
-Suggestions from multiple external code reviews (ChatGPT, GitHub Copilot) were triaged and distilled into six implementation phases. Each phase was completed in order, with the full test suite run after every change. Phases were ordered by risk: pure tests and validation first, data changes second, small code changes third.
-
-**Implemented from ChatGPT review:**
-- Validate `depends_on` references at schema load time, not during UI updates (Phase A)
-- Runtime dependency audit in the GUI as defense-in-depth (Phase F)
-
-**Implemented from combined review suggestions (ChatGPT + Copilot):**
-- Comprehensive command assembly property tests (Phase B)
-- Widget creation fallback for malformed arguments (Phase C)
-- Preset schema versioning with hash-based mismatch detection (Phase E)
-- Flagship schema polish with beginner-friendly descriptions and presets (Phase D)
-
-**Declined or deferred:** Command preview coloring (too large for a minor release — requires replacing the preview widget, touching the theme system, and rewriting multiple existing tests).
-
----
-
 ### Added
 
-#### Phase A — Dependency Validation at Schema Load Time
+#### Dependency Validation at Schema Load Time
 
 `validate_tool()` now checks that every `depends_on` reference points to an existing flag within the same scope (top-level arguments or within a single subcommand). Previously, a broken `depends_on` reference (e.g., `depends_on: "--nonexistent"`) was silently ignored at load time and only failed at runtime when the GUI tried to wire up the dependency.
 
@@ -512,7 +547,7 @@ Suggestions from multiple external code reviews (ChatGPT, GitHub Copilot) were t
 - Error message format: `{scope}: argument "{name}" depends on "{dep}" which does not exist in this scope`
 - New test schemas: `tests/invalid_bad_dependency.json` (catches broken dep, exits 1) and `tests/valid_good_dependency.json` (passes validation)
 
-#### Phase C — Widget Creation Fallback
+#### Widget Creation Fallback
 
 `_build_widget()` is now wrapped in a try/except. If an unexpected argument configuration causes an exception during widget construction, the form no longer crashes — instead, a plain `QLineEdit` fallback is returned with a tooltip explaining the rendering failure. The error is logged to stderr for debugging.
 
@@ -521,7 +556,7 @@ Suggestions from multiple external code reviews (ChatGPT, GitHub Copilot) were t
 - One bad field does not break the rest of the form — fields before and after render normally
 - This is defense-in-depth: `validate_tool()` still catches invalid types at load time; this catches edge cases that pass validation but fail rendering
 
-#### Phase E — Preset Schema Versioning
+#### Preset Schema Versioning
 
 Presets now include a `_schema_hash` field — an 8-character MD5 hash of the tool's argument flags at the time the preset was saved. When loading a preset against a schema that has changed (arguments added or removed), the status bar shows a non-blocking warning: *"Note: This preset was saved with a different schema version. Some fields may not have loaded."*
 
@@ -531,17 +566,17 @@ Presets now include a `_schema_hash` field — an 8-character MD5 hash of the to
 - **Backwards compatible** — old presets without `_schema_hash` load normally with no warning
 - Existing behavior unchanged: missing fields get defaults, extra fields are silently skipped
 
-#### Phase F — Runtime Dependency Audit (GUI)
+#### Runtime Dependency Audit (GUI)
 
 Defense-in-depth layer for dependency wiring. After `_apply_dependencies()` fails to find a parent widget for a `depends_on` reference, it now logs a warning to stderr and leaves the dependent field enabled (fail-open) instead of silently skipping it.
 
 - `_apply_dependencies()` now prints a warning to stderr when a parent widget is missing: `Warning: dependency wiring failed for "{name}" -- parent "{flag}" not found in form. Field left enabled (fail-open).`
 - This is a startup-time check (runs once when the form is built), not a per-interaction check
-- Complements Phase A's load-time validation — Phase A catches bad references in the schema, Phase F catches anything that slips through to the GUI
+- Complements load-time validation — `_check_dependencies()` catches bad references in the schema, this catches anything that slips through to the GUI
 
 ### Improved
 
-#### Phase D — Flagship Schema Polish (nmap)
+#### Flagship Schema Polish (nmap)
 
 No code changes to scaffold.py. Purely data work on the nmap schema and presets.
 
@@ -562,7 +597,7 @@ No code changes to scaffold.py. Purely data work on the nmap schema and presets.
 
 ### Tested
 
-#### Phase B — Command Assembly Property Tests
+#### Command Assembly Property Tests
 
 New Section 14 in `test_functional.py` — 25 assertions testing `build_command()` directly with programmatically constructed tool dicts:
 
@@ -571,7 +606,7 @@ New Section 14 in `test_functional.py` — 25 assertions testing `build_command(
 - **Repeatable tests** (3): unchecked excluded, count 1 produces one flag, count 3 produces three separate flags
 - **Edge cases** (11): all empty produces just `[binary]`, shell metacharacters (`$`, `&`, `;`, `|`, backticks) pass through as literal strings, integer 0 included in command, extra flags appended at end with correct ordering, empty extra flags append nothing, unclosed quote in extra flags falls back without crash
 
-#### New test sections (Phases C, E, F)
+#### New test sections
 
 - **Section 15 — Widget Creation Fallback** (7 assertions): form renders despite bad field, broken enum falls back to QLineEdit with fallback tooltip, stderr warning logged, good fields before and after render correctly
 - **Section 16 — Preset Schema Versioning** (11 assertions): hash is deterministic and 8 chars, serialize_values includes hash, matching hash produces no warning, adding/removing arguments changes hash, old presets without hash load normally (backwards compat), mismatch detection works
@@ -580,7 +615,7 @@ New Section 14 in `test_functional.py` — 25 assertions testing `build_command(
 #### Full suite results
 
 - **All 4 test suites pass: 343/343 assertions, 0 failures**
-  - Functional: 173/173 (+52 new: 25 Phase B, 7 Phase C, 11 Phase E, 9 Phase F)
+  - Functional: 173/173 (+52 new: 25 Section 14, 7 Section 15, 11 Section 16, 9 Section 17)
   - Examples: 52/52 (unchanged)
   - Manual Verification: 61/61 (unchanged)
   - Smoke: 57/57 (unchanged)
@@ -613,17 +648,7 @@ Public release of Scaffold. All changes from v2.1.0 and v2.1.1 are included.
 
 ### External Code Review — MiniMax M2.7
 
-The full Scaffold codebase (scaffold.py, PROMPT.txt, README.md, all 9 tool schemas, and both test suites) was submitted to **MiniMax M2.7** for an independent code review. The model evaluated the project across six categories — bugs, code quality, prompt design, documentation, feature requests, and testing gaps — and produced 27 discrete findings.
-
-Each finding was triaged into one of four categories before implementation:
-- **FIX NOW** — real bug or issue that affects users
-- **FIX IF QUICK** — good improvement, worth doing if under ~10 lines changed
-- **LATER** — good idea but not a v2.1.1 concern
-- **SKIP** — over-engineering, already handled, or not applicable
-
-**Triage result:** 3 fixed (BUG 1, BUG 3, P1), 7 deferred, 14 skipped, 3 new test sections added.
-
----
+The full Scaffold codebase was submitted to **MiniMax M2.7** for an independent code review. The model evaluated the project across six categories — bugs, code quality, prompt design, documentation, feature requests, and testing gaps — and produced 27 discrete findings. Three bugs were fixed, three new test sections added, and the PROMPT.txt completeness directive was rewritten.
 
 ### Fixed
 
@@ -756,35 +781,6 @@ No changes to the examples feature. All existing tests continue to pass — sche
 
 ---
 
-### Deferred (LATER)
-
-Items from the MiniMax M2.7 review that are valid improvements but not v2.1.1 scope:
-
-- **BUG 5 — Tool picker search/filter** — with many tools, the table is hard to navigate. Add a QLineEdit filter bar. Good for v2.2.
-- **R2 — README troubleshooting section** — consolidate scattered platform notes (PySide6 install, xcb-cursor0, validation errors) into one section.
-- **P3 — Stdin/stdout sentinel guidance in PROMPT.txt** — tools like `ffmpeg -o -` use `-` as a special value. Niche but worth a one-line note.
-- **T2 — Exhaustive preset round-trip tests** — current preset tests don't cover every widget type. Medium effort.
-- **F1-F5 — Feature requests** — environment variable expansion, command history, dry-run mode, schema wizard, keyboard navigation in tool picker. All good ideas, all out of scope for a bugfix release.
-
-### Skipped
-
-Items from the MiniMax M2.7 review that were evaluated and intentionally not implemented:
-
-- **BUG 2** (repeat count on unchecked boolean) — design decision: unchecked = inactive = not saved. The repeat count is a sub-property of an inactive flag.
-- **BUG 4** (tool picker re-scans on back navigation) — scan performance was verified in v1.4.0 Part 3 review with 20+ schemas. Not worth caching complexity.
-- **BUG 6** (Qt < 6.8 scrollbar degradation) — already handled with `try/except AttributeError` and documented in code comments and changelog.
-- **CQ 1** (DARK_COLORS as dataclass) — works fine as a dict. No typo-related bugs have occurred.
-- **CQ 2** (_apply_widget_theme hasattr checks) — works, not buggy, refactoring would add complexity for no functional gain.
-- **CQ 3** (extract sub-methods from long methods) — constraint: don't refactor working code just to make it "cleaner."
-- **CQ 4** (__slots__ on widget subclasses) — negligible memory impact for a desktop app with a handful of widget instances.
-- **CQ 5** (normalize isinstance checks) — cosmetic inconsistency, no behavioral impact.
-- **P2** (flag alias guidance) — already covered by Rule 10 ("Short + long forms = ONE entry") and the argument object spec ("Use the LONG form when available").
-- **P4** (elevated field description too brief) — the field spec already has concrete descriptions; Rule 6 adds examples (`nmap SYN scan`, `iptables`).
-- **P5** (version-gated flags) — already covered by Rule 11 ("If docs mention version requirements, note them").
-- **R1** (disclaimer mentions OpenClaw by name) — OpenClaw is a shipped example schema, not a third-party reference. The concrete example is more useful than a generic statement.
-- **R3** (no comparison with similar tools) — marketing concern, not a code issue.
-- **R4** (screenshots load slowly from GitHub) — cosmetic concern about image hosting.
-
 ## [v2.1.0] — 2026-03-29
 
 ### Added
@@ -898,7 +894,7 @@ Items from the MiniMax M2.7 review that were evaluated and intentionally not imp
   - Extracted theme-independent output/status colors into named constants: `COLOR_OK`, `COLOR_ERR`, `COLOR_WARN`, `COLOR_CMD`, `COLOR_DIM`, `OUTPUT_BG`, `OUTPUT_FG`, `LIGHT_WARNING_BG`, `LIGHT_WARNING_FG`, `LIGHT_WARNING_BORDER`
   - Converted `apply_theme` QSS stylesheet from `%` dict formatting to f-strings
   - Renamed signal handlers for clarity: `_read_stdout` → `_on_stdout_ready`, `_read_stderr` → `_on_stderr_ready`
-  - Removed misleading phase-number comments from section banners
+  - Removed misleading internal comments from section banners
   - Simplified `reset_to_defaults` by collapsing redundant `elif`/`else` branches
   - Simplified `_is_field_active` with tuple-form `isinstance`
   - Simplified `_on_run_stop` empty-list check to idiomatic `if not cmd:`

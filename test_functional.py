@@ -4139,6 +4139,103 @@ _s38_w.close(); _s38_w.deleteLater(); app.processEvents()
 shutil.rmtree(_s38_tmpdir, ignore_errors=True)
 
 # =====================================================================
+print("\n--- Section 39: Process Kill Hardening ---")
+# =====================================================================
+
+from PySide6.QtWidgets import QSpinBox, QLineEdit
+
+# Load ping for process tests
+_s39_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s39_w = scaffold.MainWindow()
+_s39_w._load_tool_path(_s39_ping)
+_s39_form = _s39_w.form
+app.processEvents()
+
+# Set target to localhost
+for _k, _f in _s39_form.fields.items():
+    if _f["arg"]["positional"] and _f["arg"]["required"]:
+        _s39_form._set_field_value(_k, "127.0.0.1")
+        break
+
+# -- 39a: force_kill_timer exists and is single-shot --
+check(hasattr(_s39_w, "_force_kill_timer"), "39a: _force_kill_timer exists")
+check(isinstance(_s39_w._force_kill_timer, QTimer), "39a: _force_kill_timer is QTimer")
+check(_s39_w._force_kill_timer.isSingleShot(), "39a: _force_kill_timer is single-shot")
+
+# -- 39b: _stop_process is safe when no process --
+_s39_w.process = None
+try:
+    _s39_w._stop_process()
+    check(True, "39b: _stop_process with no process does not raise")
+except Exception as _e:
+    check(False, f"39b: _stop_process with no process raised: {_e}")
+
+# -- 39c: process is None after natural finish --
+# Set count to 1 for a fast finish
+for _k, _f in _s39_form.fields.items():
+    if _f["arg"]["flag"] in ("-c", "-n"):
+        _w = _f["widget"]
+        if isinstance(_w, QSpinBox):
+            _w.setValue(1)
+        elif isinstance(_w, QLineEdit):
+            _w.setText("1")
+        break
+
+_s39_form.command_changed.emit()
+app.processEvents()
+
+_s39_w._on_run_stop()
+app.processEvents()
+check(_s39_w.process is not None, "39c: process exists while running")
+_s39_w.process.waitForFinished(10000)
+app.processEvents()
+check(_s39_w.process is None, "39c: process is None after natural finish")
+
+# -- 39d: process is None after stop --
+# Remove count limit so it runs indefinitely
+for _k, _f in _s39_form.fields.items():
+    if _f["arg"]["flag"] in ("-c", "-n"):
+        _w = _f["widget"]
+        if isinstance(_w, QSpinBox):
+            _w.setValue(_w.minimum())  # sentinel = unset
+        elif isinstance(_w, QLineEdit):
+            _w.setText("")
+        break
+
+_s39_form.command_changed.emit()
+app.processEvents()
+
+_s39_w._on_run_stop()  # Start
+app.processEvents()
+_s39_proc = _s39_w.process
+check(_s39_proc is not None, "39d: process exists while running")
+
+_s39_w._on_run_stop()  # Stop — sets "Stopping...", processEvents, then _stop_process
+# Process is long-running (no count limit), so terminate() won't kill it instantly
+# on Windows (WM_CLOSE ignored by ping) — "Stopping..." should still be visible.
+check(_s39_w.run_btn.text() == "Stopping...", "39d: button shows Stopping...")
+check(not _s39_w.run_btn.isEnabled(), "39d: button disabled while stopping")
+_s39_style = _s39_w.run_btn.styleSheet()
+check("italic" in _s39_style, "39d: Stopping... button has italic style")
+check("#e8a838" in _s39_style or "#b8860b" in _s39_style, "39d: Stopping... button uses warning color")
+
+if _s39_proc is not None:
+    _s39_proc.waitForFinished(10000)
+app.processEvents()
+check(_s39_w.process is None, "39d: process is None after stop")
+check(_s39_w.run_btn.text() == "Run", "39d: button restored to Run after stop")
+check(_s39_w.run_btn.isEnabled(), "39d: button re-enabled after stop")
+
+# -- 39e: _stop_process is safe when already stopped --
+try:
+    _s39_w._stop_process()
+    check(True, "39e: _stop_process after finish does not raise")
+except Exception as _e:
+    check(False, f"39e: _stop_process after finish raised: {_e}")
+
+_s39_w.close(); _s39_w.deleteLater(); app.processEvents()
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
