@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.4"
+__version__ = "2.5.5"
 
 import datetime
 import hashlib
@@ -2133,6 +2133,7 @@ class MainWindow(QMainWindow):
         self.tool_path = None
         self.process = None
         self._killed = False
+        self._timed_out = False
         self._elevated_run = False
         self._run_start_time: float | None = None
         self._elapsed_timer = QTimer(self)
@@ -2660,6 +2661,10 @@ class MainWindow(QMainWindow):
         self._build_form_view()
         self.stack.setCurrentIndex(1)
         self.setWindowTitle(f"Scaffold \u2014 {data['tool']}")
+        saved_timeout = int(self.settings.value(f"timeout/{data['tool']}", 0))
+        self.timeout_spin.blockSignals(True)
+        self.timeout_spin.setValue(saved_timeout)
+        self.timeout_spin.blockSignals(False)
         self.act_reload.setEnabled(True)
         self.act_back.setEnabled(True)
         self.preset_menu.setEnabled(True)
@@ -2702,6 +2707,7 @@ class MainWindow(QMainWindow):
             self.process.waitForFinished(2000)
         self.process = None
         self._killed = False
+        self._timed_out = False
 
         # Clear old contents
         layout = self.form_container_layout
@@ -2784,6 +2790,19 @@ class MainWindow(QMainWindow):
         action_bar.addWidget(self.save_output_btn)
 
         action_bar.addStretch()
+
+        timeout_label = QLabel("Timeout (s):")
+        action_bar.addWidget(timeout_label)
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(0, 99999)
+        self.timeout_spin.setToolTip("Auto-kill after N seconds (0 = no timeout)")
+        self.timeout_spin.setFixedWidth(80)
+        self.timeout_spin.valueChanged.connect(self._on_timeout_changed)
+        action_bar.addWidget(self.timeout_spin)
+
+        self._timeout_timer = QTimer(self)
+        self._timeout_timer.setSingleShot(True)
+        self._timeout_timer.timeout.connect(self._on_timeout_fired)
         layout.addWidget(action_widget)
 
         # -- Output section --
@@ -3027,10 +3046,28 @@ class MainWindow(QMainWindow):
     # Process execution
     # ------------------------------------------------------------------
 
+    def _on_timeout_changed(self, value: int) -> None:
+        """Persist the timeout value per tool in QSettings."""
+        if self.data:
+            self.settings.setValue(f"timeout/{self.data['tool']}", value)
+
+    def _on_timeout_fired(self) -> None:
+        """Kill the running process because the timeout expired."""
+        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
+            timeout_val = self.timeout_spin.value()
+            self._killed = True
+            self._timed_out = True
+            self.process.kill()
+            self._append_output(
+                f"\n--- Process timed out after {timeout_val} seconds ---\n",
+                COLOR_WARN,
+            )
+
     def _on_run_stop(self) -> None:
         """Run the command if idle, or stop the running process if one is active."""
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
             self._killed = True
+            self._timeout_timer.stop()
             self.process.kill()
             return
 
@@ -3069,11 +3106,15 @@ class MainWindow(QMainWindow):
         self._append_output(f"$ {display}\n", COLOR_CMD)
 
         self._killed = False
+        self._timed_out = False
         self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
         self._style_run_btn()
         self.statusBar().showMessage("Running... (0s)")
         self._elapsed_timer.start()
+        timeout_secs = self.timeout_spin.value()
+        if timeout_secs > 0:
+            self._timeout_timer.start(timeout_secs * 1000)
         self.process.start()
 
     def _on_stdout_ready(self) -> None:
@@ -3116,13 +3157,16 @@ class MainWindow(QMainWindow):
     def _on_finished(self, exit_code: int, exit_status) -> None:
         """Handle process termination: print exit status and re-enable the Run button."""
         self._elapsed_timer.stop()
+        self._timeout_timer.stop()
         self._flush_output()
         elapsed_str = ""
         if self._run_start_time is not None:
             elapsed = time.monotonic() - self._run_start_time
             elapsed_str = f" ({elapsed:.1f}s)"
             self._run_start_time = None
-        if self._killed:
+        if self._timed_out:
+            self.statusBar().showMessage(f"Timed out{elapsed_str}")
+        elif self._killed:
             self._append_output("\n--- Process stopped ---\n", COLOR_WARN)
             self.statusBar().showMessage(f"Process stopped{elapsed_str}")
         elif self._elevated_run and exit_code in (126, 127):

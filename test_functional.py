@@ -2501,6 +2501,64 @@ _s28_shutil.rmtree(_s28_dir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 29 — Process Timeout
+# =====================================================================
+print("\n--- Section 29: Process Timeout ---")
+
+# Reload a known tool
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# 29a: timeout spinbox exists and defaults to 0
+check(hasattr(window, 'timeout_spin'), "29a: timeout_spin exists")
+check(window.timeout_spin.value() == 0, f"29a: timeout defaults to 0 (got {window.timeout_spin.value()})")
+
+# 29b: spinbox range
+check(window.timeout_spin.minimum() == 0, "29b: timeout min is 0")
+check(window.timeout_spin.maximum() == 99999, "29b: timeout max is 99999")
+
+# 29c: setting a value persists to QSettings
+window.timeout_spin.setValue(30)
+app.processEvents()
+saved_val = int(window.settings.value(f"timeout/{window.data['tool']}", 0))
+check(saved_val == 30, f"29c: timeout persisted to QSettings (got {saved_val})")
+
+# 29d: value restored on tool reload
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+check(window.timeout_spin.value() == 30, f"29d: timeout restored from QSettings (got {window.timeout_spin.value()})")
+
+# 29e: timeout timer exists and is single-shot
+check(hasattr(window, '_timeout_timer'), "29e: _timeout_timer exists")
+check(window._timeout_timer.isSingleShot(), "29e: timeout timer is single-shot")
+
+# 29f: _timed_out flag exists
+check(hasattr(window, '_timed_out'), "29f: _timed_out attribute exists")
+
+# 29g: timeout timer is NOT started when timeout is 0
+# (don't change the spinbox value — just verify the timer isn't running)
+check(not window._timeout_timer.isActive(), "29g: timeout timer not active when no process running")
+
+# 29h: different tool gets independent timeout
+window.settings.remove("timeout/ping")
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+check(window.timeout_spin.value() == 0, f"29h: different tool defaults to 0 (got {window.timeout_spin.value()})")
+window.timeout_spin.setValue(60)
+app.processEvents()
+# Reload original tool — should have its own saved value
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+check(window.timeout_spin.value() == 30, f"29h: original tool retains its timeout (got {window.timeout_spin.value()})")
+
+# Clean up QSettings entries
+window.settings.remove("timeout/minimal")
+window.settings.remove("timeout/ping")
+window.timeout_spin.setValue(0)
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

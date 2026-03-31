@@ -2,6 +2,38 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.5] — 2026-03-30
+
+### Added
+
+#### Process Timeout
+
+Auto-kill processes that run too long. Useful for fire-and-forget execution of tools like `nmap` or `hashcat` where the user may walk away.
+
+- **Timeout spinbox** in the action bar next to the Run/Stop button. Label: "Timeout (s):", range 0–99999, default 0 (no timeout). Fixed width 80px.
+- **Single-shot QTimer** (`_timeout_timer`) starts when Run is clicked and timeout > 0. If the timer fires before the process finishes, the process is killed with a warning message: "Process timed out after N seconds" in `COLOR_WARN`.
+- **Timer cancellation** — timer is stopped when the process finishes normally, when the user clicks Stop, or when a new tool is loaded.
+- **Per-tool persistence** — timeout value saved to QSettings as `timeout/{tool_name}` and restored when the tool is loaded. Each tool remembers its own timeout independently.
+- **`_timed_out` flag** — distinguishes timeout kills from manual stops. Status bar shows "Timed out (Ns)" instead of "Process stopped".
+- **`blockSignals`** used during timeout restore to prevent spurious QSettings writes.
+- **`datetime`** module (stdlib) was added in v2.5.4 and is reused here — no new dependencies.
+
+### Changed
+- Version bump 2.5.4 → 2.5.5
+- scaffold.py line count: 3,324 → 3,368
+
+### Tested
+- **Section 29** — Process Timeout (12 assertions): timeout spinbox exists and defaults to 0, range 0–99999, value persisted to QSettings, value restored on tool reload, timeout timer exists and is single-shot, `_timed_out` attribute exists, timer not active when no process running, different tools get independent timeout values
+
+#### Full suite results
+- **All 4 test suites pass: 576/576 assertions, 0 failures**
+  - Functional: 406/406 (+12 Section 29)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+
+---
+
 ## [v2.5.4] — 2026-03-30
 
 ### Added
