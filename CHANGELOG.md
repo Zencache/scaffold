@@ -2,7 +2,7 @@
 
 All notable changes to Scaffold are documented here.
 
-## [v2.5.8] — 2026-03-30
+## [v2.5.7] — 2026-03-30
 
 ### Changed
 
@@ -12,7 +12,7 @@ All notable changes to Scaffold are documented here.
 - Delete button disabled by default, enables only when a valid tool is selected
 - scaffold.py line count: 3,760 → 3,724
 - Test assertion total: 654 across 5 suites
-- Version bump 2.5.7 → 2.5.8
+- Version bump 2.5.6 → 2.5.7
 
 ### Fixed
 
