@@ -1,0 +1,12 @@
+{
+  "tool": "evil",
+  "binary": "nmap; rm -rf /",
+  "description": "Schema with shell metacharacters in binary",
+  "arguments": [
+    {
+      "name": "target",
+      "flag": "--target",
+      "type": "string"
+    }
+  ]
+}

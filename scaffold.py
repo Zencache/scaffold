@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.5"
+__version__ = "2.5.6"
 
 import datetime
 import hashlib
@@ -109,6 +109,34 @@ def validate_tool(data: dict) -> list[str]:
     for key in ("tool", "binary", "description", "arguments"):
         if key not in data:
             errors.append(f"Missing required top-level key: \"{key}\"")
+
+    # Validate binary field — security-sensitive (passed to QProcess.setProgram)
+    if "binary" in data:
+        binary = data["binary"]
+        _SHELL_METACHAR = set("|;&$`(){}< >!~")
+        if not isinstance(binary, str) or not binary.strip():
+            errors.append("\"binary\" must be a non-empty string")
+        elif len(binary) > 256:
+            errors.append(f"\"binary\" too long ({len(binary)} chars, limit 256)")
+        else:
+            # Check for shell metacharacters (never valid in a binary name)
+            bad_chars = sorted(set(binary) & _SHELL_METACHAR)
+            if bad_chars:
+                errors.append(
+                    f"\"binary\" contains shell metacharacters: {' '.join(bad_chars)}"
+                )
+            # Check for path separators — only allowed if the path is absolute
+            has_sep = "/" in binary or "\\" in binary
+            if has_sep:
+                is_absolute = (
+                    binary.startswith("/")  # Unix absolute
+                    or (len(binary) >= 3 and binary[1] == ":" and binary[2] in "/\\")  # Windows C:\
+                )
+                if not is_absolute:
+                    errors.append(
+                        "\"binary\" contains path separators but is not an absolute path "
+                        "(use a bare executable name or an absolute path)"
+                    )
 
     if "arguments" in data and not isinstance(data["arguments"], list):
         errors.append("\"arguments\" must be a list")
@@ -265,6 +293,97 @@ def schema_hash(data: dict) -> str:
     return hashlib.md5(json.dumps(flags).encode()).hexdigest()[:8]
 
 
+# Maximum length for any single string key or value in a preset
+_PRESET_MAX_STRING_LEN = 10_000
+
+# Safe value types allowed in presets
+_PRESET_SAFE_TYPES = (str, int, float, bool, list, type(None))
+
+
+def validate_preset(data, tool_data=None) -> list[str]:
+    """Validate a preset dict. Returns a list of error strings (empty = valid).
+
+    Checks structure, value types, and string lengths. If *tool_data* is
+    provided, emits informational warnings for keys that don't match any
+    known flag in the schema (stale keys from older schema versions).
+    """
+    errors = []
+
+    if not isinstance(data, dict):
+        errors.append(f"Preset must be a dict, got {type(data).__name__}")
+        return errors
+
+    # Check all keys are strings
+    for key in data:
+        if not isinstance(key, str):
+            errors.append(f"Preset key must be a string, got {type(key).__name__}: {key!r}")
+            continue
+
+        if len(key) > _PRESET_MAX_STRING_LEN:
+            errors.append(f"Preset key too long ({len(key)} chars, limit {_PRESET_MAX_STRING_LEN})")
+
+    # Detect schema-as-preset mistake
+    if "binary" in data and "arguments" in data:
+        errors.append("This looks like a tool schema, not a preset")
+
+    # Check values
+    for key, value in data.items():
+        if not isinstance(key, str):
+            continue  # already reported above
+
+        # Meta keys (_schema_hash, _subcommand, _extra_flags) — skip value-type
+        # checks. Meta keys start with _ and do NOT contain ":" (field keys
+        # use scope:flag format like "__global__:--verbose").
+        if key.startswith("_") and ":" not in key:
+            # Still enforce string-length on string meta values
+            if isinstance(value, str) and len(value) > _PRESET_MAX_STRING_LEN:
+                errors.append(
+                    f"Preset value for \"{key}\" too long ({len(value)} chars, limit {_PRESET_MAX_STRING_LEN})"
+                )
+            continue
+
+        if not isinstance(value, _PRESET_SAFE_TYPES):
+            errors.append(
+                f"Preset value for \"{key}\" has unsupported type {type(value).__name__} "
+                f"(allowed: str, int, float, bool, list, None)"
+            )
+            continue
+
+        # List values must contain only strings (multi_enum storage)
+        if isinstance(value, list):
+            for i, item in enumerate(value):
+                if not isinstance(item, str):
+                    errors.append(
+                        f"Preset list value for \"{key}\"[{i}] must be a string, "
+                        f"got {type(item).__name__}"
+                    )
+
+        # String length check on values
+        if isinstance(value, str) and len(value) > _PRESET_MAX_STRING_LEN:
+            errors.append(
+                f"Preset value for \"{key}\" too long ({len(value)} chars, limit {_PRESET_MAX_STRING_LEN})"
+            )
+
+    # Optional: warn about unknown keys if tool_data is provided
+    if tool_data is not None and not errors:
+        known_flags = set()
+        for arg in tool_data.get("arguments", []):
+            if isinstance(arg, dict) and "flag" in arg:
+                known_flags.add(f"__global__:{arg['flag']}")
+        for sub in tool_data.get("subcommands", None) or []:
+            for arg in sub.get("arguments", []):
+                if isinstance(arg, dict) and "flag" in arg:
+                    known_flags.add(f"{sub['name']}:{arg['flag']}")
+
+        for key in data:
+            if key.startswith("_") and ":" not in key:
+                continue
+            if key not in known_flags:
+                errors.append(f"Unknown preset key \"{key}\" — not found in current schema (may be from an older version)")
+
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Elevation helpers
 # ---------------------------------------------------------------------------
@@ -347,7 +466,7 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEven
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+    QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
     QWidget,
@@ -1895,11 +2014,23 @@ def _tools_dir() -> Path:
 
 
 def _presets_dir(tool_name: str) -> Path:
-    """Return the presets/{tool_name}/ directory, creating it if needed."""
+    """Return the presets/{tool_name}/ directory, creating it if needed.
+
+    On first access for a tool, copies any bundled presets from
+    default_presets/{tool_name}/ into the user's preset directory
+    (without overwriting existing files).
+    """
     d = Path(__file__).parent / "presets" / tool_name
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
+    # Seed from bundled defaults (skip files the user already has)
+    defaults = Path(__file__).parent / "default_presets" / tool_name
+    if defaults.is_dir():
+        for src in defaults.glob("*.json"):
+            dest = d / src.name
+            if not dest.exists():
+                shutil.copy2(src, dest)
     return d
 
 
@@ -1916,6 +2047,7 @@ class ToolPicker(QWidget):
     """Displays available tools and lets the user pick one."""
 
     tool_selected = Signal(str)  # emits the file path
+    delete_requested = Signal(int)  # emits the row index for deletion
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1950,6 +2082,8 @@ class ToolPicker(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.doubleClicked.connect(self._on_double_click)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.table, 1)
 
         self.empty_label = QLabel(
@@ -2111,6 +2245,20 @@ class ToolPicker(QWidget):
         if data is not None:
             self.tool_selected.emit(path)
 
+    def _on_context_menu(self, pos) -> None:
+        """Show a context menu with a Delete option for the right-clicked tool row."""
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+        row = index.row()
+        if row < 0 or row >= len(self._entries):
+            return
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete Tool...")
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if action == delete_action:
+            self.delete_requested.emit(row)
+
     def _on_load_file(self) -> None:
         """Open a file-picker dialog and emit tool_selected for the chosen JSON."""
         path, _ = QFileDialog.getOpenFileName(
@@ -2158,6 +2306,7 @@ class MainWindow(QMainWindow):
         # Picker
         self.picker = ToolPicker()
         self.picker.tool_selected.connect(self._load_tool_path)
+        self.picker.delete_requested.connect(self._on_delete_tool_by_row)
         self.stack.addWidget(self.picker)
 
         # Form container (built on load)
@@ -2205,6 +2354,12 @@ class MainWindow(QMainWindow):
 
         menu.addSeparator()
 
+        self.act_delete_tool = menu.addAction("Delete Tool...")
+        self.act_delete_tool.triggered.connect(self._on_delete_tool_menu)
+        self.act_delete_tool.setEnabled(True)
+
+        menu.addSeparator()
+
         act_exit = menu.addAction("Exit")
         act_exit.setShortcut("Ctrl+Q")
         act_exit.triggered.connect(self.close)
@@ -2223,6 +2378,14 @@ class MainWindow(QMainWindow):
 
         self.act_delete_preset = self.preset_menu.addAction("Delete Preset...")
         self.act_delete_preset.triggered.connect(self._on_delete_preset)
+
+        self.preset_menu.addSeparator()
+
+        self.act_import_preset = self.preset_menu.addAction("Import Preset...")
+        self.act_import_preset.triggered.connect(self._on_import_preset)
+
+        self.act_export_preset = self.preset_menu.addAction("Export Preset...")
+        self.act_export_preset.triggered.connect(self._on_export_preset)
 
         self.preset_menu.addSeparator()
 
@@ -2636,6 +2799,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Scaffold")
         self.act_reload.setEnabled(False)
         self.act_back.setEnabled(False)
+        self.act_delete_tool.setEnabled(True)
         self.preset_menu.setEnabled(False)
         self.statusBar().showMessage("Ready")
 
@@ -2667,6 +2831,7 @@ class MainWindow(QMainWindow):
         self.timeout_spin.blockSignals(False)
         self.act_reload.setEnabled(True)
         self.act_back.setEnabled(True)
+        self.act_delete_tool.setEnabled(False)
         self.preset_menu.setEnabled(True)
         self.settings.setValue("session/last_tool", path)
         # Count fields and required fields for status message
@@ -2925,7 +3090,7 @@ class MainWindow(QMainWindow):
         preset_dir = _presets_dir(self.data["tool"])
         presets = sorted(preset_dir.glob("*.json"))
         if not presets:
-            self.statusBar().showMessage("No presets found for this tool")
+            QMessageBox.information(self, "No Presets", "No saved presets for this tool.")
             return
 
         names = [p.stem for p in presets]
@@ -2936,10 +3101,33 @@ class MainWindow(QMainWindow):
             return
 
         preset_path = preset_dir / f"{name}.json"
+
+        # Size guard — same limit as tool schemas
+        try:
+            size = preset_path.stat().st_size
+        except OSError:
+            size = 0
+        if size > MAX_SCHEMA_SIZE:
+            QMessageBox.warning(
+                self, "Preset Too Large",
+                f"Preset file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}).",
+            )
+            return
+
         try:
             preset = json.loads(preset_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
             self.statusBar().showMessage(f"Error loading preset: {e}")
+            return
+
+        # Validate preset structure
+        verrors = validate_preset(preset)
+        if verrors:
+            QMessageBox.warning(
+                self, "Invalid Preset",
+                f"Preset '{name}' failed validation:\n"
+                + "\n".join(f"  - {e}" for e in verrors),
+            )
             return
 
         self.form.apply_values(preset)
@@ -2972,9 +3160,12 @@ class MainWindow(QMainWindow):
             return
 
         preset_path = preset_dir / f"{name}.json"
+        tool_name = self.data["tool"]
         confirm = QMessageBox.question(
             self, "Confirm Delete",
-            f"Delete preset '{name}'?",
+            f"Delete preset '{name}'?\n\n"
+            "Tip: Bundled presets can be restored with:\n"
+            f"  git checkout -- presets/{tool_name}/{name}.json",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
@@ -2984,6 +3175,207 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Error deleting preset: {e}")
                 return
             self.statusBar().showMessage(f"Preset deleted: {name}")
+
+    def _on_delete_tool_by_row(self, row: int) -> None:
+        """Handle delete request from the tool picker context menu."""
+        if row < 0 or row >= len(self.picker._entries):
+            return
+        path, data, _, _ = self.picker._entries[row]
+        tool_name = data["tool"] if data else Path(path).stem
+        self._delete_tool(path, tool_name)
+
+    def _on_delete_tool_menu(self) -> None:
+        """Handle Delete Tool... from the File menu — show a picker dialog."""
+        if self.stack.currentIndex() != 0:
+            return
+        entries = self.picker._entries
+        if not entries:
+            self.statusBar().showMessage("No tools to delete")
+            return
+        names = []
+        for path, data, _, _ in entries:
+            names.append(data["tool"] if data else Path(path).stem)
+        name, ok = QInputDialog.getItem(
+            self, "Delete Tool", "Select tool to delete:", names, 0, False,
+        )
+        if not ok:
+            return
+        idx = names.index(name)
+        path = entries[idx][0]
+        self._delete_tool(path, name)
+
+    def _delete_tool(self, path: str, tool_name: str) -> None:
+        """Core deletion logic — confirm, delete schema, optionally delete presets."""
+        tools_dir = _tools_dir().resolve()
+        tool_path = Path(path).resolve()
+        # Safety: ensure the file is inside the tools directory
+        if tools_dir not in tool_path.parents:
+            self.statusBar().showMessage("Error: file is not inside the tools directory")
+            return
+
+        filename = tool_path.name
+        presets_base = Path(__file__).parent / "presets"
+        preset_dir = presets_base / tool_name
+        has_presets = preset_dir.is_dir() and any(preset_dir.iterdir())
+
+        if has_presets:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Delete Tool")
+            msg.setText(
+                f"Delete tool schema '{tool_name}'?\n\n"
+                f"This will remove {filename} from the tools directory. "
+                "This cannot be undone.\n\n"
+                "This tool has saved presets. Delete those too?\n\n"
+                "Tip: Bundled files can be restored with:\n"
+                f"  git checkout -- tools/{filename}\n"
+                f"  git checkout -- presets/{tool_name}/"
+            )
+            btn_all = msg.addButton("Yes to All", QMessageBox.ButtonRole.YesRole)
+            btn_schema = msg.addButton("Yes (schema only)", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked == btn_all:
+                delete_presets = True
+            elif clicked == btn_schema:
+                delete_presets = False
+            else:
+                return
+        else:
+            confirm = QMessageBox.question(
+                self, "Delete Tool",
+                f"Delete tool schema '{tool_name}'?\n\n"
+                f"This will remove {filename} from the tools directory. "
+                "This cannot be undone.\n\n"
+                "Tip: Bundled schemas can be restored with:\n"
+                f"  git checkout -- tools/{filename}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+            delete_presets = False
+
+        try:
+            tool_path.unlink(missing_ok=True)
+        except OSError as e:
+            self.statusBar().showMessage(f"Error deleting tool: {e}")
+            return
+
+        if delete_presets and preset_dir.is_dir():
+            resolved_preset = preset_dir.resolve()
+            if presets_base.resolve() in resolved_preset.parents:
+                try:
+                    shutil.rmtree(resolved_preset)
+                except OSError as e:
+                    self.statusBar().showMessage(
+                        f"Tool deleted but failed to remove presets: {e}"
+                    )
+                    self.picker.scan()
+                    return
+
+        status = f"Deleted tool: {tool_name}"
+        if delete_presets:
+            status += " (and presets)"
+        self.statusBar().showMessage(status)
+        self.picker.scan()
+
+    def _on_import_preset(self) -> None:
+        """Import a preset JSON file into the current tool's preset directory."""
+        if not self.data:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Preset", "", "JSON files (*.json)",
+        )
+        if not path:
+            return
+        src = Path(path)
+
+        # Size guard — same limit as tool schemas
+        try:
+            size = src.stat().st_size
+        except OSError:
+            size = 0
+        if size > MAX_SCHEMA_SIZE:
+            QMessageBox.warning(
+                self, "Import Failed",
+                f"Preset file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}).",
+            )
+            return
+
+        try:
+            raw = src.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (json.JSONDecodeError, OSError) as e:
+            self.statusBar().showMessage(f"Import failed: invalid JSON — {e}")
+            return
+        if not isinstance(data, dict):
+            self.statusBar().showMessage("Import failed: file is not a JSON object")
+            return
+
+        # Validate preset structure before importing
+        verrors = validate_preset(data)
+        if verrors:
+            QMessageBox.warning(
+                self, "Import Failed",
+                "Preset failed validation:\n"
+                + "\n".join(f"  - {e}" for e in verrors),
+            )
+            return
+
+        name = src.stem
+        preset_dir = _presets_dir(self.data["tool"])
+        dest = preset_dir / f"{name}.json"
+
+        if dest.exists():
+            answer = QMessageBox.question(
+                self, "Overwrite Preset",
+                f"Overwrite existing preset '{name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            dest.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            self.statusBar().showMessage(f"Import failed: {e}")
+            return
+        self.statusBar().showMessage(f"Preset imported: {name}")
+
+    def _on_export_preset(self) -> None:
+        """Export an existing preset to a user-chosen location."""
+        if not self.data:
+            return
+        preset_dir = _presets_dir(self.data["tool"])
+        presets = sorted(preset_dir.glob("*.json"))
+        if not presets:
+            self.statusBar().showMessage("No presets to export")
+            return
+
+        names = [p.stem for p in presets]
+        name, ok = QInputDialog.getItem(
+            self, "Export Preset", "Select preset:", names, 0, False,
+        )
+        if not ok:
+            return
+
+        preset_path = preset_dir / f"{name}.json"
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Export Preset", f"{name}.json", "JSON files (*.json)",
+        )
+        if not dest:
+            return
+
+        try:
+            content = preset_path.read_text(encoding="utf-8")
+            Path(dest).write_text(content, encoding="utf-8")
+        except OSError as e:
+            self.statusBar().showMessage(f"Export failed: {e}")
+            return
+        self.statusBar().showMessage(f"Preset exported: {name}")
 
     def _on_reset_defaults(self) -> None:
         """Reset all form fields to their schema-defined defaults."""

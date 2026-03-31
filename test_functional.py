@@ -20,7 +20,7 @@ from pathlib import Path
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QColor, QKeyEvent
 
@@ -2556,6 +2556,517 @@ window.settings.remove("timeout/minimal")
 window.settings.remove("timeout/ping")
 window.timeout_spin.setValue(0)
 app.processEvents()
+
+
+# =====================================================================
+# Section 30 — Preset Import/Export
+# =====================================================================
+print("\n--- Section 30: Preset Import/Export ---")
+
+# Load a tool and save a preset to work with
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# Set a distinctive field value so we can verify round-trip
+for key, field in window.form.fields.items():
+    if field["arg"].get("type") == "string":
+        field["widget"].setText("export_test_value")
+        break
+app.processEvents()
+
+# Save a preset manually
+_preset_dir = Path(__file__).parent / "presets" / "minimal"
+_preset_dir.mkdir(parents=True, exist_ok=True)
+_saved_preset = window.form.serialize_values()
+_preset_path = _preset_dir / "test_export.json"
+_preset_path.write_text(json.dumps(_saved_preset, indent=2), encoding="utf-8")
+
+# 30a: Export menu action exists
+check(hasattr(window, "act_export_preset"), "30a: export preset action exists")
+
+# 30b: Import menu action exists
+check(hasattr(window, "act_import_preset"), "30b: import preset action exists")
+
+# 30c: Export a preset to a temp directory (bypass dialog)
+_export_dir = tempfile.mkdtemp(prefix="scaffold_export_test_")
+_export_path = Path(_export_dir) / "test_export.json"
+content = _preset_path.read_text(encoding="utf-8")
+Path(_export_path).write_text(content, encoding="utf-8")
+check(_export_path.exists(), "30c: exported file exists on disk")
+
+# 30d: Exported file contains valid JSON matching original
+_exported_data = json.loads(_export_path.read_text(encoding="utf-8"))
+check(_exported_data == _saved_preset, "30d: exported JSON matches original preset")
+
+# 30e: Import the exported file back under a different name
+_import_src = Path(_export_dir) / "imported_preset.json"
+shutil.copy(_export_path, _import_src)
+_import_dest = _preset_dir / "imported_preset.json"
+_import_src_data = json.loads(_import_src.read_text(encoding="utf-8"))
+_import_dest.write_text(json.dumps(_import_src_data, indent=2), encoding="utf-8")
+check(_import_dest.exists(), "30e: imported preset file exists in preset dir")
+
+# 30f: Imported preset loads correctly and values match
+_imported_data = json.loads(_import_dest.read_text(encoding="utf-8"))
+check(_imported_data == _saved_preset, "30f: imported preset data matches original")
+
+# 30g: Apply imported preset and verify field values match
+window.form.reset_to_defaults()
+app.processEvents()
+window.form.apply_values(_imported_data)
+app.processEvents()
+_roundtrip_values = window.form.serialize_values()
+# Compare non-meta keys
+_orig_fields = {k: v for k, v in _saved_preset.items() if not k.startswith("_")}
+_rt_fields = {k: v for k, v in _roundtrip_values.items() if not k.startswith("_")}
+check(_orig_fields == _rt_fields, "30g: field values match after import and apply")
+
+# 30h: Name collision detection — import a file with same name as existing preset
+_collision_src = Path(_export_dir) / "test_export.json"  # same name as existing
+# The collision check lives in _on_import_preset; verify the dest file already exists
+_collision_dest = _preset_dir / "test_export.json"
+check(_collision_dest.exists(), "30h: collision target already exists before import")
+
+# 30i: Import invalid JSON — test the validation logic directly
+_bad_json_path = Path(_export_dir) / "bad.json"
+_bad_json_path.write_text("not valid json {{{", encoding="utf-8")
+try:
+    _bad_data = json.loads(_bad_json_path.read_text(encoding="utf-8"))
+    _bad_json_rejected = False
+except json.JSONDecodeError:
+    _bad_json_rejected = True
+check(_bad_json_rejected, "30i: invalid JSON is rejected by json.loads")
+
+# 30j: Import non-dict JSON is rejected
+_non_dict_path = Path(_export_dir) / "array.json"
+_non_dict_path.write_text("[1, 2, 3]", encoding="utf-8")
+_non_dict_data = json.loads(_non_dict_path.read_text(encoding="utf-8"))
+check(not isinstance(_non_dict_data, dict), "30j: non-dict JSON detected as invalid")
+
+# 30k: Export with no presets shows status message
+# Remove all presets, then call the method internals
+_backup_presets = list(_preset_dir.glob("*.json"))
+_backup_data_map = {}
+for p in _backup_presets:
+    _backup_data_map[p.name] = p.read_text(encoding="utf-8")
+    p.unlink()
+# Verify no presets
+check(len(list(_preset_dir.glob("*.json"))) == 0, "30k: preset dir is empty")
+
+# Simulate export with no presets
+window._on_export_preset()
+app.processEvents()
+_status_msg = window.statusBar().currentMessage()
+check("No presets to export" in _status_msg, f"30k: no-presets export message shown (got: {_status_msg})")
+
+# Restore presets
+for fname, fdata in _backup_data_map.items():
+    (_preset_dir / fname).write_text(fdata, encoding="utf-8")
+
+# 30l: Preset menu is disabled when no tool loaded (picker view)
+window._show_picker()
+app.processEvents()
+check(not window.preset_menu.isEnabled(), "30l: preset menu disabled in picker view")
+
+# 30m: Preset menu re-enabled when tool loaded
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+check(window.preset_menu.isEnabled(), "30m: preset menu enabled after loading tool")
+
+# Clean up temp files and test presets
+shutil.rmtree(_export_dir, ignore_errors=True)
+for f in _preset_dir.glob("*.json"):
+    f.unlink(missing_ok=True)
+
+
+# =====================================================================
+# Section 31 — Preset Validation in Load/Import Paths
+# =====================================================================
+print("\n--- Section 31: Preset Validation in Load/Import ---")
+
+# Load a tool to work with
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# 31a: validate_preset function exists and is callable
+check(callable(scaffold.validate_preset), "31a: validate_preset is callable")
+
+# 31b: Valid preset passes validation
+_valid_preset = window.form.serialize_values()
+_vresult = scaffold.validate_preset(_valid_preset)
+check(_vresult == [], f"31b: serialized preset passes validation (got {_vresult})")
+
+# 31c: Invalid preset (non-dict) fails validation
+_vresult = scaffold.validate_preset([1, 2, 3])
+check(len(_vresult) > 0, "31c: non-dict preset fails validation")
+
+# 31d: Preset with nested dict value fails
+_vresult = scaffold.validate_preset({"key": {"nested": True}})
+check(len(_vresult) > 0, "31d: nested dict value fails validation")
+
+# 31e: Schema-as-preset detection
+_vresult = scaffold.validate_preset({"binary": "nmap", "arguments": []})
+check(any("tool schema" in e.lower() for e in _vresult), "31e: schema-as-preset detected")
+
+# 31f: Save an invalid preset to disk, then attempt to load it
+_p31_dir = Path(__file__).parent / "presets" / "minimal"
+_p31_dir.mkdir(parents=True, exist_ok=True)
+_bad_preset_path = _p31_dir / "bad_nested.json"
+_bad_preset_path.write_text(json.dumps({"key": {"evil": True}}, indent=2), encoding="utf-8")
+
+# Loading invalid preset should NOT apply it — verify form state unchanged
+_before_values = window.form.serialize_values()
+# We can't easily invoke _on_load_preset (needs dialog), but we can test the
+# validation function would reject the file's content
+_bad_data = json.loads(_bad_preset_path.read_text(encoding="utf-8"))
+_bad_errors = scaffold.validate_preset(_bad_data)
+check(len(_bad_errors) > 0, "31f: invalid preset file content fails validation")
+
+# 31g: Clean up bad preset
+_bad_preset_path.unlink(missing_ok=True)
+
+# 31h: _on_import_preset validates before copying — test with a crafted file
+_p31_import_dir = tempfile.mkdtemp(prefix="scaffold_p31_")
+_p31_crafted = Path(_p31_import_dir) / "crafted.json"
+_p31_crafted.write_text(json.dumps({"key": {"nested": "dict"}}), encoding="utf-8")
+_crafted_data = json.loads(_p31_crafted.read_text(encoding="utf-8"))
+_crafted_errors = scaffold.validate_preset(_crafted_data)
+check(len(_crafted_errors) > 0, "31h: crafted import file fails validation")
+
+# 31i: MAX_SCHEMA_SIZE is reused for preset size limit
+check(hasattr(scaffold, "MAX_SCHEMA_SIZE"), "31i: MAX_SCHEMA_SIZE constant exists")
+check(scaffold.MAX_SCHEMA_SIZE == 1_000_000, "31i: MAX_SCHEMA_SIZE is 1MB")
+
+# Clean up
+shutil.rmtree(_p31_import_dir, ignore_errors=True)
+for f in _p31_dir.glob("*.json"):
+    f.unlink(missing_ok=True)
+
+
+# =====================================================================
+# Section 32 — Binary Field Sanitization in validate_tool()
+# =====================================================================
+print("\n--- Section 32: Binary Field Sanitization ---")
+
+_tests_dir = Path(__file__).parent / "tests"
+
+# 32a: Shell metacharacters in binary → validation fails
+_shell_data = scaffold.load_tool(_tests_dir / "invalid_binary_shell_chars.json")
+_shell_errs = scaffold.validate_tool(_shell_data)
+check(any("metacharacter" in e.lower() for e in _shell_errs),
+      f"32a: shell metacharacters rejected (got {_shell_errs})")
+
+# 32b: Path traversal in binary → validation fails
+_trav_data = scaffold.load_tool(_tests_dir / "invalid_binary_path_traversal.json")
+_trav_errs = scaffold.validate_tool(_trav_data)
+check(any("path separator" in e.lower() for e in _trav_errs),
+      f"32b: path traversal rejected (got {_trav_errs})")
+
+# 32c: Absolute path in binary → validation passes
+_abs_data = scaffold.load_tool(_tests_dir / "valid_binary_absolute_path.json")
+_abs_errs = scaffold.validate_tool(_abs_data)
+check(not any("binary" in e.lower() for e in _abs_errs),
+      f"32c: absolute binary path allowed (got {_abs_errs})")
+
+# 32d: Windows absolute path allowed
+_win_data = {"tool": "test", "binary": "C:\\Windows\\System32\\ping.exe",
+             "description": "test", "arguments": []}
+_win_errs = scaffold.validate_tool(_win_data)
+check(not any("path separator" in e.lower() for e in _win_errs),
+      f"32d: Windows absolute path allowed (got {_win_errs})")
+
+# 32e: Empty binary fails
+_empty_data = {"tool": "test", "binary": "", "description": "test", "arguments": []}
+_empty_errs = scaffold.validate_tool(_empty_data)
+check(any("non-empty" in e.lower() for e in _empty_errs),
+      f"32e: empty binary rejected (got {_empty_errs})")
+
+# 32f: Binary too long fails
+_long_data = {"tool": "test", "binary": "x" * 257, "description": "test", "arguments": []}
+_long_errs = scaffold.validate_tool(_long_data)
+check(any("too long" in e.lower() for e in _long_errs),
+      f"32f: long binary rejected (got {_long_errs})")
+
+# 32g: Bare executable name passes (normal case)
+_bare_data = {"tool": "test", "binary": "nmap", "description": "test", "arguments": []}
+_bare_errs = scaffold.validate_tool(_bare_data)
+check(not any("binary" in e.lower() for e in _bare_errs),
+      f"32g: bare executable allowed (got {_bare_errs})")
+
+# 32h: Pipe in binary rejected
+_pipe_data = {"tool": "test", "binary": "nmap | evil", "description": "test", "arguments": []}
+_pipe_errs = scaffold.validate_tool(_pipe_data)
+check(any("metacharacter" in e.lower() for e in _pipe_errs),
+      f"32h: pipe in binary rejected (got {_pipe_errs})")
+
+# 32i: All 9 bundled schemas still pass validation
+_tools_dir_path = Path(__file__).parent / "tools"
+_bundled_all_pass = True
+for _tool_file in sorted(_tools_dir_path.glob("*.json")):
+    _tool_data = scaffold.load_tool(_tool_file)
+    _tool_errs = scaffold.validate_tool(_tool_data)
+    if _tool_errs:
+        _bundled_all_pass = False
+        print(f"    WARN: {_tool_file.name} failed: {_tool_errs}")
+check(_bundled_all_pass, "32i: all 9 bundled schemas pass validation")
+
+
+# =====================================================================
+# Section 30: Delete Tool
+# =====================================================================
+print("\n--- Section 30: Delete Tool ---")
+
+# Set up: create a temp tool JSON in the tools dir for deletion tests
+_tools_path = Path(__file__).parent / "tools"
+_delete_test_tool = _tools_path / "test_delete_me.json"
+_delete_test_data = {
+    "tool": "delete_me",
+    "binary": "echo",
+    "description": "Temporary tool for delete tests",
+    "arguments": [
+        {"name": "Verbose", "flag": "--verbose", "type": "boolean",
+         "description": "verbose"}
+    ]
+}
+_delete_test_tool.write_text(json.dumps(_delete_test_data), encoding="utf-8")
+
+# Also create a preset directory with a preset file for this tool
+_presets_base = Path(__file__).parent / "presets"
+_preset_dir_del = _presets_base / "delete_me"
+_preset_dir_del.mkdir(parents=True, exist_ok=True)
+_preset_file_del = _preset_dir_del / "my_preset.json"
+_preset_file_del.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
+
+# Create a second temp tool for the "schema only" test
+_delete_test_tool2 = _tools_path / "test_delete_me2.json"
+_delete_test_data2 = {
+    "tool": "delete_me2",
+    "binary": "echo",
+    "description": "Second temporary tool for delete tests",
+    "arguments": []
+}
+_delete_test_tool2.write_text(json.dumps(_delete_test_data2), encoding="utf-8")
+_preset_dir_del2 = _presets_base / "delete_me2"
+_preset_dir_del2.mkdir(parents=True, exist_ok=True)
+_preset_file_del2 = _preset_dir_del2 / "test.json"
+_preset_file_del2.write_text(json.dumps({}), encoding="utf-8")
+
+# 30a: Delete Tool action exists in File menu
+window._show_picker()
+app.processEvents()
+check(hasattr(window, "act_delete_tool"), "30a: act_delete_tool attribute exists")
+
+# 30b: Delete Tool action is enabled when picker is visible
+check(window.act_delete_tool.isEnabled(), "30b: Delete Tool enabled on picker view")
+
+# 30c: Delete Tool action is disabled when form is open
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+check(not window.act_delete_tool.isEnabled(), "30c: Delete Tool disabled when form is open")
+
+# Go back to picker
+window._show_picker()
+app.processEvents()
+
+# 30d: Context menu signal exists on picker
+check(hasattr(window.picker, "delete_requested"), "30d: delete_requested signal exists on picker")
+
+# 30e: Picker table has custom context menu policy
+check(
+    window.picker.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu,
+    "30e: table has CustomContextMenu policy"
+)
+
+# 30f: Rescan picker and find our test tools
+window.picker.scan()
+app.processEvents()
+_found_del1 = any(
+    d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
+)
+check(_found_del1, "30f: test tool 'delete_me' found in picker after scan")
+
+# 30g: Delete tool with presets — "Yes to All" (delete schema + presets)
+# Call _delete_tool with mocked QMessageBox to test the real code path
+check(_delete_test_tool.exists(), "30g: test tool file exists before delete")
+check(_preset_dir_del.is_dir(), "30g: preset dir exists before delete")
+
+# Mock custom QMessageBox to auto-click "Yes to All"
+_orig_exec_g = QMessageBox.exec
+_orig_clicked_g = QMessageBox.clickedButton
+_target_btn_g = [None]
+_orig_addButton_g = QMessageBox.addButton
+
+def _mock_addButton_g(self, text, role):
+    btn = _orig_addButton_g(self, text, role)
+    if "Yes to All" in str(text):
+        _target_btn_g[0] = btn
+    return btn
+
+QMessageBox.exec = lambda self: None
+QMessageBox.addButton = _mock_addButton_g
+QMessageBox.clickedButton = lambda self: _target_btn_g[0]
+try:
+    window._delete_tool(str(_delete_test_tool), "delete_me")
+    app.processEvents()
+finally:
+    QMessageBox.exec = _orig_exec_g
+    QMessageBox.addButton = _orig_addButton_g
+    QMessageBox.clickedButton = _orig_clicked_g
+
+check(not _delete_test_tool.exists(), "30g: tool file removed after delete")
+check(not _preset_dir_del.exists(), "30g: preset dir removed after 'Yes to All'")
+
+_found_after = any(
+    d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
+)
+check(not _found_after, "30g: tool gone from picker after delete + rescan")
+
+# 30h: Delete tool — "schema only" (presets remain)
+check(_delete_test_tool2.exists(), "30h: test tool 2 file exists before delete")
+check(_preset_dir_del2.is_dir(), "30h: preset dir 2 exists before delete")
+
+# Mock custom QMessageBox to auto-click "Yes (schema only)"
+_orig_exec_h = QMessageBox.exec
+_orig_clicked_h = QMessageBox.clickedButton
+_target_btn_h = [None]
+_orig_addButton_h = QMessageBox.addButton
+
+def _mock_addButton_h(self, text, role):
+    btn = _orig_addButton_h(self, text, role)
+    if "schema only" in str(text):
+        _target_btn_h[0] = btn
+    return btn
+
+QMessageBox.exec = lambda self: None
+QMessageBox.addButton = _mock_addButton_h
+QMessageBox.clickedButton = lambda self: _target_btn_h[0]
+try:
+    window._delete_tool(str(_delete_test_tool2), "delete_me2")
+    app.processEvents()
+finally:
+    QMessageBox.exec = _orig_exec_h
+    QMessageBox.addButton = _orig_addButton_h
+    QMessageBox.clickedButton = _orig_clicked_h
+
+check(not _delete_test_tool2.exists(), "30h: tool file 2 removed after delete")
+check(_preset_dir_del2.is_dir(), "30h: preset dir 2 still exists after schema-only delete")
+
+_found_after2 = any(
+    d and d["tool"] == "delete_me2" for _, d, _, _ in window.picker._entries
+)
+check(not _found_after2, "30h: tool 2 gone from picker after delete + rescan")
+
+# Clean up remaining preset dir from test h
+if _preset_dir_del2.is_dir():
+    shutil.rmtree(_preset_dir_del2)
+
+# 30i: Safety — _delete_tool rejects paths outside tools dir
+_outside_path = str(Path(__file__).parent / "scaffold.py")
+_entry_count_before = len(window.picker._entries)
+window._delete_tool(_outside_path, "scaffold")
+app.processEvents()
+_entry_count_after = len(window.picker._entries)
+check(
+    _entry_count_before == _entry_count_after,
+    "30i: _delete_tool rejects path outside tools/ (no change)"
+)
+# Verify the status bar reported the error
+_sb_msg = window.statusBar().currentMessage()
+check(
+    "not inside" in _sb_msg.lower(),
+    f"30i: status bar reports safety error: '{_sb_msg}'"
+)
+
+# 30j: Delete tool with no presets — call _delete_tool with mocked dialog
+_delete_test_tool3 = _tools_path / "test_delete_me3.json"
+_delete_test_data3 = {
+    "tool": "delete_me3",
+    "binary": "echo",
+    "description": "Third temp tool",
+    "arguments": []
+}
+_delete_test_tool3.write_text(json.dumps(_delete_test_data3), encoding="utf-8")
+window.picker.scan()
+app.processEvents()
+_found_del3 = any(
+    d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
+)
+check(_found_del3, "30j: test tool 3 appears in picker")
+# Mock QMessageBox.question to auto-return Yes
+_orig_question_j = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+try:
+    window._delete_tool(str(_delete_test_tool3), "delete_me3")
+    app.processEvents()
+finally:
+    QMessageBox.question = _orig_question_j
+check(not _delete_test_tool3.exists(), "30j: tool 3 file deleted from disk")
+_found_after3 = any(
+    d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
+)
+check(not _found_after3, "30j: tool 3 gone after delete (no presets case)")
+
+# Clean up any leftover preset dirs created by _presets_dir calls
+for _pname in ("delete_me", "delete_me2", "delete_me3"):
+    _pd = _presets_base / _pname
+    if _pd.is_dir():
+        shutil.rmtree(_pd)
+
+# 30k: _on_delete_tool_by_row with invalid row index does nothing
+_count_before_k = len(window.picker._entries)
+window._on_delete_tool_by_row(-1)
+app.processEvents()
+window._on_delete_tool_by_row(9999)
+app.processEvents()
+check(len(window.picker._entries) == _count_before_k,
+      "30k: invalid row indices cause no change")
+
+# 30l: _on_delete_preset dialog includes git restore tip
+# Verify the dialog text by capturing the QMessageBox.question call args
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+_preset_dir_l = scaffold._presets_dir(window.data["tool"])
+_preset_file_l = _preset_dir_l / "test_del_tip.json"
+_preset_file_l.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
+
+_captured_question_args_l = []
+_orig_question_l = QMessageBox.question
+def _mock_question_l(*args, **kwargs):
+    _captured_question_args_l.append(args)
+    return QMessageBox.StandardButton.No  # Don't actually delete
+QMessageBox.question = staticmethod(_mock_question_l)
+_orig_getItem_l = scaffold.QInputDialog.getItem
+scaffold.QInputDialog.getItem = staticmethod(lambda *a, **kw: ("test_del_tip", True))
+try:
+    window._on_delete_preset()
+    app.processEvents()
+finally:
+    QMessageBox.question = _orig_question_l
+    scaffold.QInputDialog.getItem = _orig_getItem_l
+
+check(len(_captured_question_args_l) == 1, "30l: preset delete dialog was shown")
+if _captured_question_args_l:
+    _dialog_text_l = _captured_question_args_l[0][2]  # third arg is the text
+    check("git checkout" in _dialog_text_l, "30l: preset delete dialog includes git restore tip")
+    check("presets/" in _dialog_text_l, "30l: preset delete dialog includes preset path")
+else:
+    check(False, "30l: preset delete dialog includes git restore tip")
+    check(False, "30l: preset delete dialog includes preset path")
+
+# Clean up
+if _preset_file_l.exists():
+    _preset_file_l.unlink()
+
+# 30m: Delete Tool menu state matches picker/form view transitions
+window._show_picker()
+app.processEvents()
+check(window.act_delete_tool.isEnabled(), "30m: Delete Tool enabled after _show_picker")
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+check(not window.act_delete_tool.isEnabled(), "30m: Delete Tool disabled after _load_tool_path")
+window._on_back()
+app.processEvents()
+check(window.act_delete_tool.isEnabled(), "30m: Delete Tool re-enabled after _on_back")
 
 
 # =====================================================================

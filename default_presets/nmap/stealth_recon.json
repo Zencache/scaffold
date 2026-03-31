@@ -1,0 +1,9 @@
+{
+  "_subcommand": null,
+  "-sS": true,
+  "-T": "2",
+  "-O": true,
+  "--script": "safe",
+  "-oN": "results.txt",
+  "TARGET": "192.168.1.1"
+}

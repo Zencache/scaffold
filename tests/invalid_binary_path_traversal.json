@@ -1,0 +1,12 @@
+{
+  "tool": "evil",
+  "binary": "../../bin/evil",
+  "description": "Schema with path traversal in binary",
+  "arguments": [
+    {
+      "name": "target",
+      "flag": "--target",
+      "type": "string"
+    }
+  ]
+}

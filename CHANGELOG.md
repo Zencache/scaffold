@@ -2,6 +2,24 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.6] — 2026-03-30
+
+### Fixed
+
+- **Preset delete dialog** now includes a git restore tip (`git checkout -- presets/{tool}/{file}`) matching the tool schema delete dialog
+- **Delete Tool tests** now exercise the real `_delete_tool()` code path with mocked dialogs instead of bypassing it with direct `unlink()` calls
+
+### Added
+- **Test 30l** — verifies preset delete dialog includes git restore tip (3 assertions)
+- **Test 30m** — verifies Delete Tool menu enable/disable across picker ↔ form transitions (3 assertions)
+
+### Changed
+- Version bump 2.5.5 → 2.5.6
+- scaffold.py line count: 3,368 → 3,760
+- Test assertion total: 576 → 659 across 5 suites
+
+---
+
 ## [v2.5.5] — 2026-03-30
 
 ### Added

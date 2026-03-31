@@ -1,0 +1,12 @@
+{
+  "tool": "nmap-abs",
+  "binary": "/usr/bin/nmap",
+  "description": "Schema with absolute binary path (allowed)",
+  "arguments": [
+    {
+      "name": "target",
+      "flag": "--target",
+      "type": "string"
+    }
+  ]
+}
