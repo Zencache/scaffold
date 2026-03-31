@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.1"
+__version__ = "2.6.2"
 
 import datetime
 import hashlib
@@ -500,8 +500,8 @@ from PySide6.QtWidgets import (  # noqa: E402
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
-    QWidget,
+    QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
 
@@ -909,9 +909,21 @@ class ToolForm(QWidget):
             self.sub_combo = QComboBox()
             for sub in self.data["subcommands"]:
                 label = sub["name"]
-                if sub.get("description"):
-                    label += f"  —  {sub['description']}"
+                full_desc = sub.get("description", "")
+                if full_desc:
+                    max_desc = 80 - len(label) - 5  # 5 for "  —  " separator
+                    desc = full_desc
+                    if max_desc > 20 and len(desc) > max_desc:
+                        desc = desc[:max_desc - 1].rstrip() + "…"
+                    if max_desc > 20:
+                        label += f"  —  {desc}"
                 self.sub_combo.addItem(label, sub["name"])
+                if full_desc:
+                    idx = self.sub_combo.count() - 1
+                    self.sub_combo.setItemData(idx, full_desc, Qt.ItemDataRole.ToolTipRole)
+            self.sub_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.sub_combo.setMinimumWidth(200)
+            self.sub_combo.setMaximumWidth(600)
             row.addWidget(self.sub_combo, 1)
             root.addLayout(row)
             self.sub_combo.currentIndexChanged.connect(self._on_subcommand_changed)
@@ -919,6 +931,8 @@ class ToolForm(QWidget):
         # Scroll area
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(scroll_widget)
@@ -2765,6 +2779,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("Scaffold", "Scaffold")
 
         # Restore geometry
+        self.setMinimumSize(640, 400)
         geo = self.settings.value("window/geometry")
         if geo:
             self.restoreGeometry(geo)
@@ -3007,6 +3022,9 @@ class MainWindow(QMainWindow):
                 self.run_btn.setStyleSheet(
                     f"QPushButton {{ background-color: #3a3020; color: {COLOR_WARN};"
                     f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
+                    f" font-style: italic; border-radius: 3px; }} "
+                    f"QPushButton:disabled {{ background-color: #3a3020; color: {COLOR_WARN};"
+                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
                     f" font-style: italic; border-radius: 3px; }}"
                 )
             else:
@@ -3027,6 +3045,9 @@ class MainWindow(QMainWindow):
             elif text == "Stopping...":
                 self.run_btn.setStyleSheet(
                     f"QPushButton {{ background-color: #fdf5e6; color: #b8860b;"
+                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
+                    f" font-style: italic; border-radius: 3px; }} "
+                    f"QPushButton:disabled {{ background-color: #fdf5e6; color: #b8860b;"
                     f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
                     f" font-style: italic; border-radius: 3px; }}"
                 )
@@ -3992,6 +4013,12 @@ class MainWindow(QMainWindow):
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
+        # Clean up timers and process — needed for FailedToStart where
+        # _on_finished() is never called.  Harmless double-set for Crashed.
+        self._elapsed_timer.stop()
+        self._force_kill_timer.stop()
+        self._run_start_time = None
+        self.process = None
 
     def _append_output(self, text: str, color: str) -> None:
         """Append text to the output panel in the given hex color string."""

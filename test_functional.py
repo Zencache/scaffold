@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 import shutil
+import time
 from pathlib import Path
 
 # Ensure scaffold module is importable
@@ -4234,6 +4235,106 @@ except Exception as _e:
     check(False, f"39e: _stop_process after finish raised: {_e}")
 
 _s39_w.close(); _s39_w.deleteLater(); app.processEvents()
+
+# =====================================================================
+print("\n--- Section 40: Window Sizing — Long Subcommand Labels ---")
+# =====================================================================
+
+# 40a: Long subcommand label truncation
+_s40_long_desc = "A" * 520
+_s40_tool = {
+    "tool": "mytool",
+    "binary": "mytool",
+    "description": "test tool",
+    "arguments": [],
+    "subcommands": [
+        {"name": "subcmd", "description": _s40_long_desc, "arguments": []}
+    ],
+}
+_s40_tmpdir = tempfile.mkdtemp()
+_s40_path = Path(_s40_tmpdir) / "long_subcmd.json"
+_s40_path.write_text(json.dumps(scaffold.normalize_tool(_s40_tool)))
+_s40_w = scaffold.MainWindow()
+_s40_w._load_tool_path(str(_s40_path))
+app.processEvents()
+
+_s40_combo = _s40_w.form.sub_combo
+_s40_item_text = _s40_combo.itemText(0)
+check(len(_s40_item_text) <= 80, f"40a: combo label is <= 80 chars (got {len(_s40_item_text)})")
+_s40_tooltip = _s40_combo.itemData(0, Qt.ItemDataRole.ToolTipRole)
+check(_s40_tooltip == _s40_long_desc, "40a: tooltip contains full untruncated description")
+
+# 40b: Combo box width is bounded
+check(_s40_combo.maximumWidth() == 600, f"40b: combo max width is 600 (got {_s40_combo.maximumWidth()})")
+
+# 40c: Window is resizable below content size
+_s40_w.resize(1024, 768)
+app.processEvents()
+check(_s40_w.size().width() == 1024, f"40c: window resized to 1024 width (got {_s40_w.size().width()})")
+
+# 40d: Short descriptions are not truncated
+_s40_short_desc = "A short description"
+_s40_tool2 = {
+    "tool": "mytool2",
+    "binary": "mytool2",
+    "description": "test tool 2",
+    "arguments": [],
+    "subcommands": [
+        {"name": "cmd", "description": _s40_short_desc, "arguments": []}
+    ],
+}
+_s40_path2 = Path(_s40_tmpdir) / "short_subcmd.json"
+_s40_path2.write_text(json.dumps(scaffold.normalize_tool(_s40_tool2)))
+_s40_w2 = scaffold.MainWindow()
+_s40_w2._load_tool_path(str(_s40_path2))
+app.processEvents()
+
+_s40_item2 = _s40_w2.form.sub_combo.itemText(0)
+check("…" not in _s40_item2, "40d: short description has no ellipsis")
+check(_s40_short_desc in _s40_item2, f"40d: short description is fully present in label")
+
+_s40_w.close(); _s40_w.deleteLater()
+_s40_w2.close(); _s40_w2.deleteLater()
+app.processEvents()
+shutil.rmtree(_s40_tmpdir, ignore_errors=True)
+
+# =====================================================================
+print("\n--- Section 41: FailedToStart Cleanup in _on_error ---")
+# =====================================================================
+
+_s41_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s41_w = scaffold.MainWindow()
+_s41_w._load_tool_path(_s41_ping)
+app.processEvents()
+
+# Set required positional so validation passes
+for _k, _f in _s41_w.form.fields.items():
+    if _f["arg"]["positional"] and _f["arg"]["required"]:
+        _s41_w.form._set_field_value(_k, "127.0.0.1")
+        break
+
+# Point binary at something that doesn't exist
+_s41_w.data["binary"] = "___nonexistent_binary___"
+_s41_w.form.data["binary"] = "___nonexistent_binary___"
+_s41_w.form.command_changed.emit()
+app.processEvents()
+
+_s41_w._on_run_stop()
+# Give Qt time to fire errorOccurred(FailedToStart)
+app.processEvents()
+QTimer.singleShot(500, lambda: None)
+for _ in range(10):
+    app.processEvents()
+    time.sleep(0.05)
+
+check(_s41_w.process is None, "41a: process is None after FailedToStart")
+check(not _s41_w._elapsed_timer.isActive(), "41b: _elapsed_timer stopped after FailedToStart")
+check(not _s41_w._force_kill_timer.isActive(), "41c: _force_kill_timer stopped after FailedToStart")
+check(_s41_w.run_btn.text() == "Run", "41d: button text is Run after FailedToStart")
+check(_s41_w.run_btn.isEnabled(), "41e: button is enabled after FailedToStart")
+check(_s41_w._run_start_time is None, "41f: _run_start_time is None after FailedToStart")
+
+_s41_w.close(); _s41_w.deleteLater(); app.processEvents()
 
 # =====================================================================
 # Final cleanup

@@ -324,10 +324,10 @@ if preset_dir.exists() and not any(preset_dir.iterdir()):
 print("\n=== 5 — Window Behavior ===")
 # =====================================================================
 
-# 5a. Resize small
-win.resize(400, 300)
+# 5a. Resize small (minimum is 640x400)
+win.resize(640, 400)
 app.processEvents()
-check(win.width() <= 420, f"window accepts small resize: {win.width()}x{win.height()}")
+check(win.width() <= 660, f"window accepts small resize: {win.width()}x{win.height()}")
 
 # Scroll area should still work
 check(hasattr(form, 'scroll_layout'), "scroll layout exists for small window")

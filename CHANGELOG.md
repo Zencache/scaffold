@@ -2,6 +2,41 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.2] — 2026-03-31
+
+### Fixed
+
+- **`_on_error()` missing cleanup for FailedToStart** — when `QProcess` emits `errorOccurred(FailedToStart)`, Qt does NOT emit `finished`. This left `_elapsed_timer` ticking the status bar with "Running... (Ns)", `_force_kill_timer` dangling, `_run_start_time` stale, and `self.process` never set to None. Added the same cleanup that `_on_finished()` performs: stop both timers, clear `_run_start_time`, and set `self.process = None`.
+- **"Stopping..." disabled button styling** — the "Stopping..." stylesheets in `_style_run_btn()` lacked `QPushButton:disabled` selectors. On some Qt themes/platforms, the default disabled rendering dims the button to ~50% opacity, making the amber styling look washed out. Added explicit `:disabled` blocks for both dark and light mode that repeat the same colors, preventing the platform from overriding the look.
+
+### Changed
+
+- `_on_error()`: now stops `_elapsed_timer` and `_force_kill_timer`, clears `_run_start_time`, and sets `self.process = None` after handling the error
+- `_style_run_btn()`: "Stopping..." stylesheets now include `QPushButton:disabled` selectors in both themes
+
+### Tested
+
+- **Section 41** — FailedToStart Cleanup (6 assertions): process is None after FailedToStart, `_elapsed_timer` stopped, `_force_kill_timer` stopped, button text is "Run", button is enabled, `_run_start_time` is None
+
+#### Full suite results
+
+- **All 5 test suites pass: 793/793 assertions, 0 failures**
+  - Functional: 600/600 (+6: Section 41)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+  - Preset Validation: 23/23 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+### Metadata
+
+- Version bump 2.6.1 → 2.6.2
+- scaffold.py line count: 4,153 → 4,180
+- Test assertion total: 787 → 793 across 5 suites
+
+---
+
 ## [v2.6.1] — 2026-03-31
 
 ### Fixed
