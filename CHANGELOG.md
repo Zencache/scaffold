@@ -2,6 +2,16 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.8] — 2026-03-31
+
+### Added
+
+- **Preset descriptions** — optional description field when saving presets, displayed as "name — description" in the load/delete picker. Stored as `_description` in the preset JSON. Fully backwards-compatible with existing presets.
+- Version bump 2.5.7 → 2.5.8
+- Test assertion total: 662 across 5 suites
+
+---
+
 ## [v2.5.7] — 2026-03-30
 
 ### Changed

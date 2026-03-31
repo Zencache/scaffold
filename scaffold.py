@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.7"
+__version__ = "2.5.8"
 
 import datetime
 import hashlib
@@ -3133,12 +3133,21 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             return
         name = name.strip()
+
+        description, ok2 = QInputDialog.getText(
+            self, "Save Preset", "Description (optional):",
+        )
+        if not ok2:
+            return
+        description = description.strip()
+
         # Sanitize filename
         safe_name = re.sub(r'[^\w\-. ]', '_', name)
         preset_dir = _presets_dir(self.data["tool"])
         preset_path = preset_dir / f"{safe_name}.json"
 
         preset = self.form.serialize_values()
+        preset["_description"] = description
         try:
             preset_path.write_text(
                 json.dumps(preset, indent=2, ensure_ascii=False),
@@ -3159,14 +3168,29 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No Presets", "No saved presets for this tool.")
             return
 
-        names = [p.stem for p in presets]
-        name, ok = QInputDialog.getItem(
-            self, "Load Preset", "Select preset:", names, 0, False,
+        # Build display labels: "name — description" or just "name"
+        display_names = []
+        for p in presets:
+            label = p.stem
+            try:
+                pdata = json.loads(p.read_text(encoding="utf-8"))
+                desc = pdata.get("_description", "")
+                if desc:
+                    label = f"{label} \u2014 {desc}"
+            except (json.JSONDecodeError, OSError):
+                pass
+            display_names.append(label)
+
+        chosen, ok = QInputDialog.getItem(
+            self, "Load Preset", "Select preset:", display_names, 0, False,
         )
         if not ok:
             return
 
-        preset_path = preset_dir / f"{name}.json"
+        # Map back from display label to filename
+        idx = display_names.index(chosen)
+        preset_path = presets[idx]
+        name = preset_path.stem
 
         # Size guard — same limit as tool schemas
         try:
