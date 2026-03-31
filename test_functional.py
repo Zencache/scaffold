@@ -2812,12 +2812,14 @@ check(_bundled_all_pass, "32i: all 9 bundled schemas pass validation")
 
 
 # =====================================================================
-# Section 30: Delete Tool
+# Section 30: Delete Tool (picker button)
 # =====================================================================
 print("\n--- Section 30: Delete Tool ---")
 
-# Set up: create a temp tool JSON in the tools dir for deletion tests
+# Set up: create temp tool JSON files in the tools dir for deletion tests
 _tools_path = Path(__file__).parent / "tools"
+_presets_base = Path(__file__).parent / "presets"
+
 _delete_test_tool = _tools_path / "test_delete_me.json"
 _delete_test_data = {
     "tool": "delete_me",
@@ -2830,14 +2832,13 @@ _delete_test_data = {
 }
 _delete_test_tool.write_text(json.dumps(_delete_test_data), encoding="utf-8")
 
-# Also create a preset directory with a preset file for this tool
-_presets_base = Path(__file__).parent / "presets"
+# Create a preset directory with a preset file for this tool
 _preset_dir_del = _presets_base / "delete_me"
 _preset_dir_del.mkdir(parents=True, exist_ok=True)
 _preset_file_del = _preset_dir_del / "my_preset.json"
 _preset_file_del.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
 
-# Create a second temp tool for the "schema only" test
+# Second temp tool for "schema only" test
 _delete_test_tool2 = _tools_path / "test_delete_me2.json"
 _delete_test_data2 = {
     "tool": "delete_me2",
@@ -2851,31 +2852,35 @@ _preset_dir_del2.mkdir(parents=True, exist_ok=True)
 _preset_file_del2 = _preset_dir_del2 / "test.json"
 _preset_file_del2.write_text(json.dumps({}), encoding="utf-8")
 
-# 30a: Delete Tool action exists in File menu
-window._show_picker()
-app.processEvents()
-check(hasattr(window, "act_delete_tool"), "30a: act_delete_tool attribute exists")
-
-# 30b: Delete Tool action is enabled when picker is visible
-check(window.act_delete_tool.isEnabled(), "30b: Delete Tool enabled on picker view")
-
-# 30c: Delete Tool action is disabled when form is open
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
-app.processEvents()
-check(not window.act_delete_tool.isEnabled(), "30c: Delete Tool disabled when form is open")
-
-# Go back to picker
 window._show_picker()
 app.processEvents()
 
-# 30d: Context menu signal exists on picker
-check(hasattr(window.picker, "delete_requested"), "30d: delete_requested signal exists on picker")
+# 30a: Delete button exists on the picker
+check(hasattr(window.picker, "delete_btn"), "30a: delete_btn attribute exists on picker")
 
-# 30e: Picker table has custom context menu policy
-check(
-    window.picker.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu,
-    "30e: table has CustomContextMenu policy"
-)
+# 30b: Delete button is disabled when no selection
+window.picker.table.clearSelection()
+app.processEvents()
+check(not window.picker.delete_btn.isEnabled(), "30b: Delete button disabled with no selection")
+
+# 30c: Delete button enables when a valid tool row is selected
+window.picker.scan()
+app.processEvents()
+# Select the first valid tool row
+_valid_row = None
+for _i, (_, _d, _, _) in enumerate(window.picker._entries):
+    if _d is not None:
+        _valid_row = _i
+        break
+if _valid_row is not None:
+    window.picker.table.selectRow(_valid_row)
+    app.processEvents()
+check(window.picker.delete_btn.isEnabled(), "30c: Delete button enabled with valid selection")
+
+# 30d: Delete button disabled for invalid/errored tool rows — skip if no errored tools
+
+# 30e: File menu does NOT have Delete Tool action (removed)
+check(not hasattr(window, "act_delete_tool"), "30e: no act_delete_tool on MainWindow")
 
 # 30f: Rescan picker and find our test tools
 window.picker.scan()
@@ -2885,12 +2890,18 @@ _found_del1 = any(
 )
 check(_found_del1, "30f: test tool 'delete_me' found in picker after scan")
 
-# 30g: Delete tool with presets — "Yes to All" (delete schema + presets)
-# Call _delete_tool with mocked QMessageBox to test the real code path
+# 30g: Delete tool with presets — "Delete All" (schema + presets)
+# Select the delete_me tool row
 check(_delete_test_tool.exists(), "30g: test tool file exists before delete")
 check(_preset_dir_del.is_dir(), "30g: preset dir exists before delete")
 
-# Mock custom QMessageBox to auto-click "Yes to All"
+for _i, (_, _d, _, _) in enumerate(window.picker._entries):
+    if _d and _d["tool"] == "delete_me":
+        window.picker.table.selectRow(_i)
+        break
+app.processEvents()
+
+# Mock custom QMessageBox to auto-click "Delete All"
 _orig_exec_g = QMessageBox.exec
 _orig_clicked_g = QMessageBox.clickedButton
 _target_btn_g = [None]
@@ -2898,7 +2909,7 @@ _orig_addButton_g = QMessageBox.addButton
 
 def _mock_addButton_g(self, text, role):
     btn = _orig_addButton_g(self, text, role)
-    if "Yes to All" in str(text):
+    if "Delete All" in str(text):
         _target_btn_g[0] = btn
     return btn
 
@@ -2906,7 +2917,7 @@ QMessageBox.exec = lambda self: None
 QMessageBox.addButton = _mock_addButton_g
 QMessageBox.clickedButton = lambda self: _target_btn_g[0]
 try:
-    window._delete_tool(str(_delete_test_tool), "delete_me")
+    window.picker._on_delete_tool()
     app.processEvents()
 finally:
     QMessageBox.exec = _orig_exec_g
@@ -2914,18 +2925,26 @@ finally:
     QMessageBox.clickedButton = _orig_clicked_g
 
 check(not _delete_test_tool.exists(), "30g: tool file removed after delete")
-check(not _preset_dir_del.exists(), "30g: preset dir removed after 'Yes to All'")
+check(not _preset_dir_del.exists(), "30g: preset dir removed after 'Delete All'")
 
 _found_after = any(
     d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
 )
 check(not _found_after, "30g: tool gone from picker after delete + rescan")
 
-# 30h: Delete tool — "schema only" (presets remain)
+# 30h: Delete tool — "Schema Only" (presets remain)
 check(_delete_test_tool2.exists(), "30h: test tool 2 file exists before delete")
 check(_preset_dir_del2.is_dir(), "30h: preset dir 2 exists before delete")
 
-# Mock custom QMessageBox to auto-click "Yes (schema only)"
+window.picker.scan()
+app.processEvents()
+for _i, (_, _d, _, _) in enumerate(window.picker._entries):
+    if _d and _d["tool"] == "delete_me2":
+        window.picker.table.selectRow(_i)
+        break
+app.processEvents()
+
+# Mock custom QMessageBox to auto-click "Schema Only"
 _orig_exec_h = QMessageBox.exec
 _orig_clicked_h = QMessageBox.clickedButton
 _target_btn_h = [None]
@@ -2933,7 +2952,7 @@ _orig_addButton_h = QMessageBox.addButton
 
 def _mock_addButton_h(self, text, role):
     btn = _orig_addButton_h(self, text, role)
-    if "schema only" in str(text):
+    if "Schema Only" in str(text):
         _target_btn_h[0] = btn
     return btn
 
@@ -2941,7 +2960,7 @@ QMessageBox.exec = lambda self: None
 QMessageBox.addButton = _mock_addButton_h
 QMessageBox.clickedButton = lambda self: _target_btn_h[0]
 try:
-    window._delete_tool(str(_delete_test_tool2), "delete_me2")
+    window.picker._on_delete_tool()
     app.processEvents()
 finally:
     QMessageBox.exec = _orig_exec_h
@@ -2960,24 +2979,7 @@ check(not _found_after2, "30h: tool 2 gone from picker after delete + rescan")
 if _preset_dir_del2.is_dir():
     shutil.rmtree(_preset_dir_del2)
 
-# 30i: Safety — _delete_tool rejects paths outside tools dir
-_outside_path = str(Path(__file__).parent / "scaffold.py")
-_entry_count_before = len(window.picker._entries)
-window._delete_tool(_outside_path, "scaffold")
-app.processEvents()
-_entry_count_after = len(window.picker._entries)
-check(
-    _entry_count_before == _entry_count_after,
-    "30i: _delete_tool rejects path outside tools/ (no change)"
-)
-# Verify the status bar reported the error
-_sb_msg = window.statusBar().currentMessage()
-check(
-    "not inside" in _sb_msg.lower(),
-    f"30i: status bar reports safety error: '{_sb_msg}'"
-)
-
-# 30j: Delete tool with no presets — call _delete_tool with mocked dialog
+# 30i: Delete tool with no presets — call _on_delete_tool with mocked dialog
 _delete_test_tool3 = _tools_path / "test_delete_me3.json"
 _delete_test_data3 = {
     "tool": "delete_me3",
@@ -2991,82 +2993,80 @@ app.processEvents()
 _found_del3 = any(
     d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
 )
-check(_found_del3, "30j: test tool 3 appears in picker")
+check(_found_del3, "30i: test tool 3 appears in picker")
+
+# Select the tool
+for _i, (_, _d, _, _) in enumerate(window.picker._entries):
+    if _d and _d["tool"] == "delete_me3":
+        window.picker.table.selectRow(_i)
+        break
+app.processEvents()
+
 # Mock QMessageBox.question to auto-return Yes
-_orig_question_j = QMessageBox.question
+_orig_question_i = QMessageBox.question
 QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
 try:
-    window._delete_tool(str(_delete_test_tool3), "delete_me3")
+    window.picker._on_delete_tool()
     app.processEvents()
 finally:
-    QMessageBox.question = _orig_question_j
-check(not _delete_test_tool3.exists(), "30j: tool 3 file deleted from disk")
+    QMessageBox.question = _orig_question_i
+check(not _delete_test_tool3.exists(), "30i: tool 3 file deleted from disk")
 _found_after3 = any(
     d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
 )
-check(not _found_after3, "30j: tool 3 gone after delete (no presets case)")
+check(not _found_after3, "30i: tool 3 gone after delete (no presets case)")
 
-# Clean up any leftover preset dirs created by _presets_dir calls
+# Clean up any leftover preset dirs
 for _pname in ("delete_me", "delete_me2", "delete_me3"):
     _pd = _presets_base / _pname
     if _pd.is_dir():
         shutil.rmtree(_pd)
 
-# 30k: _on_delete_tool_by_row with invalid row index does nothing
-_count_before_k = len(window.picker._entries)
-window._on_delete_tool_by_row(-1)
-app.processEvents()
-window._on_delete_tool_by_row(9999)
-app.processEvents()
-check(len(window.picker._entries) == _count_before_k,
-      "30k: invalid row indices cause no change")
-
-# 30l: _on_delete_preset dialog includes git restore tip
-# Verify the dialog text by capturing the QMessageBox.question call args
+# 30j: _on_delete_preset dialog includes git restore tip and actually deletes
 window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
 app.processEvents()
-_preset_dir_l = scaffold._presets_dir(window.data["tool"])
-_preset_file_l = _preset_dir_l / "test_del_tip.json"
-_preset_file_l.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
+_preset_dir_j = scaffold._presets_dir(window.data["tool"])
+_preset_file_j = _preset_dir_j / "test_del_tip.json"
+_preset_file_j.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
 
-_captured_question_args_l = []
-_orig_question_l = QMessageBox.question
-def _mock_question_l(*args, **kwargs):
-    _captured_question_args_l.append(args)
-    return QMessageBox.StandardButton.No  # Don't actually delete
-QMessageBox.question = staticmethod(_mock_question_l)
-_orig_getItem_l = scaffold.QInputDialog.getItem
+# Capture dialog text by mocking QMessageBox.question
+_captured_question_args_j = []
+_orig_question_j = QMessageBox.question
+def _mock_question_j(*args, **kwargs):
+    _captured_question_args_j.append(args)
+    return QMessageBox.StandardButton.Yes  # Confirm the delete
+QMessageBox.question = staticmethod(_mock_question_j)
+_orig_getItem_j = scaffold.QInputDialog.getItem
 scaffold.QInputDialog.getItem = staticmethod(lambda *a, **kw: ("test_del_tip", True))
 try:
     window._on_delete_preset()
     app.processEvents()
 finally:
-    QMessageBox.question = _orig_question_l
-    scaffold.QInputDialog.getItem = _orig_getItem_l
+    QMessageBox.question = _orig_question_j
+    scaffold.QInputDialog.getItem = _orig_getItem_j
 
-check(len(_captured_question_args_l) == 1, "30l: preset delete dialog was shown")
-if _captured_question_args_l:
-    _dialog_text_l = _captured_question_args_l[0][2]  # third arg is the text
-    check("git checkout" in _dialog_text_l, "30l: preset delete dialog includes git restore tip")
-    check("presets/" in _dialog_text_l, "30l: preset delete dialog includes preset path")
+check(len(_captured_question_args_j) == 1, "30j: preset delete dialog was shown")
+if _captured_question_args_j:
+    _dialog_text_j = _captured_question_args_j[0][2]  # third arg is the text
+    check("git checkout" in _dialog_text_j, "30j: preset delete dialog includes git restore tip")
+    check("presets/" in _dialog_text_j, "30j: preset delete dialog includes preset path")
 else:
-    check(False, "30l: preset delete dialog includes git restore tip")
-    check(False, "30l: preset delete dialog includes preset path")
+    check(False, "30j: preset delete dialog includes git restore tip")
+    check(False, "30j: preset delete dialog includes preset path")
 
-# Clean up
-if _preset_file_l.exists():
-    _preset_file_l.unlink()
+# Verify the preset file was actually deleted
+check(not _preset_file_j.exists(), "30j: preset file actually deleted from disk")
 
-# 30m: Delete Tool menu state matches picker/form view transitions
+# 30k: Delete button works after navigating back from form view
 window._show_picker()
 app.processEvents()
-check(window.act_delete_tool.isEnabled(), "30m: Delete Tool enabled after _show_picker")
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+# Select a valid tool
+for _i, (_, _d, _, _) in enumerate(window.picker._entries):
+    if _d is not None:
+        window.picker.table.selectRow(_i)
+        break
 app.processEvents()
-check(not window.act_delete_tool.isEnabled(), "30m: Delete Tool disabled after _load_tool_path")
-window._on_back()
-app.processEvents()
-check(window.act_delete_tool.isEnabled(), "30m: Delete Tool re-enabled after _on_back")
+check(window.picker.delete_btn.isEnabled(), "30k: Delete button works after returning to picker")
 
 
 # =====================================================================

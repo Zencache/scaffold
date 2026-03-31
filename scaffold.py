@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.6"
+__version__ = "2.5.7"
 
 import datetime
 import hashlib
@@ -2047,7 +2047,6 @@ class ToolPicker(QWidget):
     """Displays available tools and lets the user pick one."""
 
     tool_selected = Signal(str)  # emits the file path
-    delete_requested = Signal(int)  # emits the row index for deletion
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2082,8 +2081,6 @@ class ToolPicker(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.doubleClicked.connect(self._on_double_click)
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.table, 1)
 
         self.empty_label = QLabel(
@@ -2104,6 +2101,12 @@ class ToolPicker(QWidget):
         btn_bar.addWidget(load_btn)
 
         btn_bar.addStretch()
+
+        self.delete_btn = QPushButton("Delete")
+        self.delete_btn.setEnabled(False)
+        self.delete_btn.clicked.connect(self._on_delete_tool)
+        btn_bar.addWidget(self.delete_btn)
+
         layout.addLayout(btn_bar)
 
         self._entries = []  # list of (path, data_or_none, error_or_none, binary_available)
@@ -2219,14 +2222,17 @@ class ToolPicker(QWidget):
             super().keyPressEvent(event)
 
     def _on_selection(self) -> None:
-        """Enable or disable the Open button based on whether a valid tool row is selected."""
+        """Enable or disable Open/Delete buttons based on whether a valid tool row is selected."""
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             self.open_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
             return
         row = rows[0].row()
         _, data, _, _ = self._entries[row]
-        self.open_btn.setEnabled(data is not None)
+        valid = data is not None
+        self.open_btn.setEnabled(valid)
+        self.delete_btn.setEnabled(valid)
 
     def _on_double_click(self, index) -> None:
         """Emit tool_selected for the double-clicked row if the tool is valid."""
@@ -2245,19 +2251,88 @@ class ToolPicker(QWidget):
         if data is not None:
             self.tool_selected.emit(path)
 
-    def _on_context_menu(self, pos) -> None:
-        """Show a context menu with a Delete option for the right-clicked tool row."""
-        index = self.table.indexAt(pos)
-        if not index.isValid():
+    def _on_delete_tool(self) -> None:
+        """Delete the selected tool schema (and optionally its presets) after confirmation."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
             return
-        row = index.row()
+        row = rows[0].row()
         if row < 0 or row >= len(self._entries):
             return
-        menu = QMenu(self)
-        delete_action = menu.addAction("Delete Tool...")
-        action = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if action == delete_action:
-            self.delete_requested.emit(row)
+        path_str, data, _, _ = self._entries[row]
+        if data is None:
+            return
+
+        tool_name = data["tool"]
+        tool_path = Path(path_str).resolve()
+        tools_dir = _tools_dir().resolve()
+
+        # Safety: ensure the file is inside the tools directory
+        if tools_dir not in tool_path.parents:
+            QMessageBox.warning(self, "Error", "File is not inside the tools directory.")
+            return
+
+        filename = tool_path.name
+        presets_base = Path(__file__).parent / "presets"
+        preset_dir = presets_base / tool_name
+        preset_files = list(preset_dir.glob("*.json")) if preset_dir.is_dir() else []
+        has_presets = len(preset_files) > 0
+
+        if has_presets:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Delete Tool")
+            msg.setText(
+                f"Delete tool schema '{tool_name}'?\n\n"
+                f"This will permanently remove {filename} from the tools directory.\n"
+                f"This tool has {len(preset_files)} saved preset(s).\n\n"
+                "Tip: Bundled files can be restored with:\n"
+                f"  git checkout -- tools/{filename}\n"
+                f"  git checkout -- presets/{tool_name}/"
+            )
+            btn_all = msg.addButton("Delete All", QMessageBox.ButtonRole.DestructiveRole)
+            btn_schema = msg.addButton("Schema Only", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked == btn_all:
+                delete_presets = True
+            elif clicked == btn_schema:
+                delete_presets = False
+            else:
+                return
+        else:
+            confirm = QMessageBox.question(
+                self, "Delete Tool",
+                f"Delete tool schema '{tool_name}'?\n\n"
+                f"This will permanently remove {filename} from the tools directory.\n\n"
+                "Tip: Bundled schemas can be restored with:\n"
+                f"  git checkout -- tools/{filename}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+            delete_presets = False
+
+        # Delete the schema file
+        try:
+            tool_path.unlink()
+        except OSError as e:
+            QMessageBox.warning(self, "Delete Failed", f"Could not delete schema:\n{e}")
+            return
+
+        # Delete presets if requested
+        if delete_presets and preset_dir.is_dir():
+            resolved_preset = preset_dir.resolve()
+            if presets_base.resolve() in resolved_preset.parents:
+                try:
+                    shutil.rmtree(resolved_preset)
+                except OSError as e:
+                    QMessageBox.warning(
+                        self, "Partial Delete",
+                        f"Schema deleted but failed to remove presets:\n{e}",
+                    )
+
+        self.scan()
 
     def _on_load_file(self) -> None:
         """Open a file-picker dialog and emit tool_selected for the chosen JSON."""
@@ -2306,7 +2381,6 @@ class MainWindow(QMainWindow):
         # Picker
         self.picker = ToolPicker()
         self.picker.tool_selected.connect(self._load_tool_path)
-        self.picker.delete_requested.connect(self._on_delete_tool_by_row)
         self.stack.addWidget(self.picker)
 
         # Form container (built on load)
@@ -2351,12 +2425,6 @@ class MainWindow(QMainWindow):
         self.act_back.setShortcut("Ctrl+B")
         self.act_back.triggered.connect(self._on_back)
         self.act_back.setEnabled(False)
-
-        menu.addSeparator()
-
-        self.act_delete_tool = menu.addAction("Delete Tool...")
-        self.act_delete_tool.triggered.connect(self._on_delete_tool_menu)
-        self.act_delete_tool.setEnabled(True)
 
         menu.addSeparator()
 
@@ -2799,7 +2867,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Scaffold")
         self.act_reload.setEnabled(False)
         self.act_back.setEnabled(False)
-        self.act_delete_tool.setEnabled(True)
         self.preset_menu.setEnabled(False)
         self.statusBar().showMessage("Ready")
 
@@ -2831,7 +2898,6 @@ class MainWindow(QMainWindow):
         self.timeout_spin.blockSignals(False)
         self.act_reload.setEnabled(True)
         self.act_back.setEnabled(True)
-        self.act_delete_tool.setEnabled(False)
         self.preset_menu.setEnabled(True)
         self.settings.setValue("session/last_tool", path)
         # Count fields and required fields for status message
@@ -3168,116 +3234,14 @@ class MainWindow(QMainWindow):
             f"  git checkout -- presets/{tool_name}/{name}.json",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if confirm == QMessageBox.StandardButton.Yes:
-            try:
-                preset_path.unlink(missing_ok=True)
-            except OSError as e:
-                self.statusBar().showMessage(f"Error deleting preset: {e}")
-                return
-            self.statusBar().showMessage(f"Preset deleted: {name}")
-
-    def _on_delete_tool_by_row(self, row: int) -> None:
-        """Handle delete request from the tool picker context menu."""
-        if row < 0 or row >= len(self.picker._entries):
+        if confirm != QMessageBox.StandardButton.Yes:
             return
-        path, data, _, _ = self.picker._entries[row]
-        tool_name = data["tool"] if data else Path(path).stem
-        self._delete_tool(path, tool_name)
-
-    def _on_delete_tool_menu(self) -> None:
-        """Handle Delete Tool... from the File menu — show a picker dialog."""
-        if self.stack.currentIndex() != 0:
-            return
-        entries = self.picker._entries
-        if not entries:
-            self.statusBar().showMessage("No tools to delete")
-            return
-        names = []
-        for path, data, _, _ in entries:
-            names.append(data["tool"] if data else Path(path).stem)
-        name, ok = QInputDialog.getItem(
-            self, "Delete Tool", "Select tool to delete:", names, 0, False,
-        )
-        if not ok:
-            return
-        idx = names.index(name)
-        path = entries[idx][0]
-        self._delete_tool(path, name)
-
-    def _delete_tool(self, path: str, tool_name: str) -> None:
-        """Core deletion logic — confirm, delete schema, optionally delete presets."""
-        tools_dir = _tools_dir().resolve()
-        tool_path = Path(path).resolve()
-        # Safety: ensure the file is inside the tools directory
-        if tools_dir not in tool_path.parents:
-            self.statusBar().showMessage("Error: file is not inside the tools directory")
-            return
-
-        filename = tool_path.name
-        presets_base = Path(__file__).parent / "presets"
-        preset_dir = presets_base / tool_name
-        has_presets = preset_dir.is_dir() and any(preset_dir.iterdir())
-
-        if has_presets:
-            msg = QMessageBox(self)
-            msg.setWindowTitle("Delete Tool")
-            msg.setText(
-                f"Delete tool schema '{tool_name}'?\n\n"
-                f"This will remove {filename} from the tools directory. "
-                "This cannot be undone.\n\n"
-                "This tool has saved presets. Delete those too?\n\n"
-                "Tip: Bundled files can be restored with:\n"
-                f"  git checkout -- tools/{filename}\n"
-                f"  git checkout -- presets/{tool_name}/"
-            )
-            btn_all = msg.addButton("Yes to All", QMessageBox.ButtonRole.YesRole)
-            btn_schema = msg.addButton("Yes (schema only)", QMessageBox.ButtonRole.AcceptRole)
-            msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-            msg.exec()
-            clicked = msg.clickedButton()
-            if clicked == btn_all:
-                delete_presets = True
-            elif clicked == btn_schema:
-                delete_presets = False
-            else:
-                return
-        else:
-            confirm = QMessageBox.question(
-                self, "Delete Tool",
-                f"Delete tool schema '{tool_name}'?\n\n"
-                f"This will remove {filename} from the tools directory. "
-                "This cannot be undone.\n\n"
-                "Tip: Bundled schemas can be restored with:\n"
-                f"  git checkout -- tools/{filename}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if confirm != QMessageBox.StandardButton.Yes:
-                return
-            delete_presets = False
-
         try:
-            tool_path.unlink(missing_ok=True)
+            preset_path.unlink()
         except OSError as e:
-            self.statusBar().showMessage(f"Error deleting tool: {e}")
+            self.statusBar().showMessage(f"Error deleting preset: {e}")
             return
-
-        if delete_presets and preset_dir.is_dir():
-            resolved_preset = preset_dir.resolve()
-            if presets_base.resolve() in resolved_preset.parents:
-                try:
-                    shutil.rmtree(resolved_preset)
-                except OSError as e:
-                    self.statusBar().showMessage(
-                        f"Tool deleted but failed to remove presets: {e}"
-                    )
-                    self.picker.scan()
-                    return
-
-        status = f"Deleted tool: {tool_name}"
-        if delete_presets:
-            status += " (and presets)"
-        self.statusBar().showMessage(status)
-        self.picker.scan()
+        self.statusBar().showMessage(f"Preset deleted: {name}")
 
     def _on_import_preset(self) -> None:
         """Import a preset JSON file into the current tool's preset directory."""

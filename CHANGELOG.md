@@ -2,6 +2,23 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.7] — 2026-03-30
+
+### Changed
+
+- **Delete Tool** rebuilt as a button on the tool picker instead of a File menu action — simpler, more discoverable, and handles deletion entirely within ToolPicker
+- **Preset deletion** hardened: uses `unlink()` instead of `unlink(missing_ok=True)` and uses early-return pattern for clearer control flow
+- Removed right-click context menu and File menu "Delete Tool..." action
+- Delete button disabled by default, enables only when a valid tool is selected
+- Version bump 2.5.6 → 2.5.7
+
+### Fixed
+
+- **Delete Tool** file menu action was permanently greyed out — replaced with picker button that tracks selection state
+- **Preset delete** control flow clarified with early-return pattern
+
+---
+
 ## [v2.5.6] — 2026-03-30
 
 ### Fixed
