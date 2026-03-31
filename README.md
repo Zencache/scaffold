@@ -4,7 +4,7 @@
 
 Scaffold turns any command-line tool into a native desktop GUI — no custom UI code, no web server, no electron bloat. Point it at a JSON schema that describes your tool's arguments and you get a full interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
 
-It works with **any CLI program** — nmap, ffmpeg, curl, hashcat, git, kubectl, terraform, your own internal tools, anything. If it has flags and a man page, Scaffold can build a GUI for it. The bundled `PROMPT.txt` lets you hand any tool's documentation to an LLM and get a working schema back. Massive tools with hundreds of flags (like curl's 271-argument schema) work fine — collapsible sections, field search, and display groups keep things manageable. Smaller tools take minutes to set up.
+It works with **any CLI program** — nmap, ffmpeg, curl, hashcat, git, kubectl, terraform, your own internal tools, anything. If it has flags and a man page, Scaffold can build a GUI for it. The bundled `PROMPT.txt` lets you hand any tool's documentation to an LLM and get a working schema back. Massive tools with hundreds of flags (like curl's 271-argument schema) *should* work fine — collapsible sections, field search, and display groups keep things manageable. Smaller tools take minutes to set up.
 
 And then there are **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
 
