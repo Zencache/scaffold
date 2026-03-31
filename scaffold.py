@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.8"
+__version__ = "2.5.9"
 
 import datetime
 import hashlib
@@ -464,7 +464,7 @@ def _elevation_label():
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
@@ -2344,6 +2344,236 @@ class ToolPicker(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Preset picker dialog
+# ---------------------------------------------------------------------------
+
+class PresetPicker(QDialog):
+    """Modal dialog for selecting a preset, with favorite-star support."""
+
+    def __init__(self, tool_name: str, presets_dir: Path, mode: str, parent=None):
+        super().__init__(parent)
+        self.tool_name = tool_name
+        self.presets_dir = presets_dir
+        self.mode = mode  # "load" or "delete"
+        self.selected_path: str | None = None
+        self._presets: list[Path] = []  # ordered list matching table rows
+
+        title = "Load Preset" if mode == "load" else "Delete Preset"
+        self.setWindowTitle(f"{title} \u2014 {tool_name}")
+        self.resize(600, 400)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["\u2605", "Preset", "Description", "Last Modified"])
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.doubleClicked.connect(self._on_double_click)
+        self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.selectionModel().selectionChanged.connect(self._on_selection)
+        layout.addWidget(self.table, 1)
+
+        # Buttons
+        btn_bar = QHBoxLayout()
+        btn_bar.addStretch()
+        action_label = "Load" if mode == "load" else "Delete"
+        self.action_btn = QPushButton(action_label)
+        self.action_btn.setEnabled(False)
+        self.action_btn.clicked.connect(self._on_action)
+        btn_bar.addWidget(self.action_btn)
+        self.edit_desc_btn = QPushButton("Edit Description...")
+        self.edit_desc_btn.setEnabled(False)
+        self.edit_desc_btn.clicked.connect(self._on_edit_description)
+        btn_bar.addWidget(self.edit_desc_btn)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_bar.addWidget(self.cancel_btn)
+        layout.addLayout(btn_bar)
+
+        # Load favorites and populate
+        self._favorites = self._load_favorites()
+        self._populate()
+
+    def _load_favorites(self) -> set[str]:
+        """Read the favorites list for this tool from QSettings."""
+        settings = QSettings("Scaffold", "Scaffold")
+        raw = settings.value(f"favorites/{self.tool_name}", "[]")
+        try:
+            names = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(names, list):
+                return set()
+            return set(names)
+        except (json.JSONDecodeError, TypeError):
+            return set()
+
+    def _save_favorites(self) -> None:
+        """Write the favorites list for this tool to QSettings."""
+        settings = QSettings("Scaffold", "Scaffold")
+        settings.setValue(
+            f"favorites/{self.tool_name}",
+            json.dumps(sorted(self._favorites)),
+        )
+
+    def _populate(self) -> None:
+        """Scan presets_dir and fill the table, cleaning stale favorites."""
+        preset_files = sorted(self.presets_dir.glob("*.json"))
+
+        # Clean stale favorites
+        on_disk = {p.stem for p in preset_files}
+        stale = self._favorites - on_disk
+        if stale:
+            self._favorites -= stale
+            self._save_favorites()
+
+        # Sort: favorites first, then alphabetical within each group
+        def _sort_key(p: Path):
+            is_fav = 0 if p.stem in self._favorites else 1
+            return (is_fav, p.stem.lower())
+
+        preset_files.sort(key=_sort_key)
+        self._presets = preset_files
+
+        self.table.setRowCount(len(preset_files))
+        for row, p in enumerate(preset_files):
+            name = p.stem
+            is_fav = name in self._favorites
+
+            # Column 0 — star
+            star_item = QTableWidgetItem("\u2605" if is_fav else "\u2606")
+            star_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 0, star_item)
+
+            # Column 1 — name
+            self.table.setItem(row, 1, QTableWidgetItem(name))
+
+            # Column 2 — description (read _description from JSON)
+            desc = ""
+            try:
+                pdata = json.loads(p.read_text(encoding="utf-8"))
+                desc = pdata.get("_description", "") or ""
+            except (json.JSONDecodeError, OSError):
+                pass
+            self.table.setItem(row, 2, QTableWidgetItem(desc))
+
+            # Column 3 — last modified
+            try:
+                mtime = p.stat().st_mtime
+                dt = datetime.datetime.fromtimestamp(mtime)
+                date_str = dt.strftime("%b %d, %Y %I:%M %p")
+            except OSError:
+                date_str = "Unknown"
+            self.table.setItem(row, 3, QTableWidgetItem(date_str))
+
+        self.action_btn.setEnabled(False)
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        """Toggle favorite star when column 0 is clicked."""
+        if col != 0:
+            return
+        if row < 0 or row >= len(self._presets):
+            return
+        name = self._presets[row].stem
+        if name in self._favorites:
+            self._favorites.discard(name)
+        else:
+            self._favorites.add(name)
+        self._save_favorites()
+
+        # Remember selection, re-populate, try to re-select same preset
+        self._populate()
+        for r in range(len(self._presets)):
+            if self._presets[r].stem == name:
+                self.table.selectRow(r)
+                break
+
+    def _on_selection(self) -> None:
+        """Enable/disable the action and edit description buttons based on selection."""
+        rows = self.table.selectionModel().selectedRows()
+        has_selection = len(rows) > 0
+        self.action_btn.setEnabled(has_selection)
+        self.edit_desc_btn.setEnabled(has_selection)
+
+    def _on_double_click(self, index) -> None:
+        """Accept the dialog on double-click."""
+        row = index.row()
+        if 0 <= row < len(self._presets):
+            self.selected_path = str(self._presets[row])
+            self.accept()
+
+    def _on_action(self) -> None:
+        """Accept the dialog with the selected preset path."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        row = rows[0].row()
+        if 0 <= row < len(self._presets):
+            self.selected_path = str(self._presets[row])
+            self.accept()
+
+    def _on_edit_description(self) -> None:
+        """Edit the _description field of the selected preset."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        row = rows[0].row()
+        if row < 0 or row >= len(self._presets):
+            return
+        preset_path = self._presets[row]
+
+        # Read current preset
+        try:
+            text = preset_path.read_text(encoding="utf-8")
+            data = json.loads(text)
+        except (OSError, json.JSONDecodeError) as e:
+            QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
+            return
+
+        current_desc = data.get("_description", "")
+        new_desc, ok = QInputDialog.getText(
+            self, "Edit Description", "Description:", text=current_desc,
+        )
+        if not ok:
+            return
+
+        # Update only _description and write back
+        data["_description"] = new_desc.strip()
+        try:
+            preset_path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            QMessageBox.warning(self, "Error", f"Cannot write preset file:\n{e}")
+            return
+
+        # Update table cell in place
+        desc_item = self.table.item(row, 2)
+        if desc_item:
+            desc_item.setText(new_desc.strip())
+        self.setWindowTitle(
+            f"{'Load Preset' if self.mode == 'load' else 'Delete Preset'}"
+            f" \u2014 {self.tool_name} \u2014 Description updated"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -3168,28 +3398,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No Presets", "No saved presets for this tool.")
             return
 
-        # Build display labels: "name — description" or just "name"
-        display_names = []
-        for p in presets:
-            label = p.stem
-            try:
-                pdata = json.loads(p.read_text(encoding="utf-8"))
-                desc = pdata.get("_description", "")
-                if desc:
-                    label = f"{label} \u2014 {desc}"
-            except (json.JSONDecodeError, OSError):
-                pass
-            display_names.append(label)
-
-        chosen, ok = QInputDialog.getItem(
-            self, "Load Preset", "Select preset:", display_names, 0, False,
-        )
-        if not ok:
+        picker = PresetPicker(self.data["tool"], preset_dir, mode="load", parent=self)
+        if not picker.exec() or not picker.selected_path:
             return
 
-        # Map back from display label to filename
-        idx = display_names.index(chosen)
-        preset_path = presets[idx]
+        preset_path = Path(picker.selected_path)
         name = preset_path.stem
 
         # Size guard — same limit as tool schemas
@@ -3226,7 +3439,7 @@ class MainWindow(QMainWindow):
         saved_hash = preset.get("_schema_hash")
         if saved_hash is not None and saved_hash != schema_hash(self.data):
             self.statusBar().showMessage(
-                f"Preset loaded: {name} — Note: This preset was saved with a different "
+                f"Preset loaded: {name} \u2014 Note: This preset was saved with a different "
                 "schema version. Some fields may not have loaded."
             )
         else:
@@ -3242,14 +3455,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No presets to delete")
             return
 
-        names = [p.stem for p in presets]
-        name, ok = QInputDialog.getItem(
-            self, "Delete Preset", "Select preset to delete:", names, 0, False,
-        )
-        if not ok:
+        picker = PresetPicker(self.data["tool"], preset_dir, mode="delete", parent=self)
+        if not picker.exec() or not picker.selected_path:
             return
 
-        preset_path = preset_dir / f"{name}.json"
+        preset_path = Path(picker.selected_path)
+        name = preset_path.stem
         tool_name = self.data["tool"]
         confirm = QMessageBox.question(
             self, "Confirm Delete",

@@ -3036,14 +3036,21 @@ def _mock_question_j(*args, **kwargs):
     _captured_question_args_j.append(args)
     return QMessageBox.StandardButton.Yes  # Confirm the delete
 QMessageBox.question = staticmethod(_mock_question_j)
-_orig_getItem_j = scaffold.QInputDialog.getItem
-scaffold.QInputDialog.getItem = staticmethod(lambda *a, **kw: ("test_del_tip", True))
+# Mock PresetPicker to return the test preset path
+_orig_pp_exec_j = scaffold.PresetPicker.exec
+_orig_pp_init_j = scaffold.PresetPicker.__init__
+def _mock_pp_init_j(self, *args, **kwargs):
+    _orig_pp_init_j(self, *args, **kwargs)
+    self.selected_path = str(_preset_file_j)
+scaffold.PresetPicker.__init__ = _mock_pp_init_j
+scaffold.PresetPicker.exec = lambda self: True
 try:
     window._on_delete_preset()
     app.processEvents()
 finally:
     QMessageBox.question = _orig_question_j
-    scaffold.QInputDialog.getItem = _orig_getItem_j
+    scaffold.PresetPicker.__init__ = _orig_pp_init_j
+    scaffold.PresetPicker.exec = _orig_pp_exec_j
 
 check(len(_captured_question_args_j) == 1, "30j: preset delete dialog was shown")
 if _captured_question_args_j:
@@ -3125,30 +3132,343 @@ app.processEvents()
 check("_description" not in _pd_loaded_d, "33d: old preset has no _description key")
 check(True, "33d: old preset without _description loads normally")
 
-# 33e: Load dialog display strings include descriptions
-_pd_presets_list = sorted(_pd_preset_dir.glob("*.json"))
-_pd_display = []
-for _p in _pd_presets_list:
-    _lbl = _p.stem
-    try:
-        _pdata = json.loads(_p.read_text(encoding="utf-8"))
-        _desc = _pdata.get("_description", "")
-        if _desc:
-            _lbl = f"{_lbl} \u2014 {_desc}"
-    except (json.JSONDecodeError, OSError):
-        pass
-    _pd_display.append(_lbl)
-
-# desc_test_a has a description, desc_test_d does not
-_has_desc_entry = any("\u2014 My test description" in d for d in _pd_display)
-_plain_entry = any(d == "desc_test_d" for d in _pd_display)
-check(_has_desc_entry, "33e: display list shows 'name \u2014 description' for described preset")
-check(_plain_entry, "33e: display list shows plain name for preset without description")
+# 33e: PresetPicker table shows descriptions in column 2
+_pd_picker = scaffold.PresetPicker(window.data["tool"], _pd_preset_dir, mode="load")
+_pd_found_desc = False
+_pd_found_plain = False
+for _r in range(_pd_picker.table.rowCount()):
+    _name_item = _pd_picker.table.item(_r, 1)
+    _desc_item = _pd_picker.table.item(_r, 2)
+    if _name_item and _name_item.text() == "desc_test_a":
+        if _desc_item and _desc_item.text() == "My test description":
+            _pd_found_desc = True
+    if _name_item and _name_item.text() == "desc_test_d":
+        if _desc_item and _desc_item.text() == "":
+            _pd_found_plain = True
+_pd_picker.close()
+_pd_picker.deleteLater()
+check(_pd_found_desc, "33e: PresetPicker shows description in column 2 for described preset")
+check(_pd_found_plain, "33e: PresetPicker shows empty description for preset without one")
 
 # Clean up test presets
 for _pf in [_pd_path_a, _pd_path_b, _pd_path_c, _pd_path_d]:
     if _pf.exists():
         _pf.unlink()
+
+
+# =====================================================================
+# Section 34: Preset Picker
+# =====================================================================
+print("\n--- Section 34: Preset Picker ---")
+
+# Set up: load ping, create 3 test presets
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+_pp_dir = scaffold._presets_dir(window.data["tool"])
+_pp_paths = []
+for _name, _desc in [("alpha_preset", "First preset"), ("beta_preset", ""), ("gamma_preset", "Third one")]:
+    _pp = _pp_dir / f"{_name}.json"
+    _pp.write_text(json.dumps({"_description": _desc, "__global__:--verbose": True}), encoding="utf-8")
+    _pp_paths.append(_pp)
+
+# Clear any leftover favorites
+_pp_settings = scaffold.QSettings("Scaffold", "Scaffold")
+_pp_settings.remove(f"favorites/{window.data['tool']}")
+
+# 34a: PresetPicker with 3 presets, none favorited — all shown alphabetically
+_pp_picker = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_names = [_pp_picker.table.item(r, 1).text() for r in range(_pp_picker.table.rowCount())
+             if _pp_picker.table.item(r, 1)]
+# Find our 3 test presets in order
+_pp_test_names = [n for n in _pp_names if n in ("alpha_preset", "beta_preset", "gamma_preset")]
+check(_pp_test_names == ["alpha_preset", "beta_preset", "gamma_preset"],
+      "34a: 3 presets shown alphabetically when none favorited")
+_pp_picker.close()
+_pp_picker.deleteLater()
+app.processEvents()
+
+# 34b: Preset with _description shows in column 2, without shows empty
+_pp_picker2 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_desc_map = {}
+for _r in range(_pp_picker2.table.rowCount()):
+    _ni = _pp_picker2.table.item(_r, 1)
+    _di = _pp_picker2.table.item(_r, 2)
+    if _ni and _ni.text() in ("alpha_preset", "beta_preset", "gamma_preset"):
+        _pp_desc_map[_ni.text()] = _di.text() if _di else ""
+check(_pp_desc_map.get("alpha_preset") == "First preset",
+      "34b: preset with _description shows description in column 2")
+check(_pp_desc_map.get("beta_preset") == "",
+      "34b: preset without _description shows empty cell")
+_pp_picker2.close()
+_pp_picker2.deleteLater()
+app.processEvents()
+
+# 34c: Toggling a star updates QSettings immediately
+_pp_picker3 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+# Find the row for beta_preset
+_pp_beta_row = None
+for _r in range(_pp_picker3.table.rowCount()):
+    _ni = _pp_picker3.table.item(_r, 1)
+    if _ni and _ni.text() == "beta_preset":
+        _pp_beta_row = _r
+        break
+assert _pp_beta_row is not None, "beta_preset row not found"
+# Click column 0 to toggle star
+_pp_picker3._on_cell_clicked(_pp_beta_row, 0)
+app.processEvents()
+# Check QSettings
+_pp_fav_raw = scaffold.QSettings("Scaffold", "Scaffold").value(
+    f"favorites/{window.data['tool']}", "[]")
+_pp_favs = json.loads(_pp_fav_raw) if isinstance(_pp_fav_raw, str) else _pp_fav_raw
+check("beta_preset" in _pp_favs, "34c: toggling star updates QSettings immediately")
+_pp_picker3.close()
+_pp_picker3.deleteLater()
+app.processEvents()
+
+# 34d: Favorited preset sorts first
+_pp_picker4 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_names4 = [_pp_picker4.table.item(r, 1).text() for r in range(_pp_picker4.table.rowCount())
+              if _pp_picker4.table.item(r, 1)]
+_pp_test_names4 = [n for n in _pp_names4 if n in ("alpha_preset", "beta_preset", "gamma_preset")]
+check(_pp_test_names4[0] == "beta_preset",
+      "34d: favorited preset is first in list")
+_pp_picker4.close()
+_pp_picker4.deleteLater()
+app.processEvents()
+
+# 34e: Stale favorite is cleaned up on next open
+# Delete beta_preset file, but its name is still in favorites
+_pp_paths[1].unlink()
+_pp_picker5 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_fav_raw5 = scaffold.QSettings("Scaffold", "Scaffold").value(
+    f"favorites/{window.data['tool']}", "[]")
+_pp_favs5 = json.loads(_pp_fav_raw5) if isinstance(_pp_fav_raw5, str) else _pp_fav_raw5
+check("beta_preset" not in _pp_favs5,
+      "34e: stale favorite cleaned up when preset file no longer exists")
+# beta_preset should not appear in table
+_pp_names5 = [_pp_picker5.table.item(r, 1).text() for r in range(_pp_picker5.table.rowCount())
+              if _pp_picker5.table.item(r, 1)]
+check("beta_preset" not in _pp_names5,
+      "34e: deleted preset not shown in table")
+_pp_picker5.close()
+_pp_picker5.deleteLater()
+app.processEvents()
+
+# 34f: Double-click selects the preset and accepts
+_pp_picker6 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+# Find alpha_preset row
+_pp_alpha_row = None
+for _r in range(_pp_picker6.table.rowCount()):
+    _ni = _pp_picker6.table.item(_r, 1)
+    if _ni and _ni.text() == "alpha_preset":
+        _pp_alpha_row = _r
+        break
+assert _pp_alpha_row is not None, "alpha_preset row not found"
+_pp_picker6._on_double_click(_pp_picker6.table.model().index(_pp_alpha_row, 1))
+check(_pp_picker6.selected_path is not None and "alpha_preset" in _pp_picker6.selected_path,
+      "34f: double-click sets selected_path")
+_pp_picker6.close()
+_pp_picker6.deleteLater()
+app.processEvents()
+
+# 34g: Cancel returns None
+_pp_picker7 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_picker7.reject()
+check(_pp_picker7.selected_path is None, "34g: cancel returns None for selected_path")
+_pp_picker7.close()
+_pp_picker7.deleteLater()
+app.processEvents()
+
+# 34h: Delete mode shows "Delete" button, load mode shows "Load"
+_pp_picker_load = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_picker_del = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="delete")
+check(_pp_picker_load.action_btn.text() == "Load",
+      "34h: load mode shows 'Load' button")
+check(_pp_picker_del.action_btn.text() == "Delete",
+      "34h: delete mode shows 'Delete' button")
+check("Load Preset" in _pp_picker_load.windowTitle(),
+      "34h: load mode dialog title contains 'Load Preset'")
+check("Delete Preset" in _pp_picker_del.windowTitle(),
+      "34h: delete mode dialog title contains 'Delete Preset'")
+_pp_picker_load.close()
+_pp_picker_load.deleteLater()
+_pp_picker_del.close()
+_pp_picker_del.deleteLater()
+app.processEvents()
+
+# 34i: Action button disabled until row selected
+_pp_picker8 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+check(not _pp_picker8.action_btn.isEnabled(),
+      "34i: action button disabled with no selection")
+_pp_picker8.table.selectRow(0)
+app.processEvents()
+check(_pp_picker8.action_btn.isEnabled(),
+      "34i: action button enabled after selecting a row")
+_pp_picker8.close()
+_pp_picker8.deleteLater()
+app.processEvents()
+
+# 34j: Last modified column shows a date string
+_pp_picker9 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_date_item = _pp_picker9.table.item(0, 3)
+check(_pp_date_item is not None and len(_pp_date_item.text()) > 0 and _pp_date_item.text() != "Unknown",
+      "34j: last modified column shows a date string")
+_pp_picker9.close()
+_pp_picker9.deleteLater()
+app.processEvents()
+
+# 34k: Star column shows correct Unicode characters
+_pp_settings.remove(f"favorites/{window.data['tool']}")
+_pp_picker10 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_star_items = [_pp_picker10.table.item(r, 0).text() for r in range(_pp_picker10.table.rowCount())
+                  if _pp_picker10.table.item(r, 0)]
+check(all(s == "\u2606" for s in _pp_star_items),
+      "34k: all stars are empty (unfavorited) when no favorites set")
+_pp_picker10.close()
+_pp_picker10.deleteLater()
+app.processEvents()
+
+# 34l: Table has 4 columns with correct headers
+_pp_picker11 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+check(_pp_picker11.table.columnCount() == 4, "34l: table has 4 columns")
+_pp_headers = [_pp_picker11.table.horizontalHeaderItem(c).text()
+               for c in range(_pp_picker11.table.columnCount())]
+check(_pp_headers == ["\u2605", "Preset", "Description", "Last Modified"],
+      "34l: column headers are correct")
+_pp_picker11.close()
+_pp_picker11.deleteLater()
+app.processEvents()
+
+# 34m: Edit Description button exists and is disabled until selection
+_pp_picker12 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+check(hasattr(_pp_picker12, "edit_desc_btn"), "34m: edit_desc_btn exists")
+check(not _pp_picker12.edit_desc_btn.isEnabled(),
+      "34m: edit description button disabled with no selection")
+_pp_picker12.table.selectRow(0)
+app.processEvents()
+check(_pp_picker12.edit_desc_btn.isEnabled(),
+      "34m: edit description button enabled after selecting a row")
+_pp_picker12.close()
+_pp_picker12.deleteLater()
+app.processEvents()
+
+# 34n: Edit description on preset with existing description
+# alpha_preset has description "First preset"
+_pp_picker13 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_alpha_row13 = None
+for _r in range(_pp_picker13.table.rowCount()):
+    _ni = _pp_picker13.table.item(_r, 1)
+    if _ni and _ni.text() == "alpha_preset":
+        _pp_alpha_row13 = _r
+        break
+assert _pp_alpha_row13 is not None
+_pp_picker13.table.selectRow(_pp_alpha_row13)
+app.processEvents()
+# Mock QInputDialog.getText to return new description
+_orig_getText_n = scaffold.QInputDialog.getText
+scaffold.QInputDialog.getText = staticmethod(lambda *a, **kw: ("Updated description", True))
+try:
+    _pp_picker13._on_edit_description()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _orig_getText_n
+# Check JSON file was updated
+_pp_alpha_data = json.loads(_pp_paths[0].read_text(encoding="utf-8"))
+check(_pp_alpha_data.get("_description") == "Updated description",
+      "34n: edit description updates _description in JSON file")
+# Check table cell updated
+check(_pp_picker13.table.item(_pp_alpha_row13, 2).text() == "Updated description",
+      "34n: table cell updated after edit")
+_pp_picker13.close()
+_pp_picker13.deleteLater()
+app.processEvents()
+
+# 34o: Edit description on old preset without _description key
+_pp_old_path = _pp_dir / "old_no_desc.json"
+_pp_old_path.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
+_pp_picker14 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_old_row = None
+for _r in range(_pp_picker14.table.rowCount()):
+    _ni = _pp_picker14.table.item(_r, 1)
+    if _ni and _ni.text() == "old_no_desc":
+        _pp_old_row = _r
+        break
+assert _pp_old_row is not None
+_pp_picker14.table.selectRow(_pp_old_row)
+app.processEvents()
+scaffold.QInputDialog.getText = staticmethod(lambda *a, **kw: ("Brand new desc", True))
+try:
+    _pp_picker14._on_edit_description()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _orig_getText_n
+_pp_old_data = json.loads(_pp_old_path.read_text(encoding="utf-8"))
+check(_pp_old_data.get("_description") == "Brand new desc",
+      "34o: _description key added to old preset without one")
+check(_pp_picker14.table.item(_pp_old_row, 2).text() == "Brand new desc",
+      "34o: table cell updated for old preset")
+_pp_picker14.close()
+_pp_picker14.deleteLater()
+_pp_old_path.unlink()
+app.processEvents()
+
+# 34p: Clear description to empty string
+_pp_picker15 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_alpha_row15 = None
+for _r in range(_pp_picker15.table.rowCount()):
+    _ni = _pp_picker15.table.item(_r, 1)
+    if _ni and _ni.text() == "alpha_preset":
+        _pp_alpha_row15 = _r
+        break
+assert _pp_alpha_row15 is not None
+_pp_picker15.table.selectRow(_pp_alpha_row15)
+app.processEvents()
+scaffold.QInputDialog.getText = staticmethod(lambda *a, **kw: ("", True))
+try:
+    _pp_picker15._on_edit_description()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _orig_getText_n
+_pp_alpha_data15 = json.loads(_pp_paths[0].read_text(encoding="utf-8"))
+check(_pp_alpha_data15.get("_description") == "",
+      "34p: clearing description sets _description to empty string")
+_pp_picker15.close()
+_pp_picker15.deleteLater()
+app.processEvents()
+
+# 34q: Cancel edit → no change
+# First set a known description
+_pp_alpha_data_q = json.loads(_pp_paths[0].read_text(encoding="utf-8"))
+_pp_alpha_data_q["_description"] = "Before cancel"
+_pp_paths[0].write_text(json.dumps(_pp_alpha_data_q, indent=2), encoding="utf-8")
+_pp_picker16 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
+_pp_alpha_row16 = None
+for _r in range(_pp_picker16.table.rowCount()):
+    _ni = _pp_picker16.table.item(_r, 1)
+    if _ni and _ni.text() == "alpha_preset":
+        _pp_alpha_row16 = _r
+        break
+assert _pp_alpha_row16 is not None
+_pp_picker16.table.selectRow(_pp_alpha_row16)
+app.processEvents()
+scaffold.QInputDialog.getText = staticmethod(lambda *a, **kw: ("Should not save", False))
+try:
+    _pp_picker16._on_edit_description()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _orig_getText_n
+_pp_alpha_data16 = json.loads(_pp_paths[0].read_text(encoding="utf-8"))
+check(_pp_alpha_data16.get("_description") == "Before cancel",
+      "34q: cancel edit leaves description unchanged")
+_pp_picker16.close()
+_pp_picker16.deleteLater()
+app.processEvents()
+
+# Clean up test presets and favorites
+for _pf in _pp_paths:
+    if _pf.exists():
+        _pf.unlink()
+_pp_settings.remove(f"favorites/{window.data['tool']}")
 
 
 # =====================================================================
