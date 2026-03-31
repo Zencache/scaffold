@@ -13,7 +13,7 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
   "arguments": "<array> Argument objects. If subcommands exist, these are GLOBAL flags only"
 }
 
-=== ARGUMENT OBJECT (every argument MUST have ALL 16 fields) ===
+=== ARGUMENT OBJECT (every argument MUST have ALL 20 fields) ===
 
 {
   "name": "<string> Human-readable label",
@@ -31,7 +31,11 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
   "positional": "<bool> true if no flag prefix. Default false",
   "validation": "<string or null> Regex for constrained string formats only. null otherwise",
   "examples": "<array of strings or null> Suggestions for string fields. See examples vs enum rule below",
-  "display_group": "<string or null> Visual grouping label. Arguments sharing the same display_group value are rendered together in a collapsible section. null if none"
+  "display_group": "<string or null> Visual grouping label. Arguments sharing the same display_group value are rendered together in a collapsible section. null if none",
+  "min": "<number or null> Minimum value for integer/float types. Constrains the spinner. null if unconstrained",
+  "max": "<number or null> Maximum value for integer/float types. Constrains the spinner. null if unconstrained",
+  "deprecated": "<string or null> Deprecation message when docs mark a flag as deprecated/obsolete. null if not deprecated",
+  "dangerous": "<bool> true for flags that bypass safety checks, can destroy data, or have irreversible effects. Default false"
 }
 
 === SUBCOMMAND OBJECT ===
@@ -51,8 +55,9 @@ enum       | ONE value from a STRICTLY CLOSED set        | "select","dropdown" �
 multi_enum | MULTIPLE values from a closed set           | "list" → "multi_enum"
 file       | File path (only when docs clearly say file) | "filepath","path" → "file"
 directory  | Directory path (only when docs say dir)     | "filename" → use "file"
+password   | Sensitive value (masked in GUI)             | —
 
-Use ONLY these types. When unsure between file and string, use string.
+Use ONLY these types. When unsure between file and string, use string. When unsure between password and string, use string.
 
 === RULES ===
 
@@ -77,6 +82,14 @@ Use ONLY these types. When unsure between file and string, use string.
 10. NO DUPLICATES: Short + long forms of the same flag = ONE entry (long in "flag", short in "short_flag"). Aliases → pick the primary name, omit the alias.
 
 11. UNCLEAR DOCS: If ambiguous, use best judgment and append "(inferred — verify)" to description. If docs mention version requirements, note them (e.g. "requires curl 7.66+"). Never invent flags not in the docs.
+
+12. MIN/MAX: Only valid for integer and float types. Use when docs specify a valid range (e.g., -T 0-5, --quality 1-31). When set, the GUI constrains the spinner. Default null (unconstrained). If both are set, min must be <= max.
+
+13. DEPRECATED: Set to a string message when docs mark a flag as deprecated, obsolete, or removed in newer versions. Include the recommended replacement if docs mention one. The GUI still allows the flag but shows a visual warning. Default null.
+
+14. DANGEROUS: Set to true for flags that bypass safety checks (--force), can destroy data (--overwrite, --remove-all), disable security features, or have other irreversible effects. Default false.
+
+15. PASSWORD: Use for flags that accept passwords, API keys, tokens, or other sensitive strings. The GUI masks the input. Only use when the value is clearly sensitive — not for regular strings.
 
 === COMMAND ASSEMBLY ===
 
@@ -108,7 +121,11 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "positional": false,
       "validation": null,
       "examples": null,
-      "display_group": null
+      "display_group": null,
+      "min": null,
+      "max": null,
+      "deprecated": null,
+      "dangerous": false
     },
     {
       "name": "Output Format",
@@ -126,7 +143,11 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "positional": false,
       "validation": null,
       "examples": null,
-      "display_group": null
+      "display_group": null,
+      "min": null,
+      "max": null,
+      "deprecated": null,
+      "dangerous": false
     },
     {
       "name": "Quality",
@@ -144,7 +165,11 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "positional": false,
       "validation": null,
       "examples": null,
-      "display_group": null
+      "display_group": null,
+      "min": 1,
+      "max": 100,
+      "deprecated": null,
+      "dangerous": false
     },
     {
       "name": "Resize Filter",
@@ -162,7 +187,11 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "positional": false,
       "validation": null,
       "examples": ["lanczos", "bicubic", "nearest", "bilinear"],
-      "display_group": null
+      "display_group": null,
+      "min": null,
+      "max": null,
+      "deprecated": null,
+      "dangerous": false
     },
     {
       "name": "Input File",
@@ -180,7 +209,11 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
       "positional": true,
       "validation": null,
       "examples": null,
-      "display_group": null
+      "display_group": null,
+      "min": null,
+      "max": null,
+      "deprecated": null,
+      "dangerous": false
     }
   ]
 }
@@ -189,7 +222,7 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
 
 Before returning, verify:
 1. Top-level has: tool, binary, description, arguments, elevated
-2. Every argument has ALL 16 fields — no missing keys
+2. Every argument has ALL 20 fields — no missing keys
 3. type is from the valid list. separator is "space", "equals", or "none"
 4. enum/multi_enum have non-empty choices. All other types have choices: null
 5. Booleans have separator: "none"
@@ -197,6 +230,8 @@ Before returning, verify:
 7. "flag" = long form, "short_flag" = short form — never reversed
 8. No duplicate flags within the same scope (top-level arguments or a single subcommand). The same flag MAY appear in multiple subcommands.
 9. Output is valid JSON — no trailing commas, no comments, no markdown
+10. min/max are only on integer or float types. If both are set, min <= max
+11. deprecated is null or a non-empty string. dangerous is a boolean
 
 === COVERAGE SELF-CHECK ===
 

@@ -3637,6 +3637,508 @@ scaffold.QSettings("Scaffold", "Scaffold").remove(f"favorites/{window.data['tool
 
 
 # =====================================================================
+# Section 36: Integer/Float Min/Max Constraints
+# =====================================================================
+print("\n--- Section 36: Integer/Float Min/Max Constraints ---")
+
+_s36_tmpdir = tempfile.mkdtemp()
+
+# --- 36a: min/max null produces default spinbox range (unchanged) ---
+_s36_null_tool = {
+    "tool": "minmax_null", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Count", "flag": "--count", "type": "integer",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "min": None, "max": None},
+    ],
+}
+_s36_p = Path(_s36_tmpdir) / "minmax_null.json"
+_s36_p.write_text(json.dumps(_s36_null_tool))
+_s36_w = scaffold.MainWindow(tool_path=str(_s36_p))
+_s36_f = _s36_w.form
+_s36_k = (_s36_f.GLOBAL, "--count")
+_s36_widget = _s36_f.fields[_s36_k]["widget"]
+check(_s36_widget.maximum() == scaffold.SPINBOX_RANGE, f"36a: null max uses SPINBOX_RANGE: {_s36_widget.maximum()}")
+check(_s36_widget.minimum() == -1, f"36a: null min with no default uses sentinel -1: {_s36_widget.minimum()}")
+_s36_w.close()
+_s36_w.deleteLater()
+app.processEvents()
+
+# --- 36b: min: 0, max: 5 on integer constrains spinbox ---
+_s36_int_tool = {
+    "tool": "minmax_int", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Timing", "flag": "-T", "type": "integer",
+         "description": "Timing 0-5", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None, "min": 0, "max": 5},
+    ],
+}
+_s36_p2 = Path(_s36_tmpdir) / "minmax_int.json"
+_s36_p2.write_text(json.dumps(_s36_int_tool))
+_s36_w2 = scaffold.MainWindow(tool_path=str(_s36_p2))
+_s36_f2 = _s36_w2.form
+_s36_k2 = (_s36_f2.GLOBAL, "-T")
+_s36_w2i = _s36_f2.fields[_s36_k2]["widget"]
+# Sentinel is min-1 = -1 because no default
+check(_s36_w2i.minimum() == -1, f"36b: integer min sentinel is min-1=-1: {_s36_w2i.minimum()}")
+check(_s36_w2i.maximum() == 5, f"36b: integer max constrained to 5: {_s36_w2i.maximum()}")
+# Set to 0 — should be in command
+_s36_f2._set_field_value(_s36_k2, 0)
+check(_s36_w2i.value() == 0, f"36b: value set to 0: {_s36_w2i.value()}")
+cmd, _ = _s36_f2.build_command()
+check("-T0" in cmd, f"36b: -T0 in command: {cmd}")
+_s36_w2.close()
+_s36_w2.deleteLater()
+app.processEvents()
+
+# --- 36c: min: 0.1, max: 99.9 on float constrains double spinbox ---
+_s36_float_tool = {
+    "tool": "minmax_float", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Rate", "flag": "--rate", "type": "float",
+         "description": "Rate 0.1-99.9", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "min": 0.1, "max": 99.9},
+    ],
+}
+_s36_p3 = Path(_s36_tmpdir) / "minmax_float.json"
+_s36_p3.write_text(json.dumps(_s36_float_tool))
+_s36_w3 = scaffold.MainWindow(tool_path=str(_s36_p3))
+_s36_f3 = _s36_w3.form
+_s36_k3 = (_s36_f3.GLOBAL, "--rate")
+_s36_w3f = _s36_f3.fields[_s36_k3]["widget"]
+check(abs(_s36_w3f.minimum() - (-0.9)) < 0.01, f"36c: float min sentinel is min-1=-0.9: {_s36_w3f.minimum()}")
+check(abs(_s36_w3f.maximum() - 99.9) < 0.01, f"36c: float max constrained to 99.9: {_s36_w3f.maximum()}")
+_s36_w3.close()
+_s36_w3.deleteLater()
+app.processEvents()
+
+# --- 36d: min > max produces validation error ---
+_s36_bad_range = {
+    "tool": "bad_range", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Count", "flag": "--count", "type": "integer",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "min": 10, "max": 5},
+    ],
+}
+_s36_errs = scaffold.validate_tool(_s36_bad_range)
+check(any("min" in e and "max" in e for e in _s36_errs), f"36d: min > max produces error: {_s36_errs}")
+
+# --- 36e: min/max on boolean produces validation error ---
+_s36_bool_range = {
+    "tool": "bool_range", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Verbose", "flag": "-v", "type": "boolean",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None, "min": 0, "max": 1},
+    ],
+}
+_s36_errs2 = scaffold.validate_tool(_s36_bool_range)
+check(any("only valid for integer and float" in e for e in _s36_errs2), f"36e: min on boolean produces error: {_s36_errs2}")
+
+# --- 36f: min/max on string produces validation error ---
+_s36_str_range = {
+    "tool": "str_range", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Name", "flag": "--name", "type": "string",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "min": 0, "max": 100},
+    ],
+}
+_s36_errs3 = scaffold.validate_tool(_s36_str_range)
+check(any("only valid for integer and float" in e for e in _s36_errs3), f"36f: min on string produces error: {_s36_errs3}")
+
+# --- 36g: existing schemas without min/max validate and normalize ---
+_s36_legacy = {
+    "tool": "legacy", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Count", "flag": "--count", "type": "integer",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+_s36_errs4 = scaffold.validate_tool(_s36_legacy)
+check(len(_s36_errs4) == 0, f"36g: legacy schema without min/max validates: {_s36_errs4}")
+scaffold.normalize_tool(_s36_legacy)
+check(_s36_legacy["arguments"][0].get("min") is None, "36g: normalize fills min=None")
+check(_s36_legacy["arguments"][0].get("max") is None, "36g: normalize fills max=None")
+
+# --- 36h: integer with default and min/max uses min directly (no sentinel offset) ---
+_s36_default_tool = {
+    "tool": "minmax_default", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Quality", "flag": "--quality", "type": "integer",
+         "description": "Quality 1-100", "required": False, "default": 85,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "equals", "positional": False,
+         "validation": None, "examples": None, "min": 1, "max": 100},
+    ],
+}
+_s36_p4 = Path(_s36_tmpdir) / "minmax_default.json"
+_s36_p4.write_text(json.dumps(_s36_default_tool))
+_s36_w4 = scaffold.MainWindow(tool_path=str(_s36_p4))
+_s36_f4 = _s36_w4.form
+_s36_k4 = (_s36_f4.GLOBAL, "--quality")
+_s36_w4i = _s36_f4.fields[_s36_k4]["widget"]
+check(_s36_w4i.minimum() == 1, f"36h: integer with default uses min directly: {_s36_w4i.minimum()}")
+check(_s36_w4i.maximum() == 100, f"36h: integer with default uses max directly: {_s36_w4i.maximum()}")
+check(_s36_w4i.value() == 85, f"36h: default value applied: {_s36_w4i.value()}")
+_s36_w4.close()
+_s36_w4.deleteLater()
+app.processEvents()
+
+# --- 36i: non-number min produces validation error ---
+_s36_bad_type = {
+    "tool": "bad_min", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Count", "flag": "--count", "type": "integer",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "min": "abc", "max": None},
+    ],
+}
+_s36_errs5 = scaffold.validate_tool(_s36_bad_type)
+check(any("must be a number" in e for e in _s36_errs5), f"36i: non-number min produces error: {_s36_errs5}")
+
+# Cleanup
+import shutil
+shutil.rmtree(_s36_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 37: Deprecated & Dangerous Flag Indicators
+# =====================================================================
+print("\n--- Section 37: Deprecated & Dangerous Flag Indicators ---")
+
+_s37_tmpdir = tempfile.mkdtemp()
+
+# --- 37a: deprecated: null produces a normal label (no strikethrough, no suffix) ---
+_s37_normal = {
+    "tool": "dep_test", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Output", "flag": "-o", "type": "string",
+         "description": "Output file", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None, "deprecated": None, "dangerous": False},
+    ],
+}
+_s37_p = Path(_s37_tmpdir) / "dep_normal.json"
+_s37_p.write_text(json.dumps(_s37_normal))
+_s37_w = scaffold.MainWindow(tool_path=str(_s37_p))
+_s37_f = _s37_w.form
+_s37_k = (_s37_f.GLOBAL, "-o")
+_s37_lbl = _s37_f.fields[_s37_k]["label"]
+check("deprecated" not in _s37_lbl.text().lower(), "37a: normal label has no deprecated suffix")
+check("<s>" not in _s37_lbl.text(), "37a: normal label has no strikethrough")
+check("\u26a0" not in _s37_lbl.text(), "37a: normal label has no warning symbol")
+_s37_w.close(); _s37_w.deleteLater(); app.processEvents()
+
+# --- 37b: deprecated: "Use --new-flag" adds strikethrough and suffix ---
+_s37_dep = {
+    "tool": "dep_flag", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "OldFlag", "flag": "--old", "type": "string",
+         "description": "The old way", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": "Use --new-flag instead", "dangerous": False},
+    ],
+}
+_s37_p2 = Path(_s37_tmpdir) / "dep_flag.json"
+_s37_p2.write_text(json.dumps(_s37_dep))
+_s37_w2 = scaffold.MainWindow(tool_path=str(_s37_p2))
+_s37_f2 = _s37_w2.form
+_s37_k2 = (_s37_f2.GLOBAL, "--old")
+_s37_lbl2 = _s37_f2.fields[_s37_k2]["label"]
+check("<s>" in _s37_lbl2.text(), f"37b: deprecated label has strikethrough: {_s37_lbl2.text()}")
+check("(deprecated)" in _s37_lbl2.text(), f"37b: deprecated label has suffix: {_s37_lbl2.text()}")
+
+# --- 37c: deprecated message appears in tooltip ---
+_s37_tt2 = _s37_lbl2.toolTip()
+check("DEPRECATED" in _s37_tt2, f"37c: tooltip contains DEPRECATED")
+check("Use --new-flag instead" in _s37_tt2, f"37c: tooltip contains deprecation message")
+_s37_w2.close(); _s37_w2.deleteLater(); app.processEvents()
+
+# --- 37d: dangerous: false produces a normal label (no ⚠ prefix) ---
+# Already verified in 37a above — just confirm explicitly
+check("\u26a0" not in _s37_f.fields[_s37_k]["label"].text(), "37d: non-dangerous label has no warning (recheck)")
+
+# --- 37e: dangerous: true adds ⚠ prefix to label ---
+_s37_danger = {
+    "tool": "danger_test", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Force", "flag": "--force", "type": "boolean",
+         "description": "Skip confirmation", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": None, "dangerous": True},
+    ],
+}
+_s37_p3 = Path(_s37_tmpdir) / "danger_test.json"
+_s37_p3.write_text(json.dumps(_s37_danger))
+_s37_w3 = scaffold.MainWindow(tool_path=str(_s37_p3))
+_s37_f3 = _s37_w3.form
+_s37_k3 = (_s37_f3.GLOBAL, "--force")
+_s37_lbl3 = _s37_f3.fields[_s37_k3]["label"]
+check("\u26a0" in _s37_lbl3.text(), f"37e: dangerous label has warning prefix")
+
+# --- 37f: dangerous warning appears in tooltip ---
+_s37_tt3 = _s37_lbl3.toolTip()
+check("CAUTION" in _s37_tt3, f"37f: tooltip contains CAUTION")
+check("destructive" in _s37_tt3, f"37f: tooltip contains destructive warning")
+_s37_w3.close(); _s37_w3.deleteLater(); app.processEvents()
+
+# --- 37g: deprecated + dangerous together both render ---
+_s37_both = {
+    "tool": "both_test", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Nuke", "flag": "--nuke", "type": "boolean",
+         "description": "Delete everything", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": "Removed in v3.0", "dangerous": True},
+    ],
+}
+_s37_p4 = Path(_s37_tmpdir) / "both_test.json"
+_s37_p4.write_text(json.dumps(_s37_both))
+_s37_w4 = scaffold.MainWindow(tool_path=str(_s37_p4))
+_s37_f4 = _s37_w4.form
+_s37_k4 = (_s37_f4.GLOBAL, "--nuke")
+_s37_lbl4 = _s37_f4.fields[_s37_k4]["label"]
+check("\u26a0" in _s37_lbl4.text(), f"37g: both -- has warning prefix")
+check("<s>" in _s37_lbl4.text(), f"37g: both -- has strikethrough")
+check("(deprecated)" in _s37_lbl4.text(), f"37g: both -- has deprecated suffix")
+_s37_tt4 = _s37_lbl4.toolTip()
+check("DEPRECATED" in _s37_tt4, f"37g: both -- tooltip has DEPRECATED")
+check("CAUTION" in _s37_tt4, f"37g: both -- tooltip has CAUTION")
+_s37_w4.close(); _s37_w4.deleteLater(); app.processEvents()
+
+# --- 37h: deprecated field still emits in command (not disabled) ---
+_s37_dep_cmd = {
+    "tool": "dep_cmd", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "OldOutput", "flag": "--old-output", "type": "string",
+         "description": "Old output path", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": "Use --output instead", "dangerous": False},
+    ],
+}
+_s37_p5 = Path(_s37_tmpdir) / "dep_cmd.json"
+_s37_p5.write_text(json.dumps(_s37_dep_cmd))
+_s37_w5 = scaffold.MainWindow(tool_path=str(_s37_p5))
+_s37_f5 = _s37_w5.form
+_s37_k5 = (_s37_f5.GLOBAL, "--old-output")
+_s37_f5._set_field_value(_s37_k5, "/tmp/out.txt")
+cmd, _ = _s37_f5.build_command()
+check("--old-output" in cmd, f"37h: deprecated flag emits in command: {cmd}")
+check("/tmp/out.txt" in cmd, f"37h: deprecated flag value in command: {cmd}")
+_s37_w5.close(); _s37_w5.deleteLater(); app.processEvents()
+
+# --- 37i: deprecated: "" (empty string) produces validation error ---
+_s37_empty_dep = {
+    "tool": "empty_dep", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "string",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": "", "dangerous": False},
+    ],
+}
+_s37_errs1 = scaffold.validate_tool(_s37_empty_dep)
+check(any("non-empty string" in e for e in _s37_errs1), f"37i: empty deprecated string produces error: {_s37_errs1}")
+
+# --- 37j: deprecated: 123 (non-string) produces validation error ---
+_s37_int_dep = {
+    "tool": "int_dep", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "string",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": 123, "dangerous": False},
+    ],
+}
+_s37_errs2 = scaffold.validate_tool(_s37_int_dep)
+check(any("must be a string" in e for e in _s37_errs2), f"37j: non-string deprecated produces error: {_s37_errs2}")
+
+# --- 37k: dangerous: "yes" (non-bool) produces validation error ---
+_s37_str_danger = {
+    "tool": "str_danger", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "boolean",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": None, "dangerous": "yes"},
+    ],
+}
+_s37_errs3 = scaffold.validate_tool(_s37_str_danger)
+check(any("must be a boolean" in e for e in _s37_errs3), f"37k: non-bool dangerous produces error: {_s37_errs3}")
+
+# --- 37l: normalize_tool sets deprecated: None and dangerous: False ---
+_s37_legacy = {
+    "tool": "legacy", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "string",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+scaffold.normalize_tool(_s37_legacy)
+check(_s37_legacy["arguments"][0].get("deprecated") is None, "37l: normalize fills deprecated=None")
+check(_s37_legacy["arguments"][0].get("dangerous") is False, "37l: normalize fills dangerous=False")
+
+# Cleanup
+shutil.rmtree(_s37_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 38: Password Input Type
+# =====================================================================
+print("\n--- Section 38: Password Input Type ---")
+
+_s38_tmpdir = tempfile.mkdtemp()
+
+# --- 38a: "password" is in VALID_TYPES ---
+check("password" in scaffold.VALID_TYPES, "38a: 'password' is in VALID_TYPES")
+
+# --- 38b: password type creates a masked QLineEdit ---
+_s38_tool = {
+    "tool": "pw_test", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "API Key", "flag": "--api-key", "type": "password",
+         "description": "Your API key", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+_s38_p = Path(_s38_tmpdir) / "pw_test.json"
+_s38_p.write_text(json.dumps(_s38_tool))
+_s38_w = scaffold.MainWindow(tool_path=str(_s38_p))
+_s38_f = _s38_w.form
+_s38_k = (_s38_f.GLOBAL, "--api-key")
+_s38_widget = _s38_f.fields[_s38_k]["widget"]
+# Widget is a container with _line_edit
+check(hasattr(_s38_widget, "_line_edit"), "38b: password widget has _line_edit")
+_s38_le = _s38_widget._line_edit
+check(isinstance(_s38_le, QLineEdit), "38b: inner widget is QLineEdit")
+check(_s38_le.echoMode() == QLineEdit.EchoMode.Password, "38b: echo mode is Password")
+
+# --- 38c: show/hide toggle switches echo mode ---
+_s38_toggle = _s38_widget._show_toggle
+check(hasattr(_s38_widget, "_show_toggle"), "38c: password widget has _show_toggle")
+_s38_toggle.setChecked(True)
+check(_s38_le.echoMode() == QLineEdit.EchoMode.Normal, "38c: toggle Show -> Normal echo mode")
+_s38_toggle.setChecked(False)
+check(_s38_le.echoMode() == QLineEdit.EchoMode.Password, "38c: toggle off -> Password echo mode")
+
+# --- 38d: password type produces correct command string ---
+_s38_f._set_field_value(_s38_k, "s3cr3t-k3y")
+cmd, _ = _s38_f.build_command()
+check("--api-key" in cmd, f"38d: flag in command: {cmd}")
+check("s3cr3t-k3y" in cmd, f"38d: value in command: {cmd}")
+
+# --- 38e: password with "examples" produces validation warning ---
+_s38_bad_examples = {
+    "tool": "pw_examples", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Token", "flag": "--token", "type": "password",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": ["abc123", "xyz789"]},
+    ],
+}
+_s38_errs = scaffold.validate_tool(_s38_bad_examples)
+check(any("should not be used with password" in e for e in _s38_errs), f"38e: examples on password produces warning: {_s38_errs}")
+
+# --- 38f: password fields saved/loaded from presets correctly ---
+_s38_f._set_field_value(_s38_k, "my-secret-value")
+_s38_preset = _s38_f.serialize_values()
+check(_s38_preset.get("--api-key") == "my-secret-value", f"38f: preset serializes password value")
+# Reset and re-apply
+_s38_f.reset_to_defaults()
+check(_s38_f.get_field_value(_s38_k) is None, "38f: reset clears password field")
+_s38_f.apply_values(_s38_preset)
+check(_s38_f.get_field_value(_s38_k) == "my-secret-value", "38f: preset restores password value")
+
+# --- 38g: password with validation regex works ---
+_s38_val_tool = {
+    "tool": "pw_val", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Key", "flag": "--key", "type": "password",
+         "description": "API key (hex)", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": "^[a-f0-9]+$", "examples": None},
+    ],
+}
+_s38_p2 = Path(_s38_tmpdir) / "pw_val.json"
+_s38_p2.write_text(json.dumps(_s38_val_tool))
+_s38_w2 = scaffold.MainWindow(tool_path=str(_s38_p2))
+_s38_f2 = _s38_w2.form
+_s38_k2 = (_s38_f2.GLOBAL, "--key")
+# Check validator was registered
+check(_s38_k2 in _s38_f2.validators, "38g: validation regex registered for password field")
+# Set a valid value — should work in command
+_s38_f2._set_field_value(_s38_k2, "deadbeef")
+cmd2, _ = _s38_f2.build_command()
+check("deadbeef" in cmd2, f"38g: valid password value in command: {cmd2}")
+_s38_w2.close(); _s38_w2.deleteLater(); app.processEvents()
+
+_s38_w.close(); _s38_w.deleteLater(); app.processEvents()
+
+# Cleanup
+shutil.rmtree(_s38_tmpdir, ignore_errors=True)
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

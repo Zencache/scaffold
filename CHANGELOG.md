@@ -2,6 +2,77 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.0] — 2026-03-31
+
+### Added
+
+#### Phase 1 — Integer Min/Max Constraints
+
+Optional `min` and `max` fields on integer and float argument types constrain the spinbox range in the GUI.
+
+- **Schema fields:** `"min": null` and `"max": null` added to `ARG_DEFAULTS`. Accept a number or null. Only valid on `integer` and `float` types — other types produce a validation error.
+- **Validation:** `_validate_args()` checks that min/max are numbers or null, only on integer/float types, and that min <= max when both are set.
+- **Widget behavior:** When `min` or `max` is set, `_build_widget_inner()` calls `setMinimum()`/`setMaximum()` on the `QSpinBox`/`QDoubleSpinBox`. For fields with no default (sentinel system), the sentinel is set to `min - 1` to preserve the unset/0 distinction.
+- **Backwards compatible:** Existing schemas without min/max normalize to null via `ARG_DEFAULTS`. No schema changes required.
+
+#### Phase 2 — Deprecated & Dangerous Flag Indicators
+
+Two new optional argument fields provide visual indicators for flagged arguments without disabling them.
+
+- **`deprecated`** (string or null): When set, the field label gets HTML strikethrough (`<s>`) and an amber "(deprecated)" suffix. The deprecation message is prepended to the tooltip. The field remains fully functional — deprecated does not mean disabled. Empty string produces a validation error.
+- **`dangerous`** (boolean, default false): When true, the field label gets a red warning symbol prefix. A caution message is prepended to the tooltip. Purely visual — no behavioral change.
+- **Theme-aware colors:** Deprecated suffix uses `#856404` (light) / `#fab387` (dark). Dangerous prefix uses `red` (light) / `#f38ba8` (dark).
+- **Both combine:** A field can be both deprecated and dangerous — both indicators render correctly together.
+
+#### Phase 3 — Password Input Type
+
+New `password` widget type for flags that accept sensitive values like passwords, API keys, and tokens.
+
+- **`"password"` added to `VALID_TYPES`** — now 10 widget types.
+- **Widget:** `QLineEdit` with `EchoMode.Password`, paired with a `QCheckBox("Show")` toggle in a `QHBoxLayout`. Toggle switches between Password and Normal echo modes.
+- **Value handling:** Password fields work identically to string fields for command assembly, preset serialization, and preset loading. Added `password` branches in `get_field_value()`, `_raw_field_value()`, and `_set_field_value()`.
+- **Validation:** Supports `validation` regex (same as string). Using `examples` on a password type produces a validation warning.
+- **Dependency wiring:** Handled by existing `hasattr(w, '_line_edit')` fallback in `_is_field_active()` and `_connect_dependency()`.
+
+#### Metadata
+
+- Version bump 2.5.10 → 2.6.0
+- scaffold.py line count: 4,006 → 4,104
+- VALID_TYPES: 9 → 10 (added `password`)
+- Argument fields: 16 → 20 (added `min`, `max`, `deprecated`, `dangerous`)
+- ARG_DEFAULTS: 14 → 17 keys
+- Test assertion total: 710 → 766 across 5 suites
+- PROMPT.txt: field count 16 → 20, types table updated, 4 new rules added (min/max, deprecated, dangerous, password), checklist updated
+
+### Changed
+
+- `VALID_TYPES` set: added `"password"`
+- `ARG_DEFAULTS` dict: added `"min": None`, `"max": None`, `"deprecated": None`, `"dangerous": False`
+- `_validate_args()`: added validation for min/max, deprecated, dangerous, and password+examples
+- `_build_widget_inner()`: added `password` branch (QLineEdit + Show toggle), min/max application on integer/float branches
+- `_build_tooltip()`: prepends deprecated/dangerous warnings before standard tooltip content
+- `_add_single_arg()`: label construction adds strikethrough/suffix for deprecated, warning prefix for dangerous
+- `get_field_value()`, `_raw_field_value()`, `_set_field_value()`: added `password` branches
+
+### Tested
+
+- **Section 36** — Integer/Float Min/Max Constraints (18 assertions): null min/max preserves default SPINBOX_RANGE, integer min/max constrains spinbox with sentinel at min-1, float min/max constrains double spinbox, min > max validation error, min/max on boolean/string validation errors, legacy schemas without min/max validate and normalize, integer with default uses min directly, non-number min validation error
+- **Section 37** — Deprecated & Dangerous Flag Indicators (23 assertions): normal label has no markers, deprecated adds strikethrough + suffix, deprecated message in tooltip, dangerous adds warning prefix, dangerous warning in tooltip, both together render correctly, deprecated field still emits in command, empty/non-string deprecated validation errors, non-bool dangerous validation error, normalize_tool fills defaults
+- **Section 38** — Password Input Type (15 assertions): password in VALID_TYPES, creates masked QLineEdit with Password echo mode, Show toggle switches echo mode, password value in command, examples on password produces warning, preset save/load round-trip, validation regex works
+
+#### Full suite results
+
+- **All 5 test suites pass: 766/766 assertions, 0 failures**
+  - Functional: 573/573 (+56: 18 Section 36, 23 Section 37, 15 Section 38)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+  - Preset Validation: 23/23 (unchanged)
+- All 9 tool schemas validate with zero errors
+- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+
+---
+
 ## [v2.5.10] — 2026-03-31
 
 ### Added

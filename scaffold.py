@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.10"
+__version__ = "2.6.0"
 
 import datetime
 import hashlib
@@ -31,7 +31,7 @@ import tempfile
 import time
 from pathlib import Path
 
-VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory"}
+VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
 VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
 
@@ -49,6 +49,10 @@ ARG_DEFAULTS = {
     "validation": None,
     "examples": None,
     "display_group": None,
+    "min": None,
+    "max": None,
+    "deprecated": None,
+    "dangerous": False,
 }
 
 # Widget size constants
@@ -209,10 +213,36 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
                 errors.append(f"{prefix}: \"examples\" must be a list of strings or null")
             if "type" in arg and arg["type"] == "enum":
                 errors.append(f"{prefix}: has both \"choices\" and \"examples\" set. For enum types, \"choices\" is used and \"examples\" is ignored")
+            if "type" in arg and arg["type"] == "password":
+                errors.append(f"{prefix}: \"examples\" should not be used with password type (sensitive values should not be suggested)")
 
         if "display_group" in arg and arg["display_group"] is not None:
             if not isinstance(arg["display_group"], str):
                 errors.append(f"{prefix}: \"display_group\" must be a string or null")
+
+        # min/max validation
+        for bound in ("min", "max"):
+            if bound in arg and arg[bound] is not None:
+                if not isinstance(arg[bound], (int, float)):
+                    errors.append(f"{prefix}: \"{bound}\" must be a number or null")
+                elif "type" in arg and arg["type"] not in ("integer", "float"):
+                    errors.append(f"{prefix}: \"{bound}\" is only valid for integer and float types")
+        if (arg.get("min") is not None and arg.get("max") is not None
+                and isinstance(arg.get("min"), (int, float))
+                and isinstance(arg.get("max"), (int, float))):
+            if arg["min"] > arg["max"]:
+                errors.append(f"{prefix}: \"min\" ({arg['min']}) must be <= \"max\" ({arg['max']})")
+
+        # deprecated validation
+        if "deprecated" in arg and arg["deprecated"] is not None:
+            if not isinstance(arg["deprecated"], str):
+                errors.append(f"{prefix}: \"deprecated\" must be a string or null")
+            elif arg["deprecated"] == "":
+                errors.append(f"{prefix}: \"deprecated\" must be a non-empty string or null")
+
+        # dangerous validation
+        if "dangerous" in arg and not isinstance(arg["dangerous"], bool):
+            errors.append(f"{prefix}: \"dangerous\" must be a boolean")
 
 
 def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
@@ -1113,6 +1143,14 @@ class ToolForm(QWidget):
         label_text = arg["name"]
         if arg["required"]:
             label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
+        # Dangerous: prepend red warning symbol
+        if arg.get("dangerous"):
+            warn_color = DARK_COLORS["required"] if _dark_mode else "red"
+            label_text = f"<span style='color:{warn_color};'>\u26a0</span> {label_text}"
+        # Deprecated: strikethrough + colored suffix
+        if arg.get("deprecated"):
+            dep_color = DARK_COLORS["warning_text"] if _dark_mode else "#856404"
+            label_text = f"<s>{label_text}</s> <span style='color:{dep_color};'>(deprecated)</span>"
         label = QLabel(label_text)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setToolTip(self._build_tooltip(arg))
@@ -1211,6 +1249,33 @@ class ToolForm(QWidget):
                     w.textChanged.connect(lambda text, ww=w, rx=regex: self._validate_input(ww, rx, text))
                 w.textChanged.connect(lambda _: self.command_changed.emit())
 
+        elif t == "password":
+            container = QWidget()
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            line = QLineEdit()
+            line.setEchoMode(QLineEdit.EchoMode.Password)
+            if arg["default"] is not None:
+                line.setText(str(arg["default"]))
+            if arg["description"]:
+                line.setPlaceholderText(arg["description"])
+            if arg["validation"]:
+                regex = re.compile(arg["validation"])
+                self.validators[key] = regex
+                line.textChanged.connect(lambda text, ww=line, rx=regex: self._validate_input(ww, rx, text))
+            line.textChanged.connect(lambda _: self.command_changed.emit())
+            show_cb = QCheckBox("Show")
+            show_cb.toggled.connect(
+                lambda checked, le=line: le.setEchoMode(
+                    QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+                )
+            )
+            layout.addWidget(line, 1)
+            layout.addWidget(show_cb)
+            container._line_edit = line
+            container._show_toggle = show_cb
+            w = container
+
         elif t == "text":
             w = QPlainTextEdit()
             w.setMaximumHeight(TEXT_WIDGET_HEIGHT)
@@ -1227,6 +1292,15 @@ class ToolForm(QWidget):
                 w.setRange(-1, SPINBOX_RANGE)
                 w.setValue(-1)
                 w.setSpecialValueText(" ")
+            if arg.get("min") is not None:
+                if arg["default"] is None:
+                    # Sentinel is one below the schema min
+                    w.setMinimum(arg["min"] - 1)
+                    w.setValue(arg["min"] - 1)
+                else:
+                    w.setMinimum(int(arg["min"]))
+            if arg.get("max") is not None:
+                w.setMaximum(int(arg["max"]))
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "float":
@@ -1239,6 +1313,14 @@ class ToolForm(QWidget):
                 w.setRange(-1.0, SPINBOX_RANGE)
                 w.setValue(-1.0)
                 w.setSpecialValueText(" ")
+            if arg.get("min") is not None:
+                if arg["default"] is None:
+                    w.setMinimum(float(arg["min"]) - 1.0)
+                    w.setValue(float(arg["min"]) - 1.0)
+                else:
+                    w.setMinimum(float(arg["min"]))
+            if arg.get("max") is not None:
+                w.setMaximum(float(arg["max"]))
             w.valueChanged.connect(lambda _: self.command_changed.emit())
 
         elif t == "enum":
@@ -1306,6 +1388,11 @@ class ToolForm(QWidget):
     @staticmethod
     def _build_tooltip(arg: dict) -> str:
         """Build a structured tooltip showing flag, type, description, and validation."""
+        warning_lines = []
+        if arg.get("deprecated"):
+            warning_lines.append(f"\u26a0 DEPRECATED: {arg['deprecated']}")
+        if arg.get("dangerous"):
+            warning_lines.append("\u26a0 CAUTION: This flag may have destructive or irreversible effects.")
         parts = [arg["flag"]]
         if arg.get("short_flag"):
             parts.append(arg["short_flag"])
@@ -1314,7 +1401,7 @@ class ToolForm(QWidget):
         if sep == "equals" or (sep == "none" and arg["type"] != "boolean"):
             type_info += f", separator: {sep}"
         header = f"{' '.join(parts)} ({type_info})"
-        lines = [header]
+        lines = warning_lines + [""] + [header] if warning_lines else [header]
         if arg.get("description"):
             lines.append(arg["description"])
         if arg.get("validation"):
@@ -1540,6 +1627,10 @@ class ToolForm(QWidget):
             v = w.currentText().strip() if isinstance(w, QComboBox) else w.text().strip()
             return v if v else None
 
+        elif t == "password":
+            v = w._line_edit.text().strip()
+            return v if v else None
+
         elif t == "text":
             v = w.toPlainText().strip()
             return v if v else None
@@ -1599,6 +1690,10 @@ class ToolForm(QWidget):
 
         elif t == "string":
             v = w.currentText().strip() if isinstance(w, QComboBox) else w.text().strip()
+            return v if v else None
+
+        elif t == "password":
+            v = w._line_edit.text().strip()
             return v if v else None
 
         elif t == "text":
@@ -1744,6 +1839,9 @@ class ToolForm(QWidget):
                 w.setCurrentText(str(value) if value is not None else "")
             else:
                 w.setText(str(value) if value is not None else "")
+
+        elif t == "password":
+            w._line_edit.setText(str(value) if value is not None else "")
 
         elif t == "text":
             w.setPlainText(str(value) if value is not None else "")
