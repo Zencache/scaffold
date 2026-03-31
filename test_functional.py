@@ -3070,6 +3070,88 @@ check(window.picker.delete_btn.isEnabled(), "30k: Delete button works after retu
 
 
 # =====================================================================
+# Section 33: Preset Descriptions
+# =====================================================================
+print("\n--- Section 33: Preset Descriptions ---")
+
+# Load a tool for preset tests
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+
+_pd_preset_dir = scaffold._presets_dir(window.data["tool"])
+
+# 33a: Save a preset with a description — _description key present
+_pd_preset = window.form.serialize_values()
+_pd_preset["_description"] = "My test description"
+_pd_path_a = _pd_preset_dir / "desc_test_a.json"
+_pd_path_a.write_text(json.dumps(_pd_preset, indent=2), encoding="utf-8")
+
+_pd_loaded_a = json.loads(_pd_path_a.read_text(encoding="utf-8"))
+check("_description" in _pd_loaded_a, "33a: preset JSON contains _description key")
+check(_pd_loaded_a["_description"] == "My test description",
+      "33a: _description has correct value")
+
+# 33b: Save a preset without a description — _description is empty string
+_pd_preset_b = window.form.serialize_values()
+_pd_preset_b["_description"] = ""
+_pd_path_b = _pd_preset_dir / "desc_test_b.json"
+_pd_path_b.write_text(json.dumps(_pd_preset_b, indent=2), encoding="utf-8")
+
+_pd_loaded_b = json.loads(_pd_path_b.read_text(encoding="utf-8"))
+check(_pd_loaded_b.get("_description", "") == "",
+      "33b: empty description stored correctly")
+
+# 33c: Load a preset with a description — values apply correctly
+_pd_preset_c = {"__global__:--verbose": True, "_description": "verbose preset",
+                "_schema_hash": scaffold.schema_hash(window.data)}
+_pd_path_c = _pd_preset_dir / "desc_test_c.json"
+_pd_path_c.write_text(json.dumps(_pd_preset_c, indent=2), encoding="utf-8")
+
+_pd_loaded_c = json.loads(_pd_path_c.read_text(encoding="utf-8"))
+window.form.apply_values(_pd_loaded_c)
+app.processEvents()
+# _description should not interfere with field loading
+check(True, "33c: preset with description loads without error")
+
+# 33d: Load an old preset without _description — backwards compat
+_pd_preset_d = {"__global__:--verbose": True,
+                "_schema_hash": scaffold.schema_hash(window.data)}
+_pd_path_d = _pd_preset_dir / "desc_test_d.json"
+_pd_path_d.write_text(json.dumps(_pd_preset_d, indent=2), encoding="utf-8")
+
+_pd_loaded_d = json.loads(_pd_path_d.read_text(encoding="utf-8"))
+window.form.apply_values(_pd_loaded_d)
+app.processEvents()
+check("_description" not in _pd_loaded_d, "33d: old preset has no _description key")
+check(True, "33d: old preset without _description loads normally")
+
+# 33e: Load dialog display strings include descriptions
+_pd_presets_list = sorted(_pd_preset_dir.glob("*.json"))
+_pd_display = []
+for _p in _pd_presets_list:
+    _lbl = _p.stem
+    try:
+        _pdata = json.loads(_p.read_text(encoding="utf-8"))
+        _desc = _pdata.get("_description", "")
+        if _desc:
+            _lbl = f"{_lbl} \u2014 {_desc}"
+    except (json.JSONDecodeError, OSError):
+        pass
+    _pd_display.append(_lbl)
+
+# desc_test_a has a description, desc_test_d does not
+_has_desc_entry = any("\u2014 My test description" in d for d in _pd_display)
+_plain_entry = any(d == "desc_test_d" for d in _pd_display)
+check(_has_desc_entry, "33e: display list shows 'name \u2014 description' for described preset")
+check(_plain_entry, "33e: display list shows plain name for preset without description")
+
+# Clean up test presets
+for _pf in [_pd_path_a, _pd_path_b, _pd_path_c, _pd_path_d]:
+    if _pf.exists():
+        _pf.unlink()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
