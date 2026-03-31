@@ -2,9 +2,11 @@
 
 **Stop memorizing flags. Start clicking them.**
 
-Scaffold turns any command-line tool into a native desktop GUI — no custom UI code, no web server, no electron bloat. Just point it at a JSON schema that describes your tool's arguments, and you get a full interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
+Scaffold turns any command-line tool into a native desktop GUI — no custom UI code, no web server, no electron bloat. Point it at a JSON schema that describes your tool's arguments and you get a full interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
 
-But here's where it gets powerful: **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack configuration as a one-click preset. No more scrolling through shell history or grepping old notes for that command you ran three weeks ago. Save it once, reload it forever. Share preset files with your team. Build a personal library of ready-to-fire commands for every tool you use.
+It works with **any CLI program** — nmap, ffmpeg, curl, hashcat, git, kubectl, terraform, your own internal tools, anything. If it has flags and a man page, Scaffold can build a GUI for it. The bundled `PROMPT.txt` lets you hand any tool's documentation to an LLM and get a working schema back. Massive tools with hundreds of flags (like curl's 271-argument schema) work fine — collapsible sections, field search, and display groups keep things manageable. Smaller tools take minutes to set up.
+
+And then there are **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
@@ -60,20 +62,21 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 
 ## Features
 
+- **Works with any CLI tool** — if it accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities to tools with hundreds of flags and nested subcommands. Write a JSON schema (or have an LLM generate one from the docs) and you're done
 - **Presets** — save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again
+- **LLM-powered schema generation** — paste the included `PROMPT.txt` into any LLM along with a tool's `--help` output or man page, and get a working schema back. Works with any model that can output JSON
 - **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, and one-click export to file
 - **9 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, and more — each CLI argument gets the right input control
 - **Subcommand support** — tools like `git` with multiple subcommands work seamlessly
 - **Collapsible display groups** — visually group related arguments into collapsible sections to tame tools with hundreds of flags
 - **Field search** — Ctrl+F to instantly find any field by name or flag in large forms
-- **Process timeout** — optional auto-kill after N seconds, saved per tool — fire and forget
+- **Process timeout** — optional auto-kill after N seconds, saved per tool
 - **Mutual exclusivity & dependencies** — radio-button groups for conflicting flags, fields that activate only when their parent is set
 - **Validation** — regex patterns and required field checking, catch mistakes before you run
 - **Drag and drop** — drop a `.json` schema onto the window to load it
 - **Session persistence** — remembers window size, position, theme, and last opened tool
 - **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
-- **LLM-powered schema generation** — paste `PROMPT.txt` into any LLM and ask it to generate a schema for your favorite tool
 
 ## Quick Start
 
