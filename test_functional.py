@@ -2435,6 +2435,72 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 28 — Output Export
+# =====================================================================
+print("\n--- Section 28: Output Export ---")
+
+import tempfile as _s28_tempfile
+
+# Reload a known tool for a clean state
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# 28a: save_output_btn exists
+check(hasattr(window, 'save_output_btn'), "28a: Save Output button exists")
+
+# 28b: save with content writes correct text
+window.output.clear()
+window.output.appendPlainText("$ echo hello")
+window.output.appendPlainText("hello")
+window.output.appendPlainText("--- Process exited with code 0 ---")
+app.processEvents()
+
+_s28_dir = _s28_tempfile.mkdtemp()
+_s28_path = str(Path(_s28_dir) / "test_output.txt")
+window._save_output(path=_s28_path)
+app.processEvents()
+check(Path(_s28_path).exists(), "28b: saved file exists")
+_s28_content = Path(_s28_path).read_text(encoding="utf-8")
+check("$ echo hello" in _s28_content, "28b: saved file contains command echo line")
+check("hello" in _s28_content, "28b: saved file contains output text")
+check("Process exited with code 0" in _s28_content, "28b: saved file contains exit line")
+
+# 28c: UTF-8 encoding — write Unicode, read it back
+window.output.clear()
+window.output.appendPlainText("Unicode test: \u2603 \u2764 \u00e9\u00e8\u00ea \u00fc\u00f6\u00e4")
+app.processEvents()
+_s28_unicode_path = str(Path(_s28_dir) / "test_unicode.txt")
+window._save_output(path=_s28_unicode_path)
+_s28_unicode = Path(_s28_unicode_path).read_text(encoding="utf-8")
+check("\u2603" in _s28_unicode, "28c: UTF-8 snowman preserved")
+check("\u2764" in _s28_unicode, "28c: UTF-8 heart preserved")
+check("\u00e9\u00e8\u00ea" in _s28_unicode, "28c: UTF-8 accented chars preserved")
+
+# 28d: empty output shows status bar message, no file created
+window.output.clear()
+app.processEvents()
+_s28_empty_path = str(Path(_s28_dir) / "should_not_exist.txt")
+window._save_output(path=_s28_empty_path)
+app.processEvents()
+check(not Path(_s28_empty_path).exists(), "28d: no file created when output is empty")
+_s28_status = window.statusBar().currentMessage()
+check("No output to save" in _s28_status, f"28d: status bar shows no-output message (got '{_s28_status}')")
+
+# 28e: status bar confirms save on success
+window.output.appendPlainText("some output")
+app.processEvents()
+_s28_confirm_path = str(Path(_s28_dir) / "confirm.txt")
+window._save_output(path=_s28_confirm_path)
+app.processEvents()
+_s28_confirm_status = window.statusBar().currentMessage()
+check("Output saved to" in _s28_confirm_status, f"28e: status bar confirms save (got '{_s28_confirm_status}')")
+
+# Cleanup temp dir
+import shutil as _s28_shutil
+_s28_shutil.rmtree(_s28_dir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

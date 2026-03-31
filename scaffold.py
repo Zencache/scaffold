@@ -18,8 +18,9 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.3"
+__version__ = "2.5.4"
 
+import datetime
 import hashlib
 import json
 import re
@@ -2778,6 +2779,10 @@ class MainWindow(QMainWindow):
         self.clear_btn.clicked.connect(self._clear_output)
         action_bar.addWidget(self.clear_btn)
 
+        self.save_output_btn = QPushButton("Save Output...")
+        self.save_output_btn.clicked.connect(self._save_output)
+        action_bar.addWidget(self.save_output_btn)
+
         action_bar.addStretch()
         layout.addWidget(action_widget)
 
@@ -3172,6 +3177,34 @@ class MainWindow(QMainWindow):
     def _clear_output(self) -> None:
         """Clear all text from the output panel."""
         self.output.clear()
+
+    def _save_output(self, path: str | None = None) -> None:
+        """Save the output panel contents to a text file."""
+        # clicked signal passes a bool — normalize to None
+        if not isinstance(path, str):
+            path = None
+        text = self.output.toPlainText()
+        if not text.strip():
+            self.statusBar().showMessage("No output to save", 3000)
+            return
+
+        if path is None:
+            tool_name = self.data["tool"] if self.data else "output"
+            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_name = f"{tool_name}_output_{stamp}.txt"
+            default_path = str(Path.home() / default_name)
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save Output", default_path,
+                "Text Files (*.txt);;All Files (*)"
+            )
+        if not path:
+            return
+
+        try:
+            Path(path).write_text(text, encoding="utf-8")
+            self.statusBar().showMessage(f"Output saved to {path}", 3000)
+        except OSError as e:
+            self.statusBar().showMessage(f"Error saving output: {e}", 5000)
 
 
 # ---------------------------------------------------------------------------

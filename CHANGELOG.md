@@ -2,6 +2,39 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.5.4] — 2026-03-30
+
+### Added
+
+#### Output Export (Save Output...)
+
+Save command output to a text file for later review or sharing.
+
+- **"Save Output..." button** added to the action bar, next to "Clear Output".
+- **`QFileDialog.getSaveFileName`** opens a native save dialog with a suggested filename: `{tool_name}_output_{YYYYMMDD_HHMMSS}.txt`, defaulting to the user's home directory.
+- **Plain text export** via `QPlainTextEdit.toPlainText()` — strips all formatting. Includes the command echo line (`$ command`) if present.
+- **UTF-8 encoding** for saved files.
+- **Empty output guard** — if the output panel is empty, shows "No output to save" in the status bar instead of opening the dialog.
+- **Status bar confirmation** — shows the saved file path on success, or an error message on failure.
+- **`MainWindow._save_output(path=None)`** — accepts an optional `path` argument for testability (skips the dialog). Normalizes the `bool` passed by `QPushButton.clicked` to `None` via `isinstance` check.
+- **`datetime`** module added to imports (stdlib, no new dependencies).
+
+### Changed
+- Version bump 2.5.3 → 2.5.4
+- scaffold.py line count: 3,291 → 3,324
+
+### Tested
+- **Section 28** — Output Export (11 assertions): Save Output button exists, saved file contains command echo line and output text and exit line, UTF-8 encoding preserves snowman/heart/accented characters, empty output creates no file and shows status bar message, status bar confirms save path on success
+
+#### Full suite results
+- **All 4 test suites pass: 564/564 assertions, 0 failures**
+  - Functional: 394/394 (+11 Section 28)
+  - Examples: 52/52 (unchanged)
+  - Manual Verification: 61/61 (unchanged)
+  - Smoke: 57/57 (unchanged)
+
+---
+
 ## [v2.5.3] — 2026-03-30
 
 ### Added
