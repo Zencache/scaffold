@@ -2,11 +2,11 @@
 
 **Stop memorizing flags. Start clicking them.**
 
-Scaffold turns any command-line tool into a native desktop GUI — no custom UI code, no web server, no electron bloat. Point it at a JSON schema that describes your tool's arguments and you get a full interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
+Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Point it at a JSON schema that describes your tool's arguments and you get an interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
 
-It works with **any CLI program** — nmap, ffmpeg, curl, hashcat, git, kubectl, terraform, your own internal tools, anything. If it has flags and a man page, Scaffold can build a GUI for it. The bundled `PROMPT.txt` lets you hand any tool's documentation to an LLM and get a working schema back. Massive tools with hundreds of flags (like curl's 271-argument schema) *should* work fine — collapsible sections, field search, and display groups keep things manageable. Smaller tools take minutes to set up.
+This includes your **own internal tools and scripts** — not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags that nobody can remember, write a schema (or hand the `--help` output to an LLM with the bundled `PROMPT.txt`) and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too — collapsible sections, field search, and display groups keep things manageable.
 
-And then there are **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
+And then there are **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
@@ -18,7 +18,7 @@ And then there are **presets**. Save your perfectly-tuned nmap recon scan, your 
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — the author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (662 passing assertions across 5 suites), it has not been extensively tested in production environments. **Scaffold may not work well with all CLI programs.** This tool has been minimally tested, if you have issues with a specific version try rolling back to a different version. On the schema generation side, tools with very large man pages, hundreds of flags, or deeply nested subcommand trees may exceed the LLM's context window, resulting in incomplete or inaccurate output. On the UI side, complex tools with many subcommands (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are difficult to navigate — the options change with every subcommand selection and important flags can get buried. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. Use at your own risk. Contributions and bug reports are very welcome!
+> **Disclaimer:** This is an early-stage hobby project — functional and tested (662 assertions across 5 suites), but not battle-hardened in production. Scaffold should work with any CLI tool that accepts flags and arguments, though very large tools with deeply nested subcommand trees may produce forms that are harder to navigate. On the schema generation side, LLMs may truncate or misrepresent flags for tools with massive man pages — always validate with `--validate` and review the generated command before running it. If you hit issues with a specific version, try rolling back. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), human-directed across many sessions — see [About This Project](#about-this-project). Contributions and bug reports welcome!
 
 ---
 
@@ -412,9 +412,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-While the project includes 662 passing test assertions across 5 test suites, it should be considered early-stage software.
-
-If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 662 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 
