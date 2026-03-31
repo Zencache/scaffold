@@ -1,8 +1,10 @@
-# Scaffold — CLI-to-GUI Translation Layer
+# Scaffold — Your CLI Tools, but with Buttons
 
-**Turn any command-line tool into a native desktop GUI — instantly.**
+**Stop memorizing flags. Start clicking them.**
 
-Scaffold dynamically generates interactive GUI forms from simple JSON schema files that describe a CLI tool's arguments. No custom UI code needed. Scaffold builds the form based on a json schema file, assembles the command, and runs it.
+Scaffold turns any command-line tool into a native desktop GUI — no custom UI code, no web server, no electron bloat. Just point it at a JSON schema that describes your tool's arguments, and you get a full interactive form with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Fill in the fields, hit Run, done.
+
+But here's where it gets powerful: **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack configuration as a one-click preset. No more scrolling through shell history or grepping old notes for that command you ran three weeks ago. Save it once, reload it forever. Share preset files with your team. Build a personal library of ready-to-fire commands for every tool you use.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
@@ -58,26 +60,20 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 
 ## Features
 
-- **Single Python file** — just `scaffold.py`, nothing else to install
-- **One dependency** — PySide6 (LGPL licensed)
-- **9 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, and more
-- **Syntax-colored command preview** — see the exact command update as you change fields, with color-coded tokens (binary, flags, values, extra flags) in both light and dark modes
-- **Process execution** — run commands directly with colored output (stdout, stderr, exit codes)
-- **Presets** — save and load form configurations for quick reuse
+- **Presets** — save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again
+- **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
+- **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, and one-click export to file
+- **9 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, and more — each CLI argument gets the right input control
 - **Subcommand support** — tools like `git` with multiple subcommands work seamlessly
-- **Collapsible display groups** — visually group related arguments into collapsible sections
-- **Field search** — always-visible search bar (Ctrl+F) to find fields by name or flag in large forms
-- **Output search** — Ctrl+Shift+F to search within command output with highlighted matches and navigation
-- **Output export** — save command output to a text file with one click
-- **Process timeout** — optional auto-kill after N seconds, saved per tool
-- **Mutual exclusivity groups** — radio-button-style behavior for conflicting flags
-- **Dependency chains** — fields that only activate when a parent field is set
-- **Validation** — regex patterns, required field checking
-- **Session persistence** — remembers window size/position and last opened tool
-- **Drag and drop** — drop a `.json` schema file onto the window to load it
-- **Keyboard shortcuts** — Ctrl+Enter to run, Escape to stop, and more
-- **No internet required** — runs entirely offline
-- **LLM-powered schema generation** — include `PROMPT.txt` to have any LLM generate schemas for you
+- **Collapsible display groups** — visually group related arguments into collapsible sections to tame tools with hundreds of flags
+- **Field search** — Ctrl+F to instantly find any field by name or flag in large forms
+- **Process timeout** — optional auto-kill after N seconds, saved per tool — fire and forget
+- **Mutual exclusivity & dependencies** — radio-button groups for conflicting flags, fields that activate only when their parent is set
+- **Validation** — regex patterns and required field checking, catch mistakes before you run
+- **Drag and drop** — drop a `.json` schema onto the window to load it
+- **Session persistence** — remembers window size, position, theme, and last opened tool
+- **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
+- **LLM-powered schema generation** — paste `PROMPT.txt` into any LLM and ask it to generate a schema for your favorite tool
 
 ## Quick Start
 
