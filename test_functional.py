@@ -3022,47 +3022,51 @@ for _pname in ("delete_me", "delete_me2", "delete_me3"):
     if _pd.is_dir():
         shutil.rmtree(_pd)
 
-# 30j: _on_delete_preset dialog includes git restore tip and actually deletes
+# 30j: PresetPicker edit mode delete includes git restore tip and actually deletes
 window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
 app.processEvents()
 _preset_dir_j = scaffold._presets_dir(window.data["tool"])
 _preset_file_j = _preset_dir_j / "test_del_tip.json"
 _preset_file_j.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
 
-# Capture dialog text by mocking QMessageBox.question
+# Open PresetPicker in edit mode, select the test preset, click delete
+_pp_j = scaffold.PresetPicker(window.data["tool"], _preset_dir_j, mode="edit")
+_pp_j_row = None
+for _r in range(_pp_j.table.rowCount()):
+    _ni = _pp_j.table.item(_r, 1)
+    if _ni and _ni.text() == "test_del_tip":
+        _pp_j_row = _r
+        break
+assert _pp_j_row is not None, "test_del_tip not found in picker"
+_pp_j.table.selectRow(_pp_j_row)
+app.processEvents()
+
+# Capture QMessageBox.question dialog text, auto-confirm
 _captured_question_args_j = []
 _orig_question_j = QMessageBox.question
 def _mock_question_j(*args, **kwargs):
     _captured_question_args_j.append(args)
-    return QMessageBox.StandardButton.Yes  # Confirm the delete
+    return QMessageBox.StandardButton.Yes
 QMessageBox.question = staticmethod(_mock_question_j)
-# Mock PresetPicker to return the test preset path
-_orig_pp_exec_j = scaffold.PresetPicker.exec
-_orig_pp_init_j = scaffold.PresetPicker.__init__
-def _mock_pp_init_j(self, *args, **kwargs):
-    _orig_pp_init_j(self, *args, **kwargs)
-    self.selected_path = str(_preset_file_j)
-scaffold.PresetPicker.__init__ = _mock_pp_init_j
-scaffold.PresetPicker.exec = lambda self: True
 try:
-    window._on_delete_preset()
+    _pp_j._on_delete()
     app.processEvents()
 finally:
     QMessageBox.question = _orig_question_j
-    scaffold.PresetPicker.__init__ = _orig_pp_init_j
-    scaffold.PresetPicker.exec = _orig_pp_exec_j
 
 check(len(_captured_question_args_j) == 1, "30j: preset delete dialog was shown")
 if _captured_question_args_j:
-    _dialog_text_j = _captured_question_args_j[0][2]  # third arg is the text
+    _dialog_text_j = _captured_question_args_j[0][2]
     check("git checkout" in _dialog_text_j, "30j: preset delete dialog includes git restore tip")
     check("presets/" in _dialog_text_j, "30j: preset delete dialog includes preset path")
 else:
     check(False, "30j: preset delete dialog includes git restore tip")
     check(False, "30j: preset delete dialog includes preset path")
 
-# Verify the preset file was actually deleted
 check(not _preset_file_j.exists(), "30j: preset file actually deleted from disk")
+_pp_j.close()
+_pp_j.deleteLater()
+app.processEvents()
 
 # 30k: Delete button works after navigating back from form view
 window._show_picker()
@@ -3469,6 +3473,167 @@ for _pf in _pp_paths:
     if _pf.exists():
         _pf.unlink()
 _pp_settings.remove(f"favorites/{window.data['tool']}")
+
+
+# =====================================================================
+# Section 35: Edit Preset Mode and Menu Restructure
+# =====================================================================
+print("\n--- Section 35: Edit Preset Mode and Menu Restructure ---")
+
+# Set up: load ping, create test presets
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+_em_dir = scaffold._presets_dir(window.data["tool"])
+_em_paths = []
+for _name, _desc in [("edit_a", "Alpha desc"), ("edit_b", "Beta desc"), ("edit_c", "")]:
+    _ep = _em_dir / f"{_name}.json"
+    _ep.write_text(json.dumps({"_description": _desc, "__global__:--verbose": True}), encoding="utf-8")
+    _em_paths.append(_ep)
+
+# 35a: Menu shows "Edit Preset..." not "Delete Preset..."
+check(hasattr(window, "act_edit_preset"), "35a: act_edit_preset exists on MainWindow")
+check(window.act_edit_preset.text() == "Edit Preset...",
+      "35a: menu action text is 'Edit Preset...'")
+check(not hasattr(window, "act_delete_preset"),
+      "35a: act_delete_preset no longer exists")
+
+# 35b: Edit mode opens with correct title and buttons
+_em_picker1 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+check("Edit Preset" in _em_picker1.windowTitle(),
+      "35b: edit mode title contains 'Edit Preset'")
+check(_em_picker1.edit_desc_btn is not None,
+      "35b: edit mode has 'Edit Description...' button")
+check(_em_picker1.delete_btn is not None,
+      "35b: edit mode has 'Delete' button")
+check(_em_picker1.action_btn is None,
+      "35b: edit mode has no action (Load/Delete) button")
+check(_em_picker1.cancel_btn.text() == "Close",
+      "35b: edit mode close button says 'Close'")
+_em_picker1.close()
+_em_picker1.deleteLater()
+app.processEvents()
+
+# 35c: Edit mode buttons disabled until selection
+_em_picker2 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+check(not _em_picker2.edit_desc_btn.isEnabled(),
+      "35c: edit description disabled with no selection")
+check(not _em_picker2.delete_btn.isEnabled(),
+      "35c: delete button disabled with no selection")
+_em_picker2.table.selectRow(0)
+app.processEvents()
+check(_em_picker2.edit_desc_btn.isEnabled(),
+      "35c: edit description enabled after selecting row")
+check(_em_picker2.delete_btn.isEnabled(),
+      "35c: delete button enabled after selecting row")
+_em_picker2.close()
+_em_picker2.deleteLater()
+app.processEvents()
+
+# 35d: Double-click in edit mode does NOT accept/load
+_em_picker3 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+_em_picker3._on_double_click(_em_picker3.table.model().index(0, 1))
+check(_em_picker3.selected_path is None,
+      "35d: double-click in edit mode does not set selected_path")
+_em_picker3.close()
+_em_picker3.deleteLater()
+app.processEvents()
+
+# 35e: Edit description in edit mode works
+_em_picker4 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+_em_a_row = None
+for _r in range(_em_picker4.table.rowCount()):
+    _ni = _em_picker4.table.item(_r, 1)
+    if _ni and _ni.text() == "edit_a":
+        _em_a_row = _r
+        break
+assert _em_a_row is not None
+_em_picker4.table.selectRow(_em_a_row)
+app.processEvents()
+_orig_getText_em = scaffold.QInputDialog.getText
+scaffold.QInputDialog.getText = staticmethod(lambda *a, **kw: ("New alpha desc", True))
+try:
+    _em_picker4._on_edit_description()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _orig_getText_em
+_em_a_data = json.loads(_em_paths[0].read_text(encoding="utf-8"))
+check(_em_a_data.get("_description") == "New alpha desc",
+      "35e: edit description in edit mode updates JSON file")
+check(_em_picker4.table.item(_em_a_row, 2).text() == "New alpha desc",
+      "35e: table cell updated in edit mode")
+_em_picker4.close()
+_em_picker4.deleteLater()
+app.processEvents()
+
+# 35f: Delete in edit mode removes file and table row
+_em_picker5 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+_em_initial_rows = _em_picker5.table.rowCount()
+_em_b_row = None
+for _r in range(_em_picker5.table.rowCount()):
+    _ni = _em_picker5.table.item(_r, 1)
+    if _ni and _ni.text() == "edit_b":
+        _em_b_row = _r
+        break
+assert _em_b_row is not None
+_em_picker5.table.selectRow(_em_b_row)
+app.processEvents()
+_orig_question_em = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+try:
+    _em_picker5._on_delete()
+    app.processEvents()
+finally:
+    QMessageBox.question = _orig_question_em
+check(not _em_paths[1].exists(),
+      "35f: delete in edit mode removes file from disk")
+check(_em_picker5.table.rowCount() == _em_initial_rows - 1,
+      "35f: table row removed after delete")
+_em_picker5.close()
+_em_picker5.deleteLater()
+app.processEvents()
+
+# 35g: Deleting last preset closes dialog automatically
+# Create a single temp preset
+_em_last_path = _em_dir / "edit_last.json"
+_em_last_path.write_text(json.dumps({"__global__:--verbose": True}), encoding="utf-8")
+# Remove any other test presets so this is the only one besides edit_a and edit_c
+_em_picker6 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="edit")
+# Delete all rows one by one until empty
+_orig_question_em2 = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+try:
+    while _em_picker6.table.rowCount() > 0:
+        _em_picker6.table.selectRow(0)
+        app.processEvents()
+        _em_picker6._on_delete()
+        app.processEvents()
+finally:
+    QMessageBox.question = _orig_question_em2
+check(getattr(_em_picker6, "_deleted_last", False),
+      "35g: deleting last preset sets _deleted_last flag")
+_em_picker6.close()
+_em_picker6.deleteLater()
+app.processEvents()
+
+# 35h: Load mode still works (unchanged)
+# Recreate a preset for this test
+_em_load_path = _em_dir / "edit_load_test.json"
+_em_load_path.write_text(json.dumps({"__global__:--verbose": True,
+    "_schema_hash": scaffold.schema_hash(window.data)}), encoding="utf-8")
+_em_picker7 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="load")
+check(_em_picker7.action_btn is not None and _em_picker7.action_btn.text() == "Load",
+      "35h: load mode still has 'Load' button")
+check(_em_picker7.cancel_btn.text() == "Cancel",
+      "35h: load mode cancel button says 'Cancel'")
+_em_picker7.close()
+_em_picker7.deleteLater()
+app.processEvents()
+
+# Clean up
+for _ep in _em_paths + [_em_last_path, _em_load_path]:
+    if _ep.exists():
+        _ep.unlink()
+scaffold.QSettings("Scaffold", "Scaffold").remove(f"favorites/{window.data['tool']}")
 
 
 # =====================================================================

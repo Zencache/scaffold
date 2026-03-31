@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.5.9"
+__version__ = "2.5.10"
 
 import datetime
 import hashlib
@@ -2354,12 +2354,12 @@ class PresetPicker(QDialog):
         super().__init__(parent)
         self.tool_name = tool_name
         self.presets_dir = presets_dir
-        self.mode = mode  # "load" or "delete"
+        self.mode = mode  # "load", "delete", or "edit"
         self.selected_path: str | None = None
         self._presets: list[Path] = []  # ordered list matching table rows
 
-        title = "Load Preset" if mode == "load" else "Delete Preset"
-        self.setWindowTitle(f"{title} \u2014 {tool_name}")
+        titles = {"load": "Load Preset", "delete": "Delete Preset", "edit": "Edit Preset"}
+        self.setWindowTitle(f"{titles.get(mode, mode)} \u2014 {tool_name}")
         self.resize(600, 400)
 
         layout = QVBoxLayout(self)
@@ -2390,21 +2390,39 @@ class PresetPicker(QDialog):
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
         layout.addWidget(self.table, 1)
 
-        # Buttons
+        # Buttons — layout depends on mode
         btn_bar = QHBoxLayout()
-        btn_bar.addStretch()
-        action_label = "Load" if mode == "load" else "Delete"
-        self.action_btn = QPushButton(action_label)
-        self.action_btn.setEnabled(False)
-        self.action_btn.clicked.connect(self._on_action)
-        btn_bar.addWidget(self.action_btn)
-        self.edit_desc_btn = QPushButton("Edit Description...")
-        self.edit_desc_btn.setEnabled(False)
-        self.edit_desc_btn.clicked.connect(self._on_edit_description)
-        btn_bar.addWidget(self.edit_desc_btn)
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        btn_bar.addWidget(self.cancel_btn)
+        self.delete_btn = None  # only created in edit mode
+
+        if mode == "edit":
+            self.edit_desc_btn = QPushButton("Edit Description...")
+            self.edit_desc_btn.setEnabled(False)
+            self.edit_desc_btn.clicked.connect(self._on_edit_description)
+            btn_bar.addWidget(self.edit_desc_btn)
+            self.delete_btn = QPushButton("Delete")
+            self.delete_btn.setEnabled(False)
+            self.delete_btn.clicked.connect(self._on_delete)
+            btn_bar.addWidget(self.delete_btn)
+            btn_bar.addStretch()
+            self.action_btn = None  # no load/accept action in edit mode
+            self.cancel_btn = QPushButton("Close")
+            self.cancel_btn.clicked.connect(self.reject)
+            btn_bar.addWidget(self.cancel_btn)
+        else:
+            btn_bar.addStretch()
+            action_label = "Load" if mode == "load" else "Delete"
+            self.action_btn = QPushButton(action_label)
+            self.action_btn.setEnabled(False)
+            self.action_btn.clicked.connect(self._on_action)
+            btn_bar.addWidget(self.action_btn)
+            self.edit_desc_btn = QPushButton("Edit Description...")
+            self.edit_desc_btn.setEnabled(False)
+            self.edit_desc_btn.clicked.connect(self._on_edit_description)
+            btn_bar.addWidget(self.edit_desc_btn)
+            self.cancel_btn = QPushButton("Cancel")
+            self.cancel_btn.clicked.connect(self.reject)
+            btn_bar.addWidget(self.cancel_btn)
+
         layout.addLayout(btn_bar)
 
         # Load favorites and populate
@@ -2481,7 +2499,11 @@ class PresetPicker(QDialog):
                 date_str = "Unknown"
             self.table.setItem(row, 3, QTableWidgetItem(date_str))
 
-        self.action_btn.setEnabled(False)
+        if self.action_btn is not None:
+            self.action_btn.setEnabled(False)
+        self.edit_desc_btn.setEnabled(False)
+        if self.delete_btn is not None:
+            self.delete_btn.setEnabled(False)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -2504,14 +2526,19 @@ class PresetPicker(QDialog):
                 break
 
     def _on_selection(self) -> None:
-        """Enable/disable the action and edit description buttons based on selection."""
+        """Enable/disable action buttons based on selection."""
         rows = self.table.selectionModel().selectedRows()
         has_selection = len(rows) > 0
-        self.action_btn.setEnabled(has_selection)
+        if self.action_btn is not None:
+            self.action_btn.setEnabled(has_selection)
         self.edit_desc_btn.setEnabled(has_selection)
+        if self.delete_btn is not None:
+            self.delete_btn.setEnabled(has_selection)
 
     def _on_double_click(self, index) -> None:
-        """Accept the dialog on double-click."""
+        """Accept the dialog on double-click (load/delete modes only)."""
+        if self.mode == "edit":
+            return
         row = index.row()
         if 0 <= row < len(self._presets):
             self.selected_path = str(self._presets[row])
@@ -2567,10 +2594,49 @@ class PresetPicker(QDialog):
         desc_item = self.table.item(row, 2)
         if desc_item:
             desc_item.setText(new_desc.strip())
+        titles = {"load": "Load Preset", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(
-            f"{'Load Preset' if self.mode == 'load' else 'Delete Preset'}"
+            f"{titles.get(self.mode, self.mode)}"
             f" \u2014 {self.tool_name} \u2014 Description updated"
         )
+
+    def _on_delete(self) -> None:
+        """Delete the selected preset (edit mode). Confirms, removes file and table row."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        row = rows[0].row()
+        if row < 0 or row >= len(self._presets):
+            return
+        preset_path = self._presets[row]
+        name = preset_path.stem
+
+        confirm = QMessageBox.question(
+            self, "Confirm Delete",
+            f"Delete preset '{name}'?\n\n"
+            "Tip: Bundled presets can be restored with:\n"
+            f"  git checkout -- presets/{self.tool_name}/{name}.json",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            preset_path.unlink()
+        except OSError as e:
+            QMessageBox.warning(self, "Error", f"Cannot delete preset:\n{e}")
+            return
+
+        # Remove from internal list and table
+        self._presets.pop(row)
+        self._favorites.discard(name)
+        self._save_favorites()
+        self.table.removeRow(row)
+
+        # If no presets remain, close the dialog
+        if self.table.rowCount() == 0:
+            self._deleted_last = True
+            self.reject()
 
 
 # ---------------------------------------------------------------------------
@@ -2674,8 +2740,8 @@ class MainWindow(QMainWindow):
         self.act_load_preset.setShortcut("Ctrl+L")
         self.act_load_preset.triggered.connect(self._on_load_preset)
 
-        self.act_delete_preset = self.preset_menu.addAction("Delete Preset...")
-        self.act_delete_preset.triggered.connect(self._on_delete_preset)
+        self.act_edit_preset = self.preset_menu.addAction("Edit Preset...")
+        self.act_edit_preset.triggered.connect(self._on_edit_preset)
 
         self.preset_menu.addSeparator()
 
@@ -3445,38 +3511,19 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"Preset loaded: {name}")
 
-    def _on_delete_preset(self) -> None:
-        """Show a preset picker and delete the selected preset file after confirmation."""
+    def _on_edit_preset(self) -> None:
+        """Open the preset picker in edit mode for managing descriptions and deleting."""
         if not self.data:
             return
         preset_dir = _presets_dir(self.data["tool"])
         presets = sorted(preset_dir.glob("*.json"))
         if not presets:
-            self.statusBar().showMessage("No presets to delete")
+            self.statusBar().showMessage("No presets to edit")
             return
-
-        picker = PresetPicker(self.data["tool"], preset_dir, mode="delete", parent=self)
-        if not picker.exec() or not picker.selected_path:
-            return
-
-        preset_path = Path(picker.selected_path)
-        name = preset_path.stem
-        tool_name = self.data["tool"]
-        confirm = QMessageBox.question(
-            self, "Confirm Delete",
-            f"Delete preset '{name}'?\n\n"
-            "Tip: Bundled presets can be restored with:\n"
-            f"  git checkout -- presets/{tool_name}/{name}.json",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
-        try:
-            preset_path.unlink()
-        except OSError as e:
-            self.statusBar().showMessage(f"Error deleting preset: {e}")
-            return
-        self.statusBar().showMessage(f"Preset deleted: {name}")
+        picker = PresetPicker(self.data["tool"], preset_dir, mode="edit", parent=self)
+        picker.exec()
+        if getattr(picker, "_deleted_last", False):
+            self.statusBar().showMessage("No presets remaining")
 
     def _on_import_preset(self) -> None:
         """Import a preset JSON file into the current tool's preset directory."""

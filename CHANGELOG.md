@@ -2,26 +2,30 @@
 
 All notable changes to Scaffold are documented here.
 
-## [v2.5.9] — 2026-03-31
+## [v2.5.10] — 2026-03-31
 
 ### Added
 
-- **Preset Picker dialog** — replaced the plain `QInputDialog` dropdown for Load Preset and Delete Preset with a full table-based picker (`PresetPicker` class), modeled on the tool picker. 4 columns: favorite star, preset name, description, last modified date.
+- **Preset Picker dialog** — replaced the plain `QInputDialog` dropdown for Load/Delete Preset with a full table-based picker (`PresetPicker` class), modeled on the tool picker. 4 columns: favorite star, preset name, description, last modified date. Three modes: load, delete, edit.
 - **Preset favorites** — click the star column to mark presets as favorites. Favorites sort to the top of the list. Stored in QSettings (not in preset files), with automatic cleanup of stale favorites when preset files are deleted.
 - **Edit Description** — "Edit Description..." button in the preset picker allows updating a preset's `_description` field after saving. Reads the preset JSON, updates only `_description`, writes it back without modifying other keys.
-- Version bump 2.5.8 → 2.5.9
-- scaffold.py line count: 3,748 → 3,959
-- Test assertion total: 662 → 690 across 5 suites
+- **Edit Preset mode** — new "edit" mode for PresetPicker with "Edit Description..." and "Delete" buttons. Delete includes confirmation dialog with git restore tip, removes the table row in-place, and auto-closes when the last preset is deleted.
+- Version bump 2.5.8 → 2.5.10
+- scaffold.py line count: 3,748 → 4,006
+- Test assertion total: 662 → 710 across 5 suites
 
 ### Changed
 
+- **Presets menu restructured** — "Delete Preset..." replaced with "Edit Preset..." which opens the picker in edit mode for managing descriptions and deleting presets
 - `_on_load_preset()` — uses `PresetPicker(mode="load")` instead of `QInputDialog.getItem()`
-- `_on_delete_preset()` — uses `PresetPicker(mode="delete")` instead of `QInputDialog.getItem()`
+- `_on_delete_preset()` removed from MainWindow — delete logic moved into `PresetPicker._on_delete()`
+- `_on_edit_preset()` added to MainWindow — opens PresetPicker in edit mode
 - `QDialog` added to PySide6 widget imports
 
 ### Tested
 
 - **Section 34** — Preset Picker (28 assertions): alphabetical sort with no favorites, description display from `_description` key, empty description for old presets, star toggle updates QSettings, favorited preset sorts first, stale favorite cleanup, double-click selection, cancel returns None, load/delete mode button text and titles, action button enable/disable, last modified date, star characters, column headers, edit description button enable/disable, edit existing description, add description to old preset, clear description to empty, cancel edit no-op
+- **Section 35** — Edit Preset Mode (20 assertions): menu shows "Edit Preset..." not "Delete Preset...", edit mode title/buttons/layout, buttons disabled until selection, double-click no-op in edit mode, edit description works in edit mode, delete removes file and table row, deleting last preset auto-closes dialog, load mode unchanged
 
 ---
 

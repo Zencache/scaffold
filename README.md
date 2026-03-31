@@ -13,14 +13,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-3%2C959%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-4%2C006%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (690 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (710 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 
 ---
 
@@ -337,7 +337,7 @@ Presets save and restore the complete state of a form:
 
 - **Save**: Presets > Save Preset (Ctrl+S) — enter a name and optional description
 - **Load**: Presets > Load Preset (Ctrl+L) — opens a table-based picker with preset name, description, and last modified date
-- **Delete**: Presets > Delete Preset — same picker in delete mode
+- **Edit**: Presets > Edit Preset — manage presets: edit descriptions, delete presets, and toggle favorites from a single dialog
 - **Reset**: Presets > Reset to Defaults — clears everything back to schema defaults
 
 The preset picker supports **favorites** — click the star column to pin frequently-used presets to the top of the list. Favorites are stored locally (not in preset files) and persist across sessions. You can also **edit a preset's description** after saving it via the "Edit Description..." button in the picker.
@@ -409,14 +409,14 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (690 assertions across 5 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (710 assertions across 5 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-The project has 690 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 710 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 
