@@ -33,8 +33,7 @@ All notable changes to Scaffold are documented here.
 - **Search no-match label hard-coded red** — now uses Catppuccin error color in dark mode.
 - **Subcommand not colored in command preview** — subcommand tokens now render with a distinct bold color instead of generic value color.
 - **ANSI escape codes in output panel** — CLI tools emitting ANSI escape codes (e.g. color sequences) no longer appear as raw text; they are stripped before display.
-- **Documentation out of sync** — `password` type was missing from `schema.md` and `CLAUDE.md`. Six argument fields and the top-level `elevated` field were also undocumented. All now documented.
-- **CLAUDE.md type count** — listed 9 valid widget types; updated to 10 (adding `password`).
+- **Documentation out of sync** — `password` type and six argument fields were missing from `schema.md`. All now documented.
 - **Misleading comment** — reworded incorrect comment about `QTextDocument.find` case sensitivity.
 - **Scroll position on subcommand switch** — switching subcommands now resets scroll to top.
 - **Scroll area right margin** — removed unnecessary 8px right padding; `QScrollArea` handles scrollbar space internally.
