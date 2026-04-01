@@ -2,6 +2,22 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.9] — 2026-04-01
+
+### Added
+
+- **Copy As shell formats** — right-click the command preview area to copy the command formatted for Bash (`shlex.join`), PowerShell (single-quote quoting, `&` prefix for spaced binaries), or Windows CMD (double-quote quoting with special character handling). The existing Copy Command button and Ctrl+C shortcut remain unchanged.
+- **Ansible tool schemas (testing)** — added 4 new schemas in `tools/Ansible/`: `ansible`, `ansible-playbook`, `ansible-vault`, and `ansible-galaxy`. These are mostly untested and may not cover every flag or edge case — contributions and bug reports welcome.
+
+#### Full suite results
+
+- **All 5 test suites pass: 960/960 assertions, 0 failures**
+  - Functional: 766/766
+  - Smoke: 58/58
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.6.8] — 2026-04-01
 
 ### Added

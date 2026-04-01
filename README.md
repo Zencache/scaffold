@@ -32,7 +32,7 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **pip** — should come with Python; update it with `pip install --upgrade pip`
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with example schemas (nmap, ping, git, curl) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with example schemas (nmap, ping, git, curl, and ansible) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 
@@ -86,6 +86,8 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run Scaffold from a USB drive with fully isolated configuration
+- **Copy As shell formats** — right-click the command preview to copy the command formatted for Bash, PowerShell, or Windows CMD with shell-appropriate quoting. The existing Copy Command button remains unchanged
+- **Ansible schemas (testing)** — bundled schemas for `ansible`, `ansible-playbook`, `ansible-vault`, and `ansible-galaxy` in `tools/Ansible/`. These are mostly untested and may not cover every flag — contributions and bug reports welcome
 - **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
 
 ## Quick Start
@@ -110,7 +112,7 @@ The tool picker appears showing all `.json` schemas in the `tools/` folder. Doub
 - Watch the live command preview update
 - Click **Run** to execute (or **Ctrl+Enter**)
 - Click **Stop** to kill a running process (or **Escape**)
-- Click **Copy Command** to copy to clipboard
+- Click **Copy Command** to copy to clipboard (or right-click the preview for Bash/PowerShell/CMD formats)
 - Click **Copy Output** or **Save Output...** to capture command output
 
 > **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
