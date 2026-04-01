@@ -85,6 +85,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Session persistence** — remembers window size, position, theme, and last opened tool
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
+- **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run Scaffold from a USB drive with fully isolated configuration
 - **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
 
 ## Quick Start
@@ -444,6 +445,18 @@ python scaffold.py --validate tools/mytool.json
 # Print the LLM prompt for schema generation
 python scaffold.py --prompt
 ```
+
+## Portable Mode
+
+Scaffold can run fully self-contained from a USB drive or synced folder. To enable portable mode, create an empty file named `portable.txt` in the same directory as `scaffold.py`:
+
+```bash
+touch portable.txt
+```
+
+When portable mode is active, all settings (window size, theme, timeouts, favorites) are stored in `scaffold.ini` next to `scaffold.py` instead of the system registry (Windows) or config directory (Linux/macOS). Presets and tool schemas are already portable — they live in `presets/` and `tools/` next to the script.
+
+To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 
 ## Included Example Schemas
 

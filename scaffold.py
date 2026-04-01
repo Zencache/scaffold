@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.7"
+__version__ = "2.6.8"
 
 import datetime
 import hashlib
@@ -67,6 +67,8 @@ MULTI_ENUM_HEIGHT = 120
 # Default window dimensions
 DEFAULT_WINDOW_WIDTH = 700
 DEFAULT_WINDOW_HEIGHT = 750
+MIN_WINDOW_WIDTH = 420
+MIN_WINDOW_HEIGHT = 400
 
 # Output panel limits
 OUTPUT_MAX_BLOCKS = 10000       # Max lines kept in the output panel
@@ -2164,6 +2166,18 @@ def _monospace_font() -> QFont:
     return font
 
 
+def _create_settings() -> QSettings:
+    """Return a QSettings using local INI file (portable) or system registry (default).
+
+    If portable.txt or scaffold.ini exists next to this script, settings are stored
+    in scaffold.ini (INI format) for fully isolated portable operation.
+    """
+    script_dir = Path(__file__).parent
+    if (script_dir / "portable.txt").exists() or (script_dir / "scaffold.ini").exists():
+        return QSettings(str(script_dir / "scaffold.ini"), QSettings.Format.IniFormat)
+    return QSettings("Scaffold", "Scaffold")
+
+
 def _tools_dir() -> Path:
     """Return the tools/ directory next to this script, creating it if needed."""
     d = Path(__file__).parent / "tools"
@@ -2591,7 +2605,7 @@ class PresetPicker(QDialog):
 
     def _load_favorites(self) -> set[str]:
         """Read the favorites list for this tool from QSettings."""
-        settings = QSettings("Scaffold", "Scaffold")
+        settings = _create_settings()
         raw = settings.value(f"favorites/{self.tool_name}", "[]")
         try:
             names = json.loads(raw) if isinstance(raw, str) else raw
@@ -2603,7 +2617,7 @@ class PresetPicker(QDialog):
 
     def _save_favorites(self) -> None:
         """Write the favorites list for this tool to QSettings."""
-        settings = QSettings("Scaffold", "Scaffold")
+        settings = _create_settings()
         settings.setValue(
             f"favorites/{self.tool_name}",
             json.dumps(sorted(self._favorites)),
@@ -2954,13 +2968,13 @@ class MainWindow(QMainWindow):
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
-        self.settings = QSettings("Scaffold", "Scaffold")
+        self.settings = _create_settings()
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
         self._autosave_timer.timeout.connect(self._autosave_form)
 
         # Restore geometry
-        self.setMinimumSize(640, 400)
+        self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         geo = self.settings.value("window/geometry")
         if geo:
             self.restoreGeometry(geo)
@@ -4527,6 +4541,8 @@ def main() -> None:
             "  python scaffold.py --prompt               Print the LLM schema-generation prompt\n"
             "  python scaffold.py --version              Show version and exit\n"
             "  python scaffold.py --help                 Show this help and exit\n"
+            "\n"
+            "Portable mode:  Place portable.txt next to scaffold.py to store settings locally\n"
         )
         sys.exit(0)
 
@@ -4566,7 +4582,7 @@ def main() -> None:
     app = QApplication(sys.argv)
 
     # Apply theme from settings or system detection
-    settings = QSettings("Scaffold", "Scaffold")
+    settings = _create_settings()
     theme_pref = settings.value("appearance/theme", "system")
     if theme_pref == "dark":
         apply_theme(True)

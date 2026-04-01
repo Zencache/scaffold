@@ -5248,6 +5248,93 @@ _hist_dlg.deleteLater()
 app.processEvents()
 
 # =====================================================================
+# Section 50 — Portable Mode (_create_settings)
+# =====================================================================
+print("\n=== SECTION 50: Portable Mode (_create_settings) ===")
+
+from pathlib import Path as _Path50
+_script_dir_50 = _Path50(scaffold.__file__).parent
+_portable_txt_50 = _script_dir_50 / "portable.txt"
+_scaffold_ini_50 = _script_dir_50 / "scaffold.ini"
+
+# Ensure no portable files exist before starting
+for _p50 in (_portable_txt_50, _scaffold_ini_50):
+    if _p50.exists():
+        _p50.unlink()
+
+# 50a: _create_settings exists and is callable
+check(callable(getattr(scaffold, "_create_settings", None)),
+      "50a: _create_settings exists and is callable")
+
+# 50b: Without portable files, returns native format QSettings
+_s50_native = scaffold._create_settings()
+check(_s50_native.format() != scaffold.QSettings.Format.IniFormat,
+      "50b: without portable files, settings use native format")
+
+try:
+    # 50c: With portable.txt present, returns IniFormat QSettings
+    _portable_txt_50.write_text("This file enables portable mode.\n")
+    _s50_portable = scaffold._create_settings()
+    check(_s50_portable.format() == scaffold.QSettings.Format.IniFormat,
+          "50c: with portable.txt, settings use IniFormat")
+    _portable_txt_50.unlink()
+
+    # 50d: With scaffold.ini present, returns IniFormat QSettings
+    _scaffold_ini_50.write_text("[General]\n")
+    _s50_ini = scaffold._create_settings()
+    check(_s50_ini.format() == scaffold.QSettings.Format.IniFormat,
+          "50d: with scaffold.ini, settings use IniFormat")
+
+    # 50e: INI-format QSettings can store and retrieve a string value
+    _s50_ini.setValue("_test_portable/strval", "hello_portable")
+    _s50_ini.sync()
+    check(_s50_ini.value("_test_portable/strval") == "hello_portable",
+          "50e: INI settings store and retrieve string value")
+
+    # 50f: INI-format QSettings can store and retrieve an integer value
+    _s50_ini.setValue("_test_portable/intval", 42)
+    _s50_ini.sync()
+    _s50_int_back = _s50_ini.value("_test_portable/intval")
+    check(int(_s50_int_back) == 42,
+          "50f: INI settings store and retrieve integer value")
+
+    # 50g: After storing a value, scaffold.ini file exists on disk
+    check(_scaffold_ini_50.exists(),
+          "50g: scaffold.ini file exists on disk after storing values")
+
+    # 50h: The INI file is in the same directory as scaffold.py
+    check(_scaffold_ini_50.parent == _Path50(scaffold.__file__).parent,
+          "50h: INI file is in the same directory as scaffold.py")
+
+    # 50i: Multiple _create_settings() instances share the same storage
+    _s50_second = scaffold._create_settings()
+    check(_s50_second.value("_test_portable/strval") == "hello_portable",
+          "50i: second _create_settings() instance reads same storage")
+
+    # 50j: INI path is absolute
+    check(_Path50(_s50_ini.fileName()).is_absolute(),
+          "50j: INI settings file path is absolute")
+
+    # 50k: Back to native format after removing portable files
+    _scaffold_ini_50.unlink()
+    _s50_back = scaffold._create_settings()
+    check(_s50_back.format() != scaffold.QSettings.Format.IniFormat,
+          "50k: after removing scaffold.ini, settings return to native format")
+
+    # 50l: Both portable.txt and scaffold.ini present — still uses IniFormat
+    _portable_txt_50.write_text("portable\n")
+    _scaffold_ini_50.write_text("[General]\n")
+    _s50_both = scaffold._create_settings()
+    check(_s50_both.format() == scaffold.QSettings.Format.IniFormat,
+          "50l: with both portable.txt and scaffold.ini, settings use IniFormat")
+
+finally:
+    # CRITICAL: Clean up portable files so subsequent runs aren't affected
+    for _p50 in (_portable_txt_50, _scaffold_ini_50):
+        if _p50.exists():
+            _p50.unlink()
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

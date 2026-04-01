@@ -2,6 +2,26 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.8] — 2026-04-01
+
+### Added
+
+- **Portable mode** — if `portable.txt` or `scaffold.ini` exists next to `scaffold.py`, all settings are stored in a local `scaffold.ini` (INI format) instead of the system registry/plist. This lets users run Scaffold from a USB drive with fully isolated configuration. No UI changes; portable mode is detected automatically at startup from file existence.
+- **Portable mode documentation** — `--help` output now mentions portable mode; README includes a new "Portable Mode" section with setup instructions.
+
+### Fixed
+
+- **Reduced minimum window width** — minimum width lowered from 640px to 420px, allowing narrower window arrangements on small monitors or side-by-side layouts.
+
+#### Full suite results
+
+- **All 5 test suites pass: 936/936 assertions, 0 failures**
+  - Functional: 742/742
+  - Smoke: 58/58
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.6.7] — 2026-04-01
 
 ### Added
