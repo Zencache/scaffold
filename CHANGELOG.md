@@ -2,6 +2,31 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.5] — 2026-03-31
+
+### Added
+
+- **Format markers (`_format`)** — tool schemas and presets now include a `_format` metadata key (`"scaffold_schema"` and `"scaffold_preset"` respectively) to prevent cross-loading. Three-tier enforcement:
+  - Correct `_format` → loads silently
+  - Missing `_format` on tool schemas → warning dialog with "Load Anyway" / "Cancel" (presets with missing `_format` load silently for backwards compatibility)
+  - Wrong `_format` → hard reject with clear error message explaining what the file appears to be
+- **Example schema (`tools/example.json`)** — bundled reference schema demonstrating every Scaffold feature (all 10 widget types, subcommands, display groups, dependencies, mutual exclusivity, min/max, deprecated, dangerous, examples, validation, and more). Use it as a starting point when building schemas for your own tools.
+- New presets automatically include `_format: scaffold_preset` as the first key. Existing presets without the marker continue to load fine.
+- All 10 bundled tool schemas updated with `_format: scaffold_schema` as the first key.
+- `PROMPT.txt` and `schema.md` updated to include `_format` in the schema specification and examples.
+
+#### Full suite results
+
+- **All 5 test suites pass: 825/825 assertions, 0 failures**
+  - Functional: 631/631
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 58/58
+  - Preset Validation: 23/23
+- All 10 tool schemas validate with zero errors
+
+---
+
 ## [v2.6.4] — 2026-03-31
 
 ### Added

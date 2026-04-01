@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "git",
   "binary": "git",
   "description": "Distributed version control system.",
@@ -40,7 +41,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["main", "develop", "master"]
+          "examples": [
+            "main",
+            "develop",
+            "master"
+          ]
         },
         {
           "name": "Single Branch",
@@ -142,7 +147,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["origin", "upstream"]
+          "examples": [
+            "origin",
+            "upstream"
+          ]
         },
         {
           "name": "Shallow Since",
@@ -159,7 +167,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["2024-01-01", "1 year ago", "6 months ago"]
+          "examples": [
+            "2024-01-01",
+            "1 year ago",
+            "6 months ago"
+          ]
         },
         {
           "name": "Jobs",
@@ -193,7 +205,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["blob:none", "blob:limit=1m", "tree:0"]
+          "examples": [
+            "blob:none",
+            "blob:limit=1m",
+            "tree:0"
+          ]
         },
         {
           "name": "Sparse",
@@ -244,7 +260,10 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["https://github.com/user/repo.git", "git@github.com:user/repo.git"]
+          "examples": [
+            "https://github.com/user/repo.git",
+            "git@github.com:user/repo.git"
+          ]
         },
         {
           "name": "Directory",
@@ -284,7 +303,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["Initial commit", "Fix bug in authentication", "Add unit tests"]
+          "examples": [
+            "Initial commit",
+            "Fix bug in authentication",
+            "Add unit tests"
+          ]
         },
         {
           "name": "All",
@@ -335,7 +358,9 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["A U Thor <author@example.com>"]
+          "examples": [
+            "A U Thor <author@example.com>"
+          ]
         },
         {
           "name": "Date",
@@ -352,7 +377,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["2024-01-15T10:30:00", "yesterday", "2 hours ago"]
+          "examples": [
+            "2024-01-15T10:30:00",
+            "yesterday",
+            "2 hours ago"
+          ]
         },
         {
           "name": "Sign Off",
@@ -420,7 +449,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["HEAD", "abc1234", "amend:HEAD"]
+          "examples": [
+            "HEAD",
+            "abc1234",
+            "amend:HEAD"
+          ]
         },
         {
           "name": "Squash",
@@ -437,7 +470,10 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["HEAD", "abc1234"]
+          "examples": [
+            "HEAD",
+            "abc1234"
+          ]
         },
         {
           "name": "GPG Sign",
@@ -566,7 +602,13 @@
           "description": "Determine how the commit message is cleaned up before committing",
           "required": false,
           "default": "strip",
-          "choices": ["strip", "whitespace", "verbatim", "scissors", "default"],
+          "choices": [
+            "strip",
+            "whitespace",
+            "verbatim",
+            "scissors",
+            "default"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -647,7 +689,19 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["oneline", "short", "medium", "full", "fuller", "reference", "email", "raw", "format:%H %s", "format:%h %an %s", "format:%C(auto)%h%d %s %C(dim)(%cr)"]
+          "examples": [
+            "oneline",
+            "short",
+            "medium",
+            "full",
+            "fuller",
+            "reference",
+            "email",
+            "raw",
+            "format:%H %s",
+            "format:%h %an %s",
+            "format:%C(auto)%h%d %s %C(dim)(%cr)"
+          ]
         },
         {
           "name": "All Branches",
@@ -732,7 +786,10 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["John", "jane@example.com"]
+          "examples": [
+            "John",
+            "jane@example.com"
+          ]
         },
         {
           "name": "Grep",
@@ -749,7 +806,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["bugfix", "feat:", "BREAKING CHANGE"]
+          "examples": [
+            "bugfix",
+            "feat:",
+            "BREAKING CHANGE"
+          ]
         },
         {
           "name": "Since",
@@ -766,7 +827,12 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["2024-01-01", "1 week ago", "yesterday", "3 months ago"]
+          "examples": [
+            "2024-01-01",
+            "1 week ago",
+            "yesterday",
+            "3 months ago"
+          ]
         },
         {
           "name": "Until",
@@ -783,7 +849,11 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["2024-12-31", "1 week ago", "yesterday"]
+          "examples": [
+            "2024-12-31",
+            "1 week ago",
+            "yesterday"
+          ]
         },
         {
           "name": "Date Format",
@@ -800,7 +870,15 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["relative", "local", "iso", "short", "human", "unix", "format:%Y-%m-%d"]
+          "examples": [
+            "relative",
+            "local",
+            "iso",
+            "short",
+            "human",
+            "unix",
+            "format:%Y-%m-%d"
+          ]
         },
         {
           "name": "Decorate",
@@ -817,7 +895,12 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["short", "full", "auto", "no"]
+          "examples": [
+            "short",
+            "full",
+            "auto",
+            "no"
+          ]
         },
         {
           "name": "No Merges",
@@ -902,7 +985,13 @@
           "separator": "equals",
           "positional": false,
           "validation": "^[ACDMRTUXB*]+$",
-          "examples": ["A", "M", "D", "AM", "ACDMRT"]
+          "examples": [
+            "A",
+            "M",
+            "D",
+            "AM",
+            "ACDMRT"
+          ]
         },
         {
           "name": "Reverse",
@@ -970,7 +1059,11 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["src/", "README.md", "*.py"]
+          "examples": [
+            "src/",
+            "README.md",
+            "*.py"
+          ]
         }
       ]
     },
@@ -1180,7 +1273,10 @@
           "separator": "equals",
           "positional": false,
           "validation": null,
-          "examples": ["merge_request.create", "ci.skip"]
+          "examples": [
+            "merge_request.create",
+            "ci.skip"
+          ]
         },
         {
           "name": "Recurse Submodules",
@@ -1190,7 +1286,12 @@
           "description": "Control recursive pushing of submodules",
           "required": false,
           "default": null,
-          "choices": ["check", "on-demand", "only", "no"],
+          "choices": [
+            "check",
+            "on-demand",
+            "only",
+            "no"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1248,7 +1349,10 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["origin", "upstream"]
+          "examples": [
+            "origin",
+            "upstream"
+          ]
         },
         {
           "name": "Refspec",
@@ -1265,7 +1369,12 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["main", "develop", "HEAD:refs/heads/main", "feature-branch"]
+          "examples": [
+            "main",
+            "develop",
+            "HEAD:refs/heads/main",
+            "feature-branch"
+          ]
         }
       ]
     }

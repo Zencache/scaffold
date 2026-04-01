@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "OpenClaw",
   "binary": "openclaw",
   "description": "AI agent platform with gateway, channels, models, browser automation, and node management.",
@@ -67,7 +68,10 @@
           "description": "Onboard mode.",
           "required": false,
           "default": null,
-          "choices": ["local", "remote"],
+          "choices": [
+            "local",
+            "remote"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -158,7 +162,11 @@
           "description": "Scope of reset (default config+creds+sessions).",
           "required": false,
           "default": "config+creds+sessions",
-          "choices": ["config", "config+creds+sessions", "full"],
+          "choices": [
+            "config",
+            "config+creds+sessions",
+            "full"
+          ],
           "group": null,
           "depends_on": "--reset",
           "repeatable": false,
@@ -192,7 +200,10 @@
           "description": "Onboard mode.",
           "required": false,
           "default": null,
-          "choices": ["local", "remote"],
+          "choices": [
+            "local",
+            "remote"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -209,7 +220,11 @@
           "description": "Onboarding flow type (manual is alias for advanced).",
           "required": false,
           "default": null,
-          "choices": ["quickstart", "advanced", "manual"],
+          "choices": [
+            "quickstart",
+            "advanced",
+            "manual"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -226,7 +241,31 @@
           "description": "Authentication provider choice.",
           "required": false,
           "default": null,
-          "choices": ["setup-token", "token", "chutes", "openai-codex", "openai-api-key", "openrouter-api-key", "ollama", "ai-gateway-api-key", "moonshot-api-key", "moonshot-api-key-cn", "kimi-code-api-key", "synthetic-api-key", "venice-api-key", "gemini-api-key", "zai-api-key", "mistral-api-key", "apiKey", "minimax-api", "minimax-api-lightning", "opencode-zen", "opencode-go", "custom-api-key", "skip"],
+          "choices": [
+            "setup-token",
+            "token",
+            "chutes",
+            "openai-codex",
+            "openai-api-key",
+            "openrouter-api-key",
+            "ollama",
+            "ai-gateway-api-key",
+            "moonshot-api-key",
+            "moonshot-api-key-cn",
+            "kimi-code-api-key",
+            "synthetic-api-key",
+            "venice-api-key",
+            "gemini-api-key",
+            "zai-api-key",
+            "mistral-api-key",
+            "apiKey",
+            "minimax-api",
+            "minimax-api-lightning",
+            "opencode-zen",
+            "opencode-go",
+            "custom-api-key",
+            "skip"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -284,7 +323,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["365d", "12h", "30d"]
+          "examples": [
+            "365d",
+            "12h",
+            "30d"
+          ]
         },
         {
           "name": "Secret Input Mode",
@@ -294,7 +337,10 @@
           "description": "How secrets are stored (default plaintext).",
           "required": false,
           "default": "plaintext",
-          "choices": ["plaintext", "ref"],
+          "choices": [
+            "plaintext",
+            "ref"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -328,7 +374,13 @@
           "description": "Gateway bind mode.",
           "required": false,
           "default": null,
-          "choices": ["loopback", "lan", "tailnet", "auto", "custom"],
+          "choices": [
+            "loopback",
+            "lan",
+            "tailnet",
+            "auto",
+            "custom"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -345,7 +397,10 @@
           "description": "Gateway authentication method.",
           "required": false,
           "default": null,
-          "choices": ["token", "password"],
+          "choices": [
+            "token",
+            "password"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -430,7 +485,11 @@
           "description": "Tailscale integration mode.",
           "required": false,
           "default": null,
-          "choices": ["off", "serve", "funnel"],
+          "choices": [
+            "off",
+            "serve",
+            "funnel"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -498,7 +557,10 @@
           "description": "Daemon runtime engine.",
           "required": false,
           "default": null,
-          "choices": ["node", "bun"],
+          "choices": [
+            "node",
+            "bun"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -583,7 +645,11 @@
           "description": "Package manager (pnpm recommended; bun not recommended for Gateway runtime).",
           "required": false,
           "default": null,
-          "choices": ["npm", "pnpm", "bun"],
+          "choices": [
+            "npm",
+            "pnpm",
+            "bun"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -963,7 +1029,13 @@
           "description": "Bind mode for the gateway.",
           "required": false,
           "default": null,
-          "choices": ["loopback", "tailnet", "lan", "auto", "custom"],
+          "choices": [
+            "loopback",
+            "tailnet",
+            "lan",
+            "auto",
+            "custom"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -997,7 +1069,10 @@
           "description": "Authentication method.",
           "required": false,
           "default": null,
-          "choices": ["token", "password"],
+          "choices": [
+            "token",
+            "password"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1048,7 +1123,11 @@
           "description": "Tailscale integration mode.",
           "required": false,
           "default": null,
-          "choices": ["off", "serve", "funnel"],
+          "choices": [
+            "off",
+            "serve",
+            "funnel"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1184,7 +1263,11 @@
           "description": "WebSocket log format.",
           "required": false,
           "default": null,
-          "choices": ["auto", "full", "compact"],
+          "choices": [
+            "auto",
+            "full",
+            "compact"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1366,7 +1449,14 @@
           "description": "Thinking level (GPT-5.2 + Codex models only).",
           "required": false,
           "default": null,
-          "choices": ["off", "minimal", "low", "medium", "high", "xhigh"],
+          "choices": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1383,7 +1473,11 @@
           "description": "Verbose output level.",
           "required": false,
           "default": null,
-          "choices": ["on", "full", "off"],
+          "choices": [
+            "on",
+            "full",
+            "off"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1400,7 +1494,16 @@
           "description": "Target channel.",
           "required": false,
           "default": null,
-          "choices": ["whatsapp", "telegram", "discord", "slack", "mattermost", "signal", "imessage", "msteams"],
+          "choices": [
+            "whatsapp",
+            "telegram",
+            "discord",
+            "slack",
+            "mattermost",
+            "signal",
+            "imessage",
+            "msteams"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1498,7 +1601,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["+15555550123", "channel:123456"]
+          "examples": [
+            "+15555550123",
+            "channel:123456"
+          ]
         },
         {
           "name": "Message",
@@ -1594,7 +1700,17 @@
           "description": "Channel type.",
           "required": false,
           "default": null,
-          "choices": ["whatsapp", "telegram", "discord", "googlechat", "slack", "mattermost", "signal", "imessage", "msteams"],
+          "choices": [
+            "whatsapp",
+            "telegram",
+            "discord",
+            "googlechat",
+            "slack",
+            "mattermost",
+            "signal",
+            "imessage",
+            "msteams"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1618,7 +1734,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["default", "alerts", "work"]
+          "examples": [
+            "default",
+            "alerts",
+            "work"
+          ]
         },
         {
           "name": "Name",
@@ -1635,7 +1755,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["Alerts Bot", "Work Bot"]
+          "examples": [
+            "Alerts Bot",
+            "Work Bot"
+          ]
         },
         {
           "name": "Token",
@@ -1668,7 +1791,17 @@
           "description": "Channel type.",
           "required": false,
           "default": null,
-          "choices": ["whatsapp", "telegram", "discord", "googlechat", "slack", "mattermost", "signal", "imessage", "msteams"],
+          "choices": [
+            "whatsapp",
+            "telegram",
+            "discord",
+            "googlechat",
+            "slack",
+            "mattermost",
+            "signal",
+            "imessage",
+            "msteams"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -1732,7 +1865,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["whatsapp", "web"]
+          "examples": [
+            "whatsapp",
+            "web"
+          ]
         },
         {
           "name": "Account",
@@ -1789,7 +1925,12 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["whatsapp", "telegram", "discord", "all"]
+          "examples": [
+            "whatsapp",
+            "telegram",
+            "discord",
+            "all"
+          ]
         },
         {
           "name": "Lines",
@@ -1880,7 +2021,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["anthropic", "openai", "ollama"]
+          "examples": [
+            "anthropic",
+            "openai",
+            "ollama"
+          ]
         },
         {
           "name": "JSON Output",
@@ -2005,7 +2150,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["anthropic", "openai"]
+          "examples": [
+            "anthropic",
+            "openai"
+          ]
         },
         {
           "name": "Probe Timeout",
@@ -2045,7 +2193,11 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["claude-sonnet-4-20250514", "gpt-4o", "gemini-2.0-flash"]
+          "examples": [
+            "claude-sonnet-4-20250514",
+            "gpt-4o",
+            "gemini-2.0-flash"
+          ]
         }
       ]
     },
@@ -2102,7 +2254,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["anthropic", "openai", "ollama"]
+          "examples": [
+            "anthropic",
+            "openai",
+            "ollama"
+          ]
         },
         {
           "name": "No Probe",
@@ -2361,7 +2517,11 @@
           "description": "Scope of the reset.",
           "required": false,
           "default": null,
-          "choices": ["config", "config+creds+sessions", "full"],
+          "choices": [
+            "config",
+            "config+creds+sessions",
+            "full"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -2901,7 +3061,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["5m", "1h", "24h"]
+          "examples": [
+            "5m",
+            "1h",
+            "24h"
+          ]
         },
         {
           "name": "Cron",
@@ -2918,7 +3082,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["0 9 * * *", "*/30 * * * *"]
+          "examples": [
+            "0 9 * * *",
+            "*/30 * * * *"
+          ]
         },
         {
           "name": "System Event",
@@ -3219,7 +3386,10 @@
           "description": "Runtime engine.",
           "required": false,
           "default": null,
-          "choices": ["node", "bun"],
+          "choices": [
+            "node",
+            "bun"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -3361,7 +3531,10 @@
           "description": "Screenshot image format.",
           "required": false,
           "default": null,
-          "choices": ["png", "jpeg"],
+          "choices": [
+            "png",
+            "jpeg"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -3425,7 +3598,9 @@
           "separator": "space",
           "positional": true,
           "validation": null,
-          "examples": ["https://example.com"]
+          "examples": [
+            "https://example.com"
+          ]
         }
       ]
     },
@@ -3549,7 +3724,14 @@
           "description": "Thinking level.",
           "required": false,
           "default": null,
-          "choices": ["off", "minimal", "low", "medium", "high", "xhigh"],
+          "choices": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,
@@ -3704,7 +3886,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["whatsapp", "telegram:alerts", "discord:work"]
+          "examples": [
+            "whatsapp",
+            "telegram:alerts",
+            "discord:work"
+          ]
         },
         {
           "name": "Non-Interactive",
@@ -3916,7 +4102,10 @@
           "description": "Event delivery mode.",
           "required": false,
           "default": null,
-          "choices": ["now", "next-heartbeat"],
+          "choices": [
+            "now",
+            "next-heartbeat"
+          ],
           "group": null,
           "depends_on": null,
           "repeatable": false,

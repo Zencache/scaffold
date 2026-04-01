@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "ping",
   "binary": "ping",
   "description": "Send ICMP echo requests to verify IP-level connectivity to a network host.",
@@ -326,7 +327,13 @@
       "separator": "space",
       "positional": true,
       "validation": null,
-      "examples": ["8.8.8.8", "1.1.1.1", "google.com", "localhost", "192.168.1.1"]
+      "examples": [
+        "8.8.8.8",
+        "1.1.1.1",
+        "google.com",
+        "localhost",
+        "192.168.1.1"
+      ]
     }
   ]
 }

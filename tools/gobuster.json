@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "Gobuster",
   "binary": "gobuster",
   "description": "Directory/file, DNS subdomain, virtual host, and bucket brute-forcing tool written in Go.",
@@ -23,7 +24,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["http://example.com", "https://target.local"]
+          "examples": [
+            "http://example.com",
+            "https://target.local"
+          ]
         },
         {
           "name": "Cookies",
@@ -40,7 +44,9 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["session=abc123"]
+          "examples": [
+            "session=abc123"
+          ]
         },
         {
           "name": "Extensions",
@@ -57,7 +63,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["php,html,txt", "asp,aspx,jsp"]
+          "examples": [
+            "php,html,txt",
+            "asp,aspx,jsp"
+          ]
         },
         {
           "name": "Extensions File",
@@ -91,7 +100,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["200,301,302", "200,204,301,302,307,401,403,500"]
+          "examples": [
+            "200,301,302",
+            "200,204,301,302,307,401,403,500"
+          ]
         },
         {
           "name": "Status Codes Blacklist",
@@ -108,7 +120,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["404", "404,403,500"]
+          "examples": [
+            "404",
+            "404,403,500"
+          ]
         },
         {
           "name": "Follow Redirect",
@@ -142,7 +157,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["Authorization: Bearer token", "X-Custom-Header: value"]
+          "examples": [
+            "Authorization: Bearer token",
+            "X-Custom-Header: value"
+          ]
         },
         {
           "name": "No Canonicalize Headers",
@@ -176,7 +194,12 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["GET", "POST", "HEAD", "PUT"]
+          "examples": [
+            "GET",
+            "POST",
+            "HEAD",
+            "PUT"
+          ]
         },
         {
           "name": "User Agent",
@@ -227,7 +250,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["http://127.0.0.1:8080", "socks5://127.0.0.1:1080"]
+          "examples": [
+            "http://127.0.0.1:8080",
+            "socks5://127.0.0.1:1080"
+          ]
         },
         {
           "name": "Timeout",
@@ -244,7 +270,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["10s", "30s", "1m"]
+          "examples": [
+            "10s",
+            "30s",
+            "1m"
+          ]
         },
         {
           "name": "No TLS Validation",
@@ -397,7 +427,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["0", "19,39", "250-320"]
+          "examples": [
+            "0",
+            "19,39",
+            "250-320"
+          ]
         },
         {
           "name": "Force",
@@ -539,7 +573,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["example.com", "target.local"]
+          "examples": [
+            "example.com",
+            "target.local"
+          ]
         },
         {
           "name": "Resolver",
@@ -556,7 +593,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["8.8.8.8", "8.8.8.8:53"]
+          "examples": [
+            "8.8.8.8",
+            "8.8.8.8:53"
+          ]
         },
         {
           "name": "Show CNAME",
@@ -607,7 +647,11 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["1s", "5s", "10s"]
+          "examples": [
+            "1s",
+            "5s",
+            "10s"
+          ]
         },
         {
           "name": "Wildcard",
@@ -664,7 +708,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["http://example.com", "http://10.10.10.10"]
+          "examples": [
+            "http://example.com",
+            "http://10.10.10.10"
+          ]
         },
         {
           "name": "Append Domain",
@@ -698,7 +745,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["example.com", "target.thm"]
+          "examples": [
+            "example.com",
+            "target.thm"
+          ]
         },
         {
           "name": "Cookies",
@@ -749,7 +799,9 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["Authorization: Bearer token"]
+          "examples": [
+            "Authorization: Bearer token"
+          ]
         },
         {
           "name": "HTTP Method",
@@ -902,7 +954,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["250-320", "0"]
+          "examples": [
+            "250-320",
+            "0"
+          ]
         },
         {
           "name": "Status Codes",
@@ -1010,7 +1065,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["http://example.com/FUZZ", "http://example.com/api/FUZZ"]
+          "examples": [
+            "http://example.com/FUZZ",
+            "http://example.com/api/FUZZ"
+          ]
         },
         {
           "name": "Request Body",
@@ -1027,7 +1085,9 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["username=admin&password=FUZZ"]
+          "examples": [
+            "username=admin&password=FUZZ"
+          ]
         },
         {
           "name": "Cookies",
@@ -1078,7 +1138,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["GET", "POST"]
+          "examples": [
+            "GET",
+            "POST"
+          ]
         },
         {
           "name": "Follow Redirect",
@@ -1231,7 +1294,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["19,39", "250-320"]
+          "examples": [
+            "19,39",
+            "250-320"
+          ]
         },
         {
           "name": "Retry",
@@ -1572,7 +1638,10 @@
           "separator": "space",
           "positional": false,
           "validation": null,
-          "examples": ["tftp.example.com", "10.10.10.10"]
+          "examples": [
+            "tftp.example.com",
+            "10.10.10.10"
+          ]
         },
         {
           "name": "Timeout",
@@ -1695,7 +1764,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["100ms", "1s", "1500ms"]
+      "examples": [
+        "100ms",
+        "1s",
+        "1500ms"
+      ]
     },
     {
       "name": "Quiet",

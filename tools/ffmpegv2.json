@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "FFmpeg",
   "binary": "ffmpeg",
   "description": "Universal media converter for reading, filtering, and transcoding audio/video streams",
@@ -20,7 +21,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["input.mp4", "input.mkv", "input.avi", "pipe:0", "rtmp://server/live/stream"]
+      "examples": [
+        "input.mp4",
+        "input.mkv",
+        "input.avi",
+        "pipe:0",
+        "rtmp://server/live/stream"
+      ]
     },
     {
       "name": "Output file URL",
@@ -37,7 +44,12 @@
       "separator": "space",
       "positional": true,
       "validation": null,
-      "examples": ["output.mp4", "output.mkv", "output.avi", "pipe:1"]
+      "examples": [
+        "output.mp4",
+        "output.mkv",
+        "output.avi",
+        "pipe:1"
+      ]
     },
     {
       "name": "Force format",
@@ -54,7 +66,19 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["mp4", "mkv", "avi", "flv", "mpegts", "rawvideo", "image2", "null", "dvd", "svcd", "vcd"]
+      "examples": [
+        "mp4",
+        "mkv",
+        "avi",
+        "flv",
+        "mpegts",
+        "rawvideo",
+        "image2",
+        "null",
+        "dvd",
+        "svcd",
+        "vcd"
+      ]
     },
     {
       "name": "Codec",
@@ -71,7 +95,17 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["copy", "libx264", "libx265", "libvpx-vp9", "aac", "libmp3lame", "libopus", "mpeg4", "h264_nvenc"]
+      "examples": [
+        "copy",
+        "libx264",
+        "libx265",
+        "libvpx-vp9",
+        "aac",
+        "libmp3lame",
+        "libopus",
+        "mpeg4",
+        "h264_nvenc"
+      ]
     },
     {
       "name": "Video codec",
@@ -88,7 +122,15 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["libx264", "libx265", "libvpx-vp9", "mpeg4", "h264_nvenc", "hevc_nvenc", "copy"]
+      "examples": [
+        "libx264",
+        "libx265",
+        "libvpx-vp9",
+        "mpeg4",
+        "h264_nvenc",
+        "hevc_nvenc",
+        "copy"
+      ]
     },
     {
       "name": "Audio codec",
@@ -105,7 +147,15 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["aac", "libmp3lame", "libopus", "libvorbis", "ac3", "copy", "pcm_s16le"]
+      "examples": [
+        "aac",
+        "libmp3lame",
+        "libopus",
+        "libvorbis",
+        "ac3",
+        "copy",
+        "pcm_s16le"
+      ]
     },
     {
       "name": "Subtitle codec",
@@ -122,7 +172,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["srt", "ass", "dvdsub", "mov_text", "copy"]
+      "examples": [
+        "srt",
+        "ass",
+        "dvdsub",
+        "mov_text",
+        "copy"
+      ]
     },
     {
       "name": "Map streams",
@@ -139,7 +195,17 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["0", "0:v", "0:a", "0:s", "0:v:0", "0:a:0", "1:0", "-0:a:1", "0:v -map 0:a?"]
+      "examples": [
+        "0",
+        "0:v",
+        "0:a",
+        "0:s",
+        "0:v:0",
+        "0:a:0",
+        "1:0",
+        "-0:a:1",
+        "0:v -map 0:a?"
+      ]
     },
     {
       "name": "Duration",
@@ -156,7 +222,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["10", "00:01:30", "60.5"]
+      "examples": [
+        "10",
+        "00:01:30",
+        "60.5"
+      ]
     },
     {
       "name": "Stop at position",
@@ -173,7 +243,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["00:01:30", "90", "01:00:00"]
+      "examples": [
+        "00:01:30",
+        "90",
+        "01:00:00"
+      ]
     },
     {
       "name": "Seek position",
@@ -190,7 +264,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["00:01:00", "30", "01:30:00.500"]
+      "examples": [
+        "00:01:00",
+        "30",
+        "01:30:00.500"
+      ]
     },
     {
       "name": "Seek from EOF",
@@ -207,7 +285,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["-60", "-00:01:00"]
+      "examples": [
+        "-60",
+        "-00:01:00"
+      ]
     },
     {
       "name": "File size limit",
@@ -224,7 +305,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["10M", "1G", "500K"]
+      "examples": [
+        "10M",
+        "1G",
+        "500K"
+      ]
     },
     {
       "name": "Video filter",
@@ -241,7 +326,14 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["scale=1280:720", "yadif,scale=1920:1080", "transpose=1", "crop=640:480:0:0", "setpts=0.5*PTS", "hue=s=0"]
+      "examples": [
+        "scale=1280:720",
+        "yadif,scale=1920:1080",
+        "transpose=1",
+        "crop=640:480:0:0",
+        "setpts=0.5*PTS",
+        "hue=s=0"
+      ]
     },
     {
       "name": "Audio filter",
@@ -258,7 +350,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["aresample=44100", "volume=1.5", "atempo=2.0", "loudnorm", "aecho=0.8:0.9:1000:0.3"]
+      "examples": [
+        "aresample=44100",
+        "volume=1.5",
+        "atempo=2.0",
+        "loudnorm",
+        "aecho=0.8:0.9:1000:0.3"
+      ]
     },
     {
       "name": "Complex filtergraph",
@@ -275,7 +373,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["[0:v][1:v]overlay[out]", "[0:v]scale=1920:1080,split=2[out1][out2]", "overlay", "[0:a][1:a]amix=inputs=2[out]"]
+      "examples": [
+        "[0:v][1:v]overlay[out]",
+        "[0:v]scale=1920:1080,split=2[out1][out2]",
+        "overlay",
+        "[0:a][1:a]amix=inputs=2[out]"
+      ]
     },
     {
       "name": "Video bitrate",
@@ -292,7 +395,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["1M", "2M", "4000k", "6000k", "8M"]
+      "examples": [
+        "1M",
+        "2M",
+        "4000k",
+        "6000k",
+        "8M"
+      ]
     },
     {
       "name": "Audio bitrate",
@@ -309,7 +418,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["128k", "192k", "256k", "320k", "64k"]
+      "examples": [
+        "128k",
+        "192k",
+        "256k",
+        "320k",
+        "64k"
+      ]
     },
     {
       "name": "Frame rate",
@@ -326,7 +441,15 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["24", "25", "30", "29.97", "60", "30000/1001", "24000/1001"]
+      "examples": [
+        "24",
+        "25",
+        "30",
+        "29.97",
+        "60",
+        "30000/1001",
+        "24000/1001"
+      ]
     },
     {
       "name": "Frame size",
@@ -343,7 +466,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["1920x1080", "1280x720", "640x480", "3840x2160", "352x288"]
+      "examples": [
+        "1920x1080",
+        "1280x720",
+        "640x480",
+        "3840x2160",
+        "352x288"
+      ]
     },
     {
       "name": "Aspect ratio",
@@ -360,7 +489,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["16:9", "4:3", "1.7777", "1.3333"]
+      "examples": [
+        "16:9",
+        "4:3",
+        "1.7777",
+        "1.3333"
+      ]
     },
     {
       "name": "Pixel format",
@@ -377,7 +511,14 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["yuv420p", "yuv422p", "yuv444p", "rgb24", "nv12", "yuv420p10le"]
+      "examples": [
+        "yuv420p",
+        "yuv422p",
+        "yuv444p",
+        "rgb24",
+        "nv12",
+        "yuv420p10le"
+      ]
     },
     {
       "name": "Audio sample rate",
@@ -428,7 +569,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["s16", "s32", "flt", "fltp", "s16p"]
+      "examples": [
+        "s16",
+        "s32",
+        "flt",
+        "fltp",
+        "s16p"
+      ]
     },
     {
       "name": "Channel layout",
@@ -445,7 +592,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["stereo", "mono", "5.1", "5.1(side)", "7.1"]
+      "examples": [
+        "stereo",
+        "mono",
+        "5.1",
+        "5.1(side)",
+        "7.1"
+      ]
     },
     {
       "name": "Disable video",
@@ -581,7 +734,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["title=\"My Title\"", "artist=\"Artist Name\"", "comment=\"A comment\""]
+      "examples": [
+        "title=\"My Title\"",
+        "artist=\"Artist Name\"",
+        "comment=\"A comment\""
+      ]
     },
     {
       "name": "Disposition",
@@ -598,7 +755,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["default", "0", "+original-comment", "attached_pic"]
+      "examples": [
+        "default",
+        "0",
+        "+original-comment",
+        "attached_pic"
+      ]
     },
     {
       "name": "Target type",
@@ -615,7 +777,16 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["vcd", "svcd", "dvd", "dv", "dv50", "pal-dvd", "ntsc-dvd", "film-dvd"]
+      "examples": [
+        "vcd",
+        "svcd",
+        "dvd",
+        "dv",
+        "dv50",
+        "pal-dvd",
+        "ntsc-dvd",
+        "film-dvd"
+      ]
     },
     {
       "name": "Frames to output",
@@ -649,7 +820,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["2", "4", "10", "31"]
+      "examples": [
+        "2",
+        "4",
+        "10",
+        "31"
+      ]
     },
     {
       "name": "Encoding pass",
@@ -659,7 +835,10 @@
       "description": "Select the pass number for two-pass video encoding",
       "required": false,
       "default": null,
-      "choices": ["1", "2"],
+      "choices": [
+        "1",
+        "2"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -700,7 +879,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["30", "60", "24"]
+      "examples": [
+        "30",
+        "60",
+        "24"
+      ]
     },
     {
       "name": "Display rotation",
@@ -802,7 +985,18 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace", "repeat+level+verbose"]
+      "examples": [
+        "quiet",
+        "panic",
+        "fatal",
+        "error",
+        "warning",
+        "info",
+        "verbose",
+        "debug",
+        "trace",
+        "repeat+level+verbose"
+      ]
     },
     {
       "name": "Report",
@@ -887,7 +1081,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["pipe:1", "progress.log"]
+      "examples": [
+        "pipe:1",
+        "progress.log"
+      ]
     },
     {
       "name": "Timestamp",
@@ -904,7 +1101,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["now", "2024-01-01T00:00:00"]
+      "examples": [
+        "now",
+        "2024-01-01T00:00:00"
+      ]
     },
     {
       "name": "Recast media",
@@ -938,7 +1138,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["1.0", "-0.5", "00:00:01"]
+      "examples": [
+        "1.0",
+        "-0.5",
+        "00:00:01"
+      ]
     },
     {
       "name": "Input timestamp scale",
@@ -972,7 +1176,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["0", "0:s:0", "-1"]
+      "examples": [
+        "0",
+        "0:s:0",
+        "-1"
+      ]
     },
     {
       "name": "Map chapters",
@@ -1084,7 +1292,12 @@
       "description": "Set video framerate mode per output stream. Overrides -vsync",
       "required": false,
       "default": "auto",
-      "choices": ["passthrough", "cfr", "vfr", "auto"],
+      "choices": [
+        "passthrough",
+        "cfr",
+        "vfr",
+        "auto"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -1108,7 +1321,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["0:05:00,chapters-0.1", "expr:gte(t,n_forced*5)", "source", "scd_metadata"]
+      "examples": [
+        "0:05:00,chapters-0.1",
+        "expr:gte(t,n_forced*5)",
+        "source",
+        "scd_metadata"
+      ]
     },
     {
       "name": "Encoder timebase",
@@ -1125,7 +1343,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["0", "demux", "filter", "1:24", "1:48000"]
+      "examples": [
+        "0",
+        "demux",
+        "filter",
+        "1:24",
+        "1:48000"
+      ]
     },
     {
       "name": "Bitstream filter",
@@ -1142,7 +1366,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["h264_mp4toannexb", "aac_adtstoasc", "mov2textsub"]
+      "examples": [
+        "h264_mp4toannexb",
+        "aac_adtstoasc",
+        "mov2textsub"
+      ]
     },
     {
       "name": "Tag/FourCC",
@@ -1159,7 +1387,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["hvc1", "avc1"]
+      "examples": [
+        "hvc1",
+        "avc1"
+      ]
     },
     {
       "name": "Timecode",
@@ -1176,7 +1407,10 @@
       "separator": "space",
       "positional": false,
       "validation": "^\\d{2}:\\d{2}:\\d{2}[:\\.;]\\d{2}$",
-      "examples": ["01:02:03:04", "01:02:03;04"]
+      "examples": [
+        "01:02:03:04",
+        "01:02:03;04"
+      ]
     },
     {
       "name": "Preset",
@@ -1244,7 +1478,16 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["none", "auto", "vdpau", "dxva2", "d3d11va", "vaapi", "qsv", "videotoolbox"]
+      "examples": [
+        "none",
+        "auto",
+        "vdpau",
+        "dxva2",
+        "d3d11va",
+        "vaapi",
+        "qsv",
+        "videotoolbox"
+      ]
     },
     {
       "name": "Hardware acceleration device",
@@ -1261,7 +1504,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["0", "1", "/dev/dri/renderD128"]
+      "examples": [
+        "0",
+        "1",
+        "/dev/dri/renderD128"
+      ]
     },
     {
       "name": "Init hardware device",
@@ -1278,7 +1525,12 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["cuda:0", "vaapi:/dev/dri/renderD128", "qsv:hw", "vulkan:0"]
+      "examples": [
+        "cuda:0",
+        "vaapi:/dev/dri/renderD128",
+        "qsv:hw",
+        "vulkan:0"
+      ]
     },
     {
       "name": "Filter hardware device",
@@ -1424,7 +1676,14 @@
       "description": "Allows discarding specific streams or frames from streams",
       "required": false,
       "default": "default",
-      "choices": ["none", "default", "noref", "bidir", "nokey", "all"],
+      "choices": [
+        "none",
+        "default",
+        "noref",
+        "bidir",
+        "nokey",
+        "all"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -1441,7 +1700,12 @@
       "description": "Automatically crop the video after decoding according to file metadata",
       "required": false,
       "default": "all",
-      "choices": ["none", "all", "codec", "container"],
+      "choices": [
+        "none",
+        "all",
+        "codec",
+        "container"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -1465,7 +1729,10 @@
       "separator": "space",
       "positional": false,
       "validation": "^\\d+:\\d+$",
-      "examples": ["0:33", "1:36"]
+      "examples": [
+        "0:33",
+        "1:36"
+      ]
     },
     {
       "name": "Max muxing queue size",
@@ -1584,7 +1851,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["empty_output", "empty_output_stream"]
+      "examples": [
+        "empty_output",
+        "empty_output_stream"
+      ]
     },
     {
       "name": "Max error rate",
@@ -1815,7 +2085,11 @@
       "description": "How to set encoder timebase when stream copying. 1=demuxer, 0=decoder, -1=auto",
       "required": false,
       "default": "-1",
-      "choices": ["-1", "0", "1"],
+      "choices": [
+        "-1",
+        "0",
+        "1"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -1907,7 +2181,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["1920x1080", "1280x720"]
+      "examples": [
+        "1920x1080",
+        "1280x720"
+      ]
     },
     {
       "name": "Guess layout max",
@@ -1941,7 +2218,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["bicubic", "bilinear", "lanczos"]
+      "examples": [
+        "bicubic",
+        "bilinear",
+        "lanczos"
+      ]
     },
     {
       "name": "Rate control override",
@@ -2002,7 +2283,17 @@
       "description": "Set the output format for graph details",
       "required": false,
       "default": "json",
-      "choices": ["default", "compact", "csv", "flat", "ini", "json", "xml", "mermaid", "mermaidhtml"],
+      "choices": [
+        "default",
+        "compact",
+        "csv",
+        "flat",
+        "ini",
+        "json",
+        "xml",
+        "mermaid",
+        "mermaidhtml"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,

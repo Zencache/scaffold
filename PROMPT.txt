@@ -5,6 +5,7 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
 === TOP-LEVEL OBJECT ===
 
 {
+  "_format": "scaffold_schema",
   "tool": "<string> Human-readable tool name",
   "binary": "<string> Exact executable name (e.g. \"nmap\", \"docker\")",
   "description": "<string> One-line description",
@@ -99,6 +100,7 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
 === EXAMPLE ===
 
 {
+  "_format": "scaffold_schema",
   "tool": "imgconv",
   "binary": "imgconv",
   "description": "Image format converter and resizer.",
@@ -221,7 +223,7 @@ With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [posit
 === CHECKLIST ===
 
 Before returning, verify:
-1. Top-level has: tool, binary, description, arguments, elevated
+1. Top-level has: _format (value "scaffold_schema"), tool, binary, description, arguments, elevated
 2. Every argument has ALL 20 fields — no missing keys
 3. type is from the valid list. separator is "space", "equals", or "none"
 4. enum/multi_enum have non-empty choices. All other types have choices: null

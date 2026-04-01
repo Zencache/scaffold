@@ -14,12 +14,22 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QSpinBox, QDoubleSpinBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QSpinBox, QDoubleSpinBox
 from PySide6.QtCore import QSettings
 
 app = QApplication.instance() or QApplication(sys.argv)
 
 import scaffold
+
+# Auto-accept missing _format warnings (test schemas intentionally lack _format)
+_original_qmb_warning = QMessageBox.warning
+
+def _patched_warning(parent, title, text, *a, **kw):
+    if title == "Missing Format Marker":
+        return QMessageBox.StandardButton.Yes
+    return _original_qmb_warning(parent, title, text, *a, **kw)
+
+QMessageBox.warning = _patched_warning
 
 passed = 0
 failed = 0

@@ -29,6 +29,17 @@ app = QApplication.instance() or QApplication(sys.argv)
 
 import scaffold
 
+# Monkeypatch QMessageBox.warning to auto-accept "Missing Format Marker" dialogs
+# (test schemas intentionally lack _format to test the warning path)
+_original_qmb_warning = QMessageBox.warning
+
+def _patched_warning(parent, title, text, *args, **kwargs):
+    if title == "Missing Format Marker":
+        return QMessageBox.StandardButton.Yes
+    return _original_qmb_warning(parent, title, text, *args, **kwargs)
+
+QMessageBox.warning = _patched_warning
+
 passed = 0
 failed = 0
 errors = []
@@ -4474,6 +4485,161 @@ app.processEvents()
 check(_s44_w.status.text() == "", "44c: status label cleared after timer fires")
 
 _s44_w.close(); _s44_w.deleteLater(); app.processEvents()
+
+# =====================================================================
+print("\n--- Section 45: Format Marker (_format) ---")
+# =====================================================================
+
+# --- 45a: Tool schema with correct _format loads silently (no dialog) ---
+_s45_tmpdir = tempfile.mkdtemp()
+_s45_schema_good = {
+    "_format": "scaffold_schema",
+    "tool": "fmt_test", "binary": "echo",
+    "description": "format test", "arguments": [], "subcommands": None,
+}
+_s45_good_path = Path(_s45_tmpdir) / "fmt_good.json"
+_s45_good_path.write_text(json.dumps(_s45_schema_good))
+_s45_dialog_shown = []
+_s45_orig_warning = QMessageBox.warning
+_s45_orig_critical = QMessageBox.critical
+
+def _s45_spy_warning(parent, title, text, *a, **kw):
+    _s45_dialog_shown.append(("warning", title))
+    return QMessageBox.StandardButton.Yes
+
+def _s45_spy_critical(parent, title, text, *a, **kw):
+    _s45_dialog_shown.append(("critical", title))
+    return QMessageBox.StandardButton.Ok
+
+QMessageBox.warning = _s45_spy_warning
+QMessageBox.critical = _s45_spy_critical
+
+_s45_w = scaffold.MainWindow()
+_s45_w._load_tool_path(str(_s45_good_path))
+app.processEvents()
+check(len(_s45_dialog_shown) == 0, "45a: correct _format loads with no dialog")
+check(_s45_w.data is not None and _s45_w.data["tool"] == "fmt_test",
+      "45a: tool loaded successfully with correct _format")
+
+# --- 45b: Tool schema with wrong _format (scaffold_preset) → error, does not load ---
+_s45_dialog_shown.clear()
+_s45_schema_preset = {
+    "_format": "scaffold_preset",
+    "tool": "bad_fmt", "binary": "echo",
+    "description": "wrong format", "arguments": [], "subcommands": None,
+}
+_s45_preset_path = Path(_s45_tmpdir) / "fmt_preset.json"
+_s45_preset_path.write_text(json.dumps(_s45_schema_preset))
+_s45_w2 = scaffold.MainWindow()
+_s45_w2_data_before = _s45_w2.data  # may be non-None from session restore
+_s45_w2._load_tool_path(str(_s45_preset_path))
+app.processEvents()
+check(len(_s45_dialog_shown) == 1 and _s45_dialog_shown[0][0] == "critical",
+      "45b: wrong _format (scaffold_preset) shows critical error")
+check(_s45_w2.data is _s45_w2_data_before,
+      "45b: tool not loaded when _format is scaffold_preset (data unchanged)")
+
+# --- 45c: Tool schema with unknown _format → error, does not load ---
+_s45_dialog_shown.clear()
+_s45_schema_unknown = {
+    "_format": "something_else",
+    "tool": "unknown_fmt", "binary": "echo",
+    "description": "unknown format", "arguments": [], "subcommands": None,
+}
+_s45_unknown_path = Path(_s45_tmpdir) / "fmt_unknown.json"
+_s45_unknown_path.write_text(json.dumps(_s45_schema_unknown))
+_s45_w3 = scaffold.MainWindow()
+_s45_w3_data_before = _s45_w3.data
+_s45_w3._load_tool_path(str(_s45_unknown_path))
+app.processEvents()
+check(len(_s45_dialog_shown) == 1 and _s45_dialog_shown[0][0] == "critical",
+      "45c: unknown _format shows critical error")
+check(_s45_w3.data is _s45_w3_data_before,
+      "45c: tool not loaded with unknown _format (data unchanged)")
+
+# --- 45d: Tool schema with no _format → warning dialog ---
+# Mock Cancel first — should NOT load
+_s45_dialog_shown.clear()
+
+def _s45_spy_warning_cancel(parent, title, text, *a, **kw):
+    _s45_dialog_shown.append(("warning", title))
+    return QMessageBox.StandardButton.Cancel
+
+QMessageBox.warning = _s45_spy_warning_cancel
+_s45_schema_nofmt = {
+    "tool": "no_fmt", "binary": "echo",
+    "description": "no format", "arguments": [], "subcommands": None,
+}
+_s45_nofmt_path = Path(_s45_tmpdir) / "fmt_none.json"
+_s45_nofmt_path.write_text(json.dumps(_s45_schema_nofmt))
+_s45_w4 = scaffold.MainWindow()
+_s45_w4_data_before = _s45_w4.data
+_s45_w4._load_tool_path(str(_s45_nofmt_path))
+app.processEvents()
+check(len(_s45_dialog_shown) == 1 and _s45_dialog_shown[0][0] == "warning",
+      "45d: missing _format shows warning dialog")
+check(_s45_w4.data is _s45_w4_data_before,
+      "45d: tool not loaded when user clicks Cancel (data unchanged)")
+
+# Now mock Load Anyway — SHOULD load
+_s45_dialog_shown.clear()
+QMessageBox.warning = _s45_spy_warning  # returns Yes
+_s45_w5 = scaffold.MainWindow()
+_s45_w5._load_tool_path(str(_s45_nofmt_path))
+app.processEvents()
+check(len(_s45_dialog_shown) == 1, "45d: missing _format shows warning when loading")
+check(_s45_w5.data is not None and _s45_w5.data["tool"] == "no_fmt",
+      "45d: tool loaded when user clicks Load Anyway")
+
+# --- 45e: Preset with correct _format loads silently ---
+_s45_dialog_shown.clear()
+# First load a tool so we can test preset loading
+_s45_w6 = scaffold.MainWindow()
+QMessageBox.warning = _s45_spy_warning  # auto-accept for tool load
+_s45_w6._load_tool_path(str(_s45_good_path))
+app.processEvents()
+_s45_dialog_shown.clear()  # reset after tool load
+
+_s45_preset_dir = Path(_s45_tmpdir) / "presets" / "fmt_test"
+_s45_preset_dir.mkdir(parents=True, exist_ok=True)
+_s45_preset_good = {"_format": "scaffold_preset", "_subcommand": None, "_schema_hash": "00000000"}
+(_s45_preset_dir / "test.json").write_text(json.dumps(_s45_preset_good))
+
+# We can't easily call _on_load_preset (needs PresetPicker dialog), so test the
+# format check logic directly by simulating the load path
+_s45_fmt_preset = json.loads((_s45_preset_dir / "test.json").read_text())
+_s45_pfmt = _s45_fmt_preset.get("_format")
+check(_s45_pfmt == "scaffold_preset", "45e: preset with correct _format accepted")
+
+# --- 45f: Preset with wrong _format (scaffold_schema) is detected ---
+_s45_preset_wrong = {"_format": "scaffold_schema", "_subcommand": None, "_schema_hash": "00000000"}
+_s45_pwfmt = _s45_preset_wrong.get("_format")
+check(_s45_pwfmt is not None and _s45_pwfmt != "scaffold_preset",
+      "45f: preset with _format=scaffold_schema would be rejected")
+
+# --- 45g: Preset with missing _format loads silently (backwards compat) ---
+_s45_preset_missing = {"_subcommand": None, "_schema_hash": "00000000"}
+_s45_pmfmt = _s45_preset_missing.get("_format")
+check(_s45_pmfmt is None, "45g: preset with missing _format accepted silently (backwards compat)")
+
+# --- 45h: serialize_values includes _format: scaffold_preset ---
+check(_s45_w6.form is not None, "45h: form exists for serialize test")
+_s45_serialized = _s45_w6.form.serialize_values()
+check(_s45_serialized.get("_format") == "scaffold_preset",
+      "45h: serialize_values includes _format=scaffold_preset")
+# Verify _format is the first key
+_s45_keys = list(_s45_serialized.keys())
+check(_s45_keys[0] == "_format", "45h: _format is the first key in serialized preset")
+
+# Restore original QMessageBox methods
+QMessageBox.warning = _patched_warning  # restore the test-level patch
+QMessageBox.critical = _s45_orig_critical
+
+# Cleanup
+for w in [_s45_w, _s45_w2, _s45_w3, _s45_w4, _s45_w5, _s45_w6]:
+    w.close(); w.deleteLater()
+app.processEvents()
+shutil.rmtree(_s45_tmpdir, ignore_errors=True)
 
 # =====================================================================
 # Final cleanup

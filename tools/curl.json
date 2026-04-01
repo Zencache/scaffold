@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "curl",
   "binary": "curl",
   "description": "Transfer data from or to a server using URLs, supporting numerous protocols.",

@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.4"
+__version__ = "2.6.5"
 
 import datetime
 import hashlib
@@ -1754,6 +1754,7 @@ class ToolForm(QWidget):
     def serialize_values(self) -> dict:
         """Serialize all current field values to a flat dict for preset storage."""
         preset = {}
+        preset["_format"] = "scaffold_preset"
         preset["_subcommand"] = self.get_current_subcommand()
         preset["_schema_hash"] = schema_hash(self.data)
         if self.elevation_check is not None:
@@ -3351,6 +3352,29 @@ class MainWindow(QMainWindow):
             self._show_load_error(str(e))
             return
 
+        # Three-tier _format check: correct → silent, missing → warn, wrong → reject
+        fmt = data.get("_format")
+        if fmt is not None and fmt != "scaffold_schema":
+            QMessageBox.critical(
+                self, "Wrong File Format",
+                f'This file has "_format": "{fmt}" \u2014 '
+                f"it appears to be a preset, not a tool schema."
+                if fmt == "scaffold_preset"
+                else f'This file has "_format": "{fmt}" \u2014 '
+                f"it is not a Scaffold tool schema.",
+            )
+            return
+        if fmt is None:
+            btn = QMessageBox.warning(
+                self, "Missing Format Marker",
+                "This file doesn't contain a format marker. "
+                "It may not be a Scaffold tool schema.\n\nLoad anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if btn != QMessageBox.StandardButton.Yes:
+                return
+
         errors = validate_tool(data)
         if errors:
             self._show_load_error(
@@ -3672,6 +3696,19 @@ class MainWindow(QMainWindow):
             preset = json.loads(preset_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
             self.statusBar().showMessage(f"Error loading preset: {e}")
+            return
+
+        # Three-tier _format check: correct/missing → silent, wrong → reject
+        fmt = preset.get("_format")
+        if fmt is not None and fmt != "scaffold_preset":
+            QMessageBox.critical(
+                self, "Wrong File Format",
+                f'This file has "_format": "{fmt}" \u2014 '
+                f"it appears to be a tool schema, not a preset."
+                if fmt == "scaffold_schema"
+                else f'This file has "_format": "{fmt}" \u2014 '
+                f"it is not a Scaffold preset.",
+            )
             return
 
         # Validate preset structure

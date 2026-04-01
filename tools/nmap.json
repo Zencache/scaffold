@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_schema",
   "tool": "nmap",
   "binary": "nmap",
   "description": "Network exploration tool and security/port scanner.",
@@ -55,7 +56,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["192.168.1.1", "10.0.0.0/8", "host1,host2,host3"]
+      "examples": [
+        "192.168.1.1",
+        "10.0.0.0/8",
+        "host1,host2,host3"
+      ]
     },
     {
       "name": "Exclude File",
@@ -140,7 +145,11 @@
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": ["22", "80,443", "22-25,80"]
+      "examples": [
+        "22",
+        "80,443",
+        "22-25,80"
+      ]
     },
     {
       "name": "TCP ACK Discovery",
@@ -157,7 +166,10 @@
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": ["80", "80,443"]
+      "examples": [
+        "80",
+        "80,443"
+      ]
     },
     {
       "name": "UDP Discovery",
@@ -174,7 +186,10 @@
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": ["53", "53,161"]
+      "examples": [
+        "53",
+        "53,161"
+      ]
     },
     {
       "name": "SCTP Discovery",
@@ -191,7 +206,10 @@
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": ["80", "80,443"]
+      "examples": [
+        "80",
+        "80,443"
+      ]
     },
     {
       "name": "ICMP Echo Discovery",
@@ -259,7 +277,9 @@
       "separator": "none",
       "positional": false,
       "validation": null,
-      "examples": ["1,2,4"]
+      "examples": [
+        "1,2,4"
+      ]
     },
     {
       "name": "No DNS Resolution",
@@ -310,7 +330,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["8.8.8.8", "8.8.8.8,8.8.4.4"]
+      "examples": [
+        "8.8.8.8",
+        "8.8.8.8,8.8.4.4"
+      ]
     },
     {
       "name": "System DNS",
@@ -514,7 +537,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["URG,ACK,PSH,RST,SYN,FIN", "21"]
+      "examples": [
+        "URG,ACK,PSH,RST,SYN,FIN",
+        "21"
+      ]
     },
     {
       "name": "Idle Scan",
@@ -531,7 +557,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["zombie.example.com", "zombie.example.com:8080"]
+      "examples": [
+        "zombie.example.com",
+        "zombie.example.com:8080"
+      ]
     },
     {
       "name": "SCTP INIT Scan",
@@ -599,7 +628,9 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["ftp.example.com"]
+      "examples": [
+        "ftp.example.com"
+      ]
     },
     {
       "name": "Port Specification",
@@ -616,7 +647,13 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["80", "443", "1-1000", "1-65535", "22,80,443,8080"]
+      "examples": [
+        "80",
+        "443",
+        "1-1000",
+        "1-65535",
+        "22,80,443,8080"
+      ]
     },
     {
       "name": "Exclude Ports",
@@ -633,7 +670,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["22", "80,443"]
+      "examples": [
+        "22",
+        "80,443"
+      ]
     },
     {
       "name": "Fast Mode",
@@ -820,7 +860,15 @@
       "separator": "equals",
       "positional": false,
       "validation": null,
-      "examples": ["vuln", "safe", "default", "discovery", "auth", "brute", "http-title"]
+      "examples": [
+        "vuln",
+        "safe",
+        "default",
+        "discovery",
+        "auth",
+        "brute",
+        "http-title"
+      ]
     },
     {
       "name": "Script Arguments",
@@ -837,7 +885,10 @@
       "separator": "equals",
       "positional": false,
       "validation": null,
-      "examples": ["user=admin,pass=secret", "http.useragent=Mozilla"]
+      "examples": [
+        "user=admin,pass=secret",
+        "http.useragent=Mozilla"
+      ]
     },
     {
       "name": "Script Arguments File",
@@ -905,7 +956,10 @@
       "separator": "equals",
       "positional": false,
       "validation": null,
-      "examples": ["default", "http-*"]
+      "examples": [
+        "default",
+        "http-*"
+      ]
     },
     {
       "name": "OS Detection",
@@ -966,7 +1020,14 @@
       "description": "Scan speed. 0 = paranoid/slowest, 3 = normal (default), 5 = insane/fastest. Higher values are louder on the network.",
       "required": false,
       "default": null,
-      "choices": ["0", "1", "2", "3", "4", "5"],
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
       "group": null,
       "depends_on": null,
       "repeatable": false,
@@ -1058,7 +1119,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["100ms", "1s"]
+      "examples": [
+        "100ms",
+        "1s"
+      ]
     },
     {
       "name": "Max RTT Timeout",
@@ -1075,7 +1139,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["500ms", "5s"]
+      "examples": [
+        "500ms",
+        "5s"
+      ]
     },
     {
       "name": "Initial RTT Timeout",
@@ -1092,7 +1159,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["250ms", "1s"]
+      "examples": [
+        "250ms",
+        "1s"
+      ]
     },
     {
       "name": "Max Retries",
@@ -1126,7 +1196,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["30m", "1h", "900s"]
+      "examples": [
+        "30m",
+        "1h",
+        "900s"
+      ]
     },
     {
       "name": "Scan Delay",
@@ -1143,7 +1217,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["1s", "500ms"]
+      "examples": [
+        "1s",
+        "500ms"
+      ]
     },
     {
       "name": "Max Scan Delay",
@@ -1160,7 +1237,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["10s", "1m"]
+      "examples": [
+        "10s",
+        "1m"
+      ]
     },
     {
       "name": "Min Rate",
@@ -1245,7 +1325,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["decoy1,decoy2,ME", "RND:10,ME"]
+      "examples": [
+        "decoy1,decoy2,ME",
+        "RND:10,ME"
+      ]
     },
     {
       "name": "Spoof Source Address",
@@ -1262,7 +1345,9 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["192.168.1.100"]
+      "examples": [
+        "192.168.1.100"
+      ]
     },
     {
       "name": "Interface",
@@ -1279,7 +1364,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["eth0", "wlan0"]
+      "examples": [
+        "eth0",
+        "wlan0"
+      ]
     },
     {
       "name": "Source Port",
@@ -1313,7 +1401,10 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["http://proxy:8080", "socks4://proxy:1080"]
+      "examples": [
+        "http://proxy:8080",
+        "socks4://proxy:1080"
+      ]
     },
     {
       "name": "Data Hex",
@@ -1330,7 +1421,9 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["deadbeef"]
+      "examples": [
+        "deadbeef"
+      ]
     },
     {
       "name": "Data String",
@@ -1415,7 +1508,11 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["00:11:22:33:44:55", "Apple", "0"]
+      "examples": [
+        "00:11:22:33:44:55",
+        "Apple",
+        "0"
+      ]
     },
     {
       "name": "Bad Checksum",
@@ -1517,7 +1614,9 @@
       "separator": "space",
       "positional": false,
       "validation": null,
-      "examples": ["scan_results"]
+      "examples": [
+        "scan_results"
+      ]
     },
     {
       "name": "Verbosity",
@@ -1891,7 +1990,12 @@
       "separator": "space",
       "positional": true,
       "validation": null,
-      "examples": ["192.168.1.1", "192.168.1.0/24", "10.0.0.0/8", "scanme.nmap.org"]
+      "examples": [
+        "192.168.1.1",
+        "192.168.1.0/24",
+        "10.0.0.0/8",
+        "scanme.nmap.org"
+      ]
     }
   ]
 }
