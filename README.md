@@ -13,14 +13,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-4%2C278%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-4%2C605%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (825 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (924 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 
 ---
 
@@ -71,6 +71,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown
 - **10 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, password fields, and more — each CLI argument gets the right input control
 - **Subcommand support** — tools like `git` with multiple subcommands work seamlessly, including multi-word chains like `ansible-galaxy role install` or `docker compose up`
+- **Command history (Ctrl+H)** — every executed command is automatically recorded. Browse recent runs per tool, see exit codes and timestamps, and restore any past form state with one click
 - **Form auto-save & crash recovery** — form state is periodically saved to a temp file; if the app crashes, the next launch offers to restore your work
 - **Collapsible display groups** — visually group related arguments into collapsible sections to tame tools with hundreds of flags
 - **Field search** — Ctrl+F to instantly find any field by name or flag in large forms

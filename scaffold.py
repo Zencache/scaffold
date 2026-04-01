@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.6"
+__version__ = "2.6.7"
 
 import datetime
 import hashlib
@@ -81,6 +81,9 @@ MAX_SCHEMA_SIZE = 1_000_000     # 1 MB — skip files larger than this
 # Auto-save / crash recovery
 AUTOSAVE_INTERVAL_MS = 30000    # 30 seconds between auto-saves
 AUTOSAVE_EXPIRY_HOURS = 24      # Recovery files older than this are ignored
+
+# Command history
+HISTORY_MAX_ENTRIES = 50
 
 
 # ---------------------------------------------------------------------------
@@ -2797,6 +2800,138 @@ class PresetPicker(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Command history dialog
+# ---------------------------------------------------------------------------
+
+
+class HistoryDialog(QDialog):
+    """Modal dialog for browsing and restoring command history entries."""
+
+    def __init__(self, tool_name: str, history: list[dict], parent=None):
+        super().__init__(parent)
+        self.tool_name = tool_name
+        self.history = history
+        self.selected_entry: dict | None = None
+
+        self.setWindowTitle(f"Command History \u2014 {tool_name}")
+        self.resize(700, 450)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Exit", "Command", "Time", "Age"])
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setColumnWidth(0, 50)
+        self.table.setColumnWidth(3, 80)
+        self.table.doubleClicked.connect(self._on_double_click)
+        layout.addWidget(self.table, 1)
+
+        # Buttons
+        btn_bar = QHBoxLayout()
+        btn_bar.addStretch()
+        self.restore_btn = QPushButton("Restore")
+        self.restore_btn.setEnabled(False)
+        self.restore_btn.clicked.connect(self._on_restore)
+        btn_bar.addWidget(self.restore_btn)
+        self.clear_btn = QPushButton("Clear History")
+        self.clear_btn.clicked.connect(self._on_clear)
+        btn_bar.addWidget(self.clear_btn)
+        self.close_btn = QPushButton("Close")
+        self.close_btn.clicked.connect(self.reject)
+        btn_bar.addWidget(self.close_btn)
+        layout.addLayout(btn_bar)
+
+        self.table.selectionModel().selectionChanged.connect(self._on_selection)
+        self._populate()
+
+    def _populate(self) -> None:
+        """Fill the table with history entries."""
+        self.table.setRowCount(len(self.history))
+        now = time.time()
+        for row, entry in enumerate(self.history):
+            # Exit code column
+            exit_code = entry.get("exit_code", -1)
+            exit_item = QTableWidgetItem(str(exit_code))
+            exit_item.setForeground(
+                QColor("#22bb45") if exit_code == 0 else QColor("#dd3333")
+            )
+            self.table.setItem(row, 0, exit_item)
+
+            # Command column
+            display = entry.get("display", "")
+            self.table.setItem(row, 1, QTableWidgetItem(display))
+
+            # Time column — "Mar 31, 14:23"
+            ts = entry.get("timestamp", 0)
+            try:
+                dt = datetime.datetime.fromtimestamp(ts)
+                time_str = dt.strftime("%b %d, %H:%M")
+            except (OSError, ValueError):
+                time_str = "?"
+            self.table.setItem(row, 2, QTableWidgetItem(time_str))
+
+            # Age column — relative time
+            age_secs = max(0, now - ts)
+            if age_secs < 60:
+                age_str = f"{int(age_secs)}s ago"
+            elif age_secs < 3600:
+                age_str = f"{int(age_secs // 60)}m ago"
+            elif age_secs < 86400:
+                age_str = f"{int(age_secs // 3600)}h ago"
+            else:
+                age_str = f"{int(age_secs // 86400)}d ago"
+            self.table.setItem(row, 3, QTableWidgetItem(age_str))
+
+    def _on_selection(self) -> None:
+        """Enable/disable Restore button based on selection."""
+        self.restore_btn.setEnabled(len(self.table.selectedItems()) > 0)
+
+    def _on_double_click(self) -> None:
+        """Restore the double-clicked entry and close."""
+        row = self.table.currentRow()
+        if 0 <= row < len(self.history):
+            self.selected_entry = self.history[row]
+            self.accept()
+
+    def _on_restore(self) -> None:
+        """Restore the selected entry and close."""
+        row = self.table.currentRow()
+        if 0 <= row < len(self.history):
+            self.selected_entry = self.history[row]
+            self.accept()
+
+    def _on_clear(self) -> None:
+        """Clear all history after confirmation."""
+        answer = QMessageBox.question(
+            self, "Clear History",
+            f"Remove all command history for {self.tool_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            if self.parent():
+                self.parent()._clear_history()
+            self.reject()
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -2918,6 +3053,10 @@ class MainWindow(QMainWindow):
 
         self.preset_menu.addSeparator()
 
+        self.act_history = self.preset_menu.addAction("Command History...")
+        self.act_history.setShortcut("Ctrl+H")
+        self.act_history.triggered.connect(self._on_show_history)
+
         self.act_reset = self.preset_menu.addAction("Reset to Defaults")
         self.act_reset.triggered.connect(self._on_reset_defaults)
 
@@ -2991,6 +3130,7 @@ class MainWindow(QMainWindow):
             "\n"
             "Ctrl+S          Save Preset...\n"
             "Ctrl+L          Load Preset...\n"
+            "Ctrl+H          Command History...\n"
             "\n"
             "Ctrl+D          Toggle Dark/Light Theme\n"
             "Ctrl+F          Find Field\n"
@@ -4130,6 +4270,11 @@ class MainWindow(QMainWindow):
         # Show what we're running
         self._append_output(f"$ {display}\n", COLOR_CMD)
 
+        # Capture history data at run start (before user can change the form)
+        self._history_display = display
+        self._history_preset = self.form.serialize_values()
+        self._history_timestamp = time.time()
+
         self._killed = False
         self._timed_out = False
         self._run_start_time = time.monotonic()
@@ -4207,6 +4352,7 @@ class MainWindow(QMainWindow):
         else:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Exit {exit_code}{elapsed_str}")
+        self._record_history_entry(exit_code)
         self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
@@ -4243,6 +4389,61 @@ class MainWindow(QMainWindow):
         self._force_kill_timer.stop()
         self._run_start_time = None
         self.process = None
+
+    # ------------------------------------------------------------------
+    # Command history
+    # ------------------------------------------------------------------
+
+    def _load_history(self) -> list[dict]:
+        """Load command history for the current tool from QSettings."""
+        if self.data is None:
+            return []
+        raw = self.settings.value(f"history/{self.data['tool']}", "[]")
+        try:
+            entries = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(entries, list):
+                return []
+            return entries
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def _record_history_entry(self, exit_code: int) -> None:
+        """Record a completed command execution in the history."""
+        if self.data is None:
+            return
+        if not hasattr(self, "_history_display"):
+            return
+        entry = {
+            "display": self._history_display,
+            "exit_code": exit_code,
+            "timestamp": self._history_timestamp,
+            "preset_data": self._history_preset,
+        }
+        history = self._load_history()
+        history.insert(0, entry)
+        history = history[:HISTORY_MAX_ENTRIES]
+        self.settings.setValue(
+            f"history/{self.data['tool']}", json.dumps(history)
+        )
+
+    def _clear_history(self) -> None:
+        """Remove all command history for the current tool."""
+        if self.data is None:
+            return
+        self.settings.remove(f"history/{self.data['tool']}")
+
+    def _on_show_history(self) -> None:
+        """Show the command history dialog for the current tool."""
+        if self.data is None:
+            return
+        history = self._load_history()
+        if not history:
+            self._show_status("No command history for this tool")
+            return
+        dlg = HistoryDialog(self.data["tool"], history, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_entry is not None:
+            self.form.apply_values(dlg.selected_entry["preset_data"])
+            self._show_status("Form restored from history")
 
     def _append_output(self, text: str, color: str) -> None:
         """Append text to the output panel in the given hex color string."""

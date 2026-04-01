@@ -5050,6 +5050,204 @@ _s48_dup_errs = scaffold.validate_tool(_s48_dup_tool)
 check(any("duplicate" in e.lower() for e in _s48_dup_errs), "48ac: duplicate subcommand name rejected")
 
 # =====================================================================
+# Section 49 — Command History
+# =====================================================================
+print("\n--- Section 49: Command History ---")
+
+# Load a known tool for history tests
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+_hist_tool_name = window.data["tool"]
+
+# Clear any existing history first
+window._clear_history()
+app.processEvents()
+
+# 49a: HISTORY_MAX_ENTRIES constant exists and equals 50
+check(hasattr(scaffold, "HISTORY_MAX_ENTRIES"), "49a: HISTORY_MAX_ENTRIES constant exists")
+check(scaffold.HISTORY_MAX_ENTRIES == 50, f"49a: HISTORY_MAX_ENTRIES == 50 (got {scaffold.HISTORY_MAX_ENTRIES})")
+
+# 49b: _load_history() returns empty list for a tool with no history
+check(window._load_history() == [], "49b: _load_history() returns [] for empty history")
+
+# Simulate a run by setting the capture attributes manually (no actual process)
+_hist_display = "true -v"
+_hist_preset = window.form.serialize_values()
+_hist_timestamp = time.time()
+window._history_display = _hist_display
+window._history_preset = _hist_preset
+window._history_timestamp = _hist_timestamp
+
+# 49c: capture attributes exist after manual setup
+check(hasattr(window, "_history_display"), "49c: _history_display attribute exists")
+check(hasattr(window, "_history_preset"), "49c: _history_preset attribute exists")
+check(hasattr(window, "_history_timestamp"), "49c: _history_timestamp attribute exists")
+
+# 49d: _record_history_entry() stores an entry in QSettings
+window._record_history_entry(0)
+_hist_raw = window.settings.value(f"history/{_hist_tool_name}")
+check(_hist_raw is not None, "49d: history stored in QSettings")
+
+# 49e: After recording, _load_history() returns a list with 1 entry
+_hist_loaded = window._load_history()
+check(len(_hist_loaded) == 1, f"49e: _load_history() has 1 entry (got {len(_hist_loaded)})")
+
+# 49f: Entry has correct keys
+_hist_entry = _hist_loaded[0]
+_hist_expected_keys = {"display", "exit_code", "timestamp", "preset_data"}
+check(set(_hist_entry.keys()) == _hist_expected_keys, f"49f: entry has correct keys: {set(_hist_entry.keys())}")
+
+# 49g: Entry display string contains the binary name
+check("true" in _hist_entry["display"], f"49g: display contains binary name (got '{_hist_entry['display']}')")
+
+# 49h: Entry preset_data is a dict
+check(isinstance(_hist_entry["preset_data"], dict), "49h: preset_data is a dict")
+
+# 49i: Entry timestamp is recent (within 5 seconds of now)
+check(abs(time.time() - _hist_entry["timestamp"]) < 5, "49i: timestamp is recent (within 5s)")
+
+# 49j: Entry exit_code is 0
+check(_hist_entry["exit_code"] == 0, f"49j: exit_code is 0 (got {_hist_entry['exit_code']})")
+
+# 49k: Multiple entries are stored in most-recent-first order
+window._history_display = "true -v (second)"
+window._history_timestamp = time.time() + 1
+window._record_history_entry(1)
+_hist_loaded2 = window._load_history()
+check(len(_hist_loaded2) == 2, f"49k: 2 entries after second record (got {len(_hist_loaded2)})")
+check(_hist_loaded2[0]["display"] == "true -v (second)", "49k: most recent entry is first")
+check(_hist_loaded2[0]["exit_code"] == 1, "49k: second entry has exit_code 1")
+
+# 49l: History is per-tool (different tools have independent histories)
+window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+window._clear_history()
+_hist_nmap = window._load_history()
+check(_hist_nmap == [], "49l: nmap has no history (independent from minimal)")
+# Switch back and verify minimal still has its history
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+_hist_minimal_check = window._load_history()
+check(len(_hist_minimal_check) == 2, f"49l: minimal still has 2 entries (got {len(_hist_minimal_check)})")
+
+# 49m: History respects HISTORY_MAX_ENTRIES limit
+window._clear_history()
+for i in range(51):
+    window._history_display = f"true run {i}"
+    window._history_timestamp = time.time() + i
+    window._history_preset = {}
+    window._record_history_entry(0)
+_hist_overflow = window._load_history()
+check(len(_hist_overflow) == 50, f"49m: history capped at 50 entries (got {len(_hist_overflow)})")
+check(_hist_overflow[0]["display"] == "true run 50", "49m: most recent entry is first after overflow")
+
+# 49n: _clear_history() removes all entries for the current tool
+window._clear_history()
+check(window._load_history() == [], "49n: _clear_history() removes all entries")
+
+# 49o: _clear_history() doesn't affect other tools' histories
+# Add history to nmap, clear minimal, verify nmap is unaffected
+window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+window._history_display = "nmap -sV"
+window._history_timestamp = time.time()
+window._history_preset = {}
+window._record_history_entry(0)
+# Now clear minimal
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+window._clear_history()
+# Check nmap still has its entry
+window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+_hist_nmap_check = window._load_history()
+check(len(_hist_nmap_check) == 1, f"49o: nmap history unaffected by clearing minimal (got {len(_hist_nmap_check)})")
+window._clear_history()  # cleanup
+
+# 49p: HistoryDialog class exists and is a QDialog
+check(hasattr(scaffold, "HistoryDialog"), "49p: HistoryDialog class exists")
+check(issubclass(scaffold.HistoryDialog, scaffold.QDialog), "49p: HistoryDialog is a QDialog subclass")
+
+# 49q: HistoryDialog table has 4 columns
+_hist_test_data = [
+    {"display": "true -v", "exit_code": 0, "timestamp": time.time(), "preset_data": {}},
+    {"display": "true", "exit_code": 1, "timestamp": time.time() - 3600, "preset_data": {}},
+]
+_hist_dlg = scaffold.HistoryDialog("test", _hist_test_data, parent=window)
+check(_hist_dlg.table.columnCount() == 4, f"49q: HistoryDialog table has 4 columns (got {_hist_dlg.table.columnCount()})")
+
+# 49r: HistoryDialog populates table rows from history data
+check(_hist_dlg.table.rowCount() == 2, f"49r: table has 2 rows (got {_hist_dlg.table.rowCount()})")
+
+# 49s: HistoryDialog with empty history has 0 rows
+_hist_dlg_empty = scaffold.HistoryDialog("test", [], parent=window)
+check(_hist_dlg_empty.table.rowCount() == 0, "49s: empty history produces 0 rows")
+_hist_dlg_empty.deleteLater()
+
+# 49t: Exit code column shows correct values
+_exit_item_0 = _hist_dlg.table.item(0, 0)
+check(_exit_item_0 is not None and _exit_item_0.text() == "0", f"49t: first row exit code is '0' (got '{_exit_item_0.text() if _exit_item_0 else None}')")
+_exit_item_1 = _hist_dlg.table.item(1, 0)
+check(_exit_item_1 is not None and _exit_item_1.text() == "1", f"49t: second row exit code is '1' (got '{_exit_item_1.text() if _exit_item_1 else None}')")
+
+# 49u: Ctrl+H shortcut is registered (on the menu action)
+check(window.act_history.shortcut().toString() == "Ctrl+H", "49u: Ctrl+H shortcut is registered on history action")
+
+# 49v: History menu action exists in preset_menu
+_hist_action_found = False
+for action in window.preset_menu.actions():
+    if "History" in (action.text() or ""):
+        _hist_action_found = True
+        break
+check(_hist_action_found, "49v: Command History action exists in preset_menu")
+
+# 49w: Corrupted history JSON in QSettings returns empty list gracefully
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+window.settings.setValue(f"history/{window.data['tool']}", "NOT VALID JSON{{{")
+_hist_corrupt = window._load_history()
+check(_hist_corrupt == [], "49w: corrupted JSON returns empty list")
+
+# 49x: Restoring from history applies preset_data correctly
+# Set up a history entry with the verbose flag checked
+window._clear_history()
+_hist_preset_verbose = window.form.serialize_values()
+# Find the verbose field key and set it
+for key, field in window.form.fields.items():
+    if field["arg"]["flag"] == "-v":
+        window.form._set_field_value(key, True)
+        break
+_hist_preset_verbose = window.form.serialize_values()
+window._history_display = "true -v"
+window._history_preset = _hist_preset_verbose
+window._history_timestamp = time.time()
+window._record_history_entry(0)
+
+# Reset form to defaults
+window._on_reset_defaults()
+app.processEvents()
+
+# Apply history entry
+_hist_entries = window._load_history()
+window.form.apply_values(_hist_entries[0]["preset_data"])
+app.processEvents()
+
+# Check that the verbose field was restored
+_hist_verbose_restored = False
+for key, field in window.form.fields.items():
+    if field["arg"]["flag"] == "-v":
+        w = field["widget"]
+        if isinstance(w, QCheckBox):
+            _hist_verbose_restored = w.isChecked()
+        break
+check(_hist_verbose_restored, "49x: restoring history applies preset_data (verbose flag set)")
+
+# Cleanup
+window._clear_history()
+_hist_dlg.deleteLater()
+app.processEvents()
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

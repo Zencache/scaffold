@@ -2,6 +2,31 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.7] — 2026-04-01
+
+### Added
+
+- **Command history (Ctrl+H)** — after each command execution, Scaffold automatically records what was run. Press Ctrl+H (or Presets > Command History...) to browse recent commands for the current tool. Double-click or select "Restore" to reload the form state from any past run.
+  - Stores up to 50 entries per tool in QSettings (display string, exit code, timestamp, form state)
+  - Form state captured at run start, not finish — safe even if user changes the form while running
+  - History dialog shows exit code (color-coded green/red), command, timestamp, and relative age
+  - "Clear History" button with confirmation prompt
+  - Per-tool isolation: each tool's history is independent
+  - Graceful handling of corrupted QSettings data
+
+### Fixed
+
+- **Ambiguous Ctrl+H shortcut** — the history shortcut was registered as both a `QShortcut` and a menu action shortcut, causing Qt to log "Ambiguous shortcut overload" and ignore the keypress. Removed the duplicate `QShortcut`; the menu action handles it alone.
+
+#### Full suite results
+
+- **All 5 test suites pass: 924/924 assertions, 0 failures**
+  - Functional: 730/730
+  - Smoke: 58/58
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.6.6] — 2026-04-01
 
 ### Added
