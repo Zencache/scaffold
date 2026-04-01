@@ -443,7 +443,7 @@ python scaffold.py --prompt
 
 ## About This Project
 
-Every line of code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) — but this was a collaboration, not delegation. The project was designed, directed, tested, and iterated by a human who manually audited every line of code and every command, and made direct edits where needed. This wasn't a one-shot generation.
+Most of the code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) with some minor edits from the author — but this was a collaboration, not delegation. The project was designed, directed, tested, and iterated by a human who manually audited every line of code and every command, and made direct edits where needed. This wasn't a one-shot generation.
 
 Scaffold was built the way a real team would build software, just with an AI writing the code instead of a second person:
 
