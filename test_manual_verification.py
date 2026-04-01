@@ -31,6 +31,9 @@ def _patched_warning(parent, title, text, *a, **kw):
 
 QMessageBox.warning = _patched_warning
 
+# Auto-decline recovery prompts so stale recovery files don't block tests
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
+
 passed = 0
 failed = 0
 errors = []

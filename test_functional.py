@@ -40,6 +40,12 @@ def _patched_warning(parent, title, text, *args, **kwargs):
 
 QMessageBox.warning = _patched_warning
 
+# Monkeypatch QMessageBox.question to auto-decline recovery prompts.
+# Without this, stale recovery files from crashed test runs or manual sessions
+# cause a blocking modal dialog that hangs the test process.
+_original_qmb_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
+
 passed = 0
 failed = 0
 errors = []
@@ -4640,6 +4646,408 @@ for w in [_s45_w, _s45_w2, _s45_w3, _s45_w4, _s45_w5, _s45_w6]:
     w.close(); w.deleteLater()
 app.processEvents()
 shutil.rmtree(_s45_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 46 — Form Auto-Save & Crash Recovery
+# =====================================================================
+print("\n--- Section 46: Form Auto-Save & Crash Recovery ---")
+
+_s46_tmpdir = tempfile.mkdtemp()
+_s46_schema = {
+    "_format": "scaffold_schema",
+    "tool": "autosave_test",
+    "binary": "echo",
+    "description": "Tool for testing auto-save recovery",
+    "arguments": [
+        {"name": "Name", "flag": "--name", "type": "string"},
+        {"name": "Count", "flag": "--count", "type": "integer"},
+        {"name": "Verbose", "flag": "-v", "type": "boolean"},
+    ],
+}
+_s46_tool_path = Path(_s46_tmpdir) / "autosave_test.json"
+_s46_tool_path.write_text(json.dumps(_s46_schema))
+
+# Patch QMessageBox.warning to auto-accept for this section's tool
+_s46_orig_warning = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+_s46_w = scaffold.MainWindow()
+_s46_w._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+
+# 46a: _autosave_timer exists and has correct interval
+check(hasattr(_s46_w, "_autosave_timer"), "46a: _autosave_timer attribute exists")
+check(_s46_w._autosave_timer.interval() == scaffold.AUTOSAVE_INTERVAL_MS,
+      f"46b: autosave timer interval is {scaffold.AUTOSAVE_INTERVAL_MS}ms")
+
+# 46c: Timer is a QTimer and is repeating (not single-shot)
+check(isinstance(_s46_w._autosave_timer, QTimer), "46c: _autosave_timer is a QTimer")
+check(not _s46_w._autosave_timer.isSingleShot(), "46d: autosave timer is repeating (not single-shot)")
+
+# 46e: After loading a tool, timer is active
+check(_s46_w._autosave_timer.isActive(), "46e: autosave timer is active after loading tool")
+
+# 46f: _recovery_file_path() returns a Path in tempdir with tool name
+_s46_rpath = _s46_w._recovery_file_path()
+check(isinstance(_s46_rpath, Path), "46f: _recovery_file_path() returns a Path")
+check("autosave_test" in _s46_rpath.name, "46g: recovery file path contains tool name")
+check(str(_s46_rpath).startswith(tempfile.gettempdir()), "46h: recovery file is in tempdir")
+
+# 46i: _recovery_file_path() returns None when no tool loaded
+# Clear session/last_tool so the new window doesn't auto-load a tool
+from PySide6.QtCore import QSettings as _QS46
+_s46_settings = _QS46("Scaffold", "Scaffold")
+_s46_last = _s46_settings.value("session/last_tool")
+_s46_settings.remove("session/last_tool")
+_s46_w2 = scaffold.MainWindow()
+app.processEvents()
+check(_s46_w2._recovery_file_path() is None, "46i: _recovery_file_path() returns None with no tool")
+_s46_w2.close(); _s46_w2.deleteLater()
+app.processEvents()
+# Restore session/last_tool
+if _s46_last is not None:
+    _s46_settings.setValue("session/last_tool", _s46_last)
+
+# Set a field value to make the form non-empty, then test autosave
+_s46_w.form._set_field_value(("__global__", "--name"), "test_value")
+_s46_w._autosave_form()
+app.processEvents()
+
+# 46j: Recovery file is created on disk
+check(_s46_rpath.exists(), "46j: recovery file created after _autosave_form()")
+
+# 46k: Recovery file is valid JSON with field values
+_s46_recovery = json.loads(_s46_rpath.read_text(encoding="utf-8"))
+check(_s46_recovery.get("--name") == "test_value", "46k: recovery file contains serialized field values")
+
+# 46l: Recovery file contains _recovery_tool_path
+check(_s46_recovery.get("_recovery_tool_path") == str(_s46_tool_path),
+      "46l: recovery file contains correct _recovery_tool_path")
+
+# 46m: Recovery file contains recent _recovery_timestamp
+_s46_ts = _s46_recovery.get("_recovery_timestamp", 0)
+check(abs(time.time() - _s46_ts) < 5, "46m: recovery timestamp is within 5 seconds of now")
+
+# 46n: _clear_recovery_file() deletes the recovery file
+_s46_w._clear_recovery_file()
+check(not _s46_rpath.exists(), "46n: _clear_recovery_file() deletes recovery file")
+
+# 46o: _clear_recovery_file() is safe when no file exists
+_s46_w._clear_recovery_file()  # should not raise
+check(True, "46o: _clear_recovery_file() safe when no file exists")
+
+# 46p: closeEvent clears recovery file
+_s46_w.form._set_field_value(("__global__", "--name"), "close_test")
+_s46_w._autosave_form()
+check(_s46_rpath.exists(), "46p-pre: recovery file exists before close")
+_s46_w.close()
+app.processEvents()
+check(not _s46_rpath.exists(), "46p: closeEvent clears recovery file")
+
+# 46q: Expired recovery file is ignored and deleted
+_s46_w3 = scaffold.MainWindow()
+app.processEvents()
+_s46_expired = {
+    "_format": "scaffold_preset",
+    "_recovery_tool_path": str(_s46_tool_path),
+    "_recovery_timestamp": time.time() - (25 * 3600),  # 25 hours ago
+    "--name": "expired_value",
+}
+_s46_rpath.write_text(json.dumps(_s46_expired), encoding="utf-8")
+_s46_w3._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+check(not _s46_rpath.exists(), "46q: expired recovery file is deleted")
+_s46_w3.close(); _s46_w3.deleteLater()
+app.processEvents()
+
+# 46r: Mismatched tool_path recovery file is deleted
+_s46_w4 = scaffold.MainWindow()
+app.processEvents()
+_s46_mismatch = {
+    "_format": "scaffold_preset",
+    "_recovery_tool_path": "/some/other/tool.json",
+    "_recovery_timestamp": time.time(),
+    "--name": "mismatch_value",
+}
+_s46_rpath.write_text(json.dumps(_s46_mismatch), encoding="utf-8")
+_s46_w4._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+check(not _s46_rpath.exists(), "46r: mismatched tool_path recovery file is deleted")
+_s46_w4.close(); _s46_w4.deleteLater()
+app.processEvents()
+
+# 46s: Corrupted recovery file is silently deleted
+_s46_w5 = scaffold.MainWindow()
+app.processEvents()
+_s46_rpath.write_text("NOT VALID JSON {{{{", encoding="utf-8")
+_s46_w5._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+check(not _s46_rpath.exists(), "46s: corrupted recovery file is silently deleted")
+_s46_w5.close(); _s46_w5.deleteLater()
+app.processEvents()
+
+# 46t: Loading a new tool stops and restarts autosave timer
+_s46_w6 = scaffold.MainWindow()
+_s46_w6._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+check(_s46_w6._autosave_timer.isActive(), "46t-pre: timer active after first load")
+# Load a second time (simulates loading a new tool)
+_s46_w6._load_tool_path(str(_s46_tool_path))
+app.processEvents()
+check(_s46_w6._autosave_timer.isActive(), "46t: timer still active after reloading tool")
+
+# 46u: Timer is stopped when going back to picker
+_s46_w6._show_picker()
+app.processEvents()
+check(not _s46_w6._autosave_timer.isActive(), "46u: timer stopped when returning to picker")
+_s46_w6.close(); _s46_w6.deleteLater()
+app.processEvents()
+
+# Restore QMessageBox.warning
+QMessageBox.warning = _s46_orig_warning
+
+# Cleanup
+_s46_w.deleteLater()
+app.processEvents()
+shutil.rmtree(_s46_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 47 — Repeat Spinner Width + Required Field Status Persistence
+# =====================================================================
+print("\n--- Section 47: Repeat Spinner Width + Required Status Persistence ---")
+
+_s47_path = str(Path(__file__).parent / "tests" / "preset_roundtrip_all_types.json")
+_s47_w = scaffold.MainWindow()
+_s47_w._load_tool_path(_s47_path)
+app.processEvents()
+
+# 47a: Repeat spinner exists on the repeatable boolean field
+_s47_field = _s47_w.form.fields.get(("__global__", "-v"))
+check(_s47_field is not None, "47a: repeatable boolean field -v exists")
+
+# 47b: Repeat spinner widget exists
+_s47_spin = _s47_field.get("repeat_spin") if _s47_field else None
+check(_s47_spin is not None, "47b: repeat_spin widget exists on repeatable boolean")
+
+# 47c: Repeat spinner max width matches constant
+check(_s47_spin.maximumWidth() == scaffold.REPEAT_SPIN_WIDTH,
+      f"47c: repeat_spin maximumWidth is REPEAT_SPIN_WIDTH ({scaffold.REPEAT_SPIN_WIDTH})")
+
+# 47d: REPEAT_SPIN_WIDTH is wide enough (>= 70)
+check(scaffold.REPEAT_SPIN_WIDTH >= 70, f"47d: REPEAT_SPIN_WIDTH ({scaffold.REPEAT_SPIN_WIDTH}) >= 70")
+
+# 47e: Spinner actual width respects maximumWidth constraint
+check(_s47_spin.width() <= _s47_spin.maximumWidth(),
+      "47e: repeat_spin actual width respects maximumWidth")
+
+# --- Required field status persistence ---
+
+# 47f: Required field --name is empty, status shows "Required"
+_s47_w._update_preview()
+app.processEvents()
+check("Required" in _s47_w.status.text(), "47f: status shows 'Required' when required field is empty")
+
+# 47g: _status_timer is NOT active (message should persist)
+check(not _s47_w._status_timer.isActive(), "47g: _status_timer is NOT active for required message")
+
+# 47h: Status text mentions the field name
+check("Name" in _s47_w.status.text(), "47h: required status mentions field name 'Name'")
+
+# 47i: Fill the required field, status should clear
+_s47_w.form._set_field_value(("__global__", "--name"), "test_value")
+_s47_w._update_preview()
+app.processEvents()
+check(_s47_w.status.text() == "", "47i: status cleared after filling required field")
+
+# 47j: Transient message still auto-clears (timer starts)
+_s47_w._show_status("transient test")
+app.processEvents()
+check(_s47_w._status_timer.isActive(), "47j: _status_timer active for transient message")
+
+# 47k: After timer fires, transient message is cleared
+_s47_w._status_timer.timeout.emit()
+app.processEvents()
+check(_s47_w.status.text() == "", "47k: transient message cleared after timer fires")
+
+# 47l: If transient timer is pending and required field becomes empty, timer is stopped
+_s47_w._show_status("another transient")
+app.processEvents()
+check(_s47_w._status_timer.isActive(), "47l-pre: transient timer is active")
+_s47_w.form._set_field_value(("__global__", "--name"), "")
+_s47_w._update_preview()
+app.processEvents()
+check(not _s47_w._status_timer.isActive(), "47l: transient timer stopped when required message takes over")
+check("Required" in _s47_w.status.text(), "47m: required message shown after clearing field")
+
+_s47_w.close(); _s47_w.deleteLater(); app.processEvents()
+
+# =====================================================================
+# Section 48 — Multi-Word Subcommand Support
+# =====================================================================
+print("\n--- Section 48: Multi-Word Subcommand Support ---")
+
+_s48_path = str(Path(__file__).parent / "tests" / "test_multiword_subcmd.json")
+_s48_w = scaffold.MainWindow()
+_s48_w._load_tool_path(_s48_path)
+app.processEvents()
+
+# 48a: Multi-word subcommand produces separate tokens in command
+_s48_w.form.sub_combo.setCurrentIndex(0)  # "role install"
+app.processEvents()
+_s48_w.form._set_field_value(("role install", "ROLE"), "geerlingguy.docker")
+_s48_cmd, _ = _s48_w.form.build_command()
+check(_s48_cmd[0] == "echo", "48a: binary is first token")
+check("role" in _s48_cmd and "install" in _s48_cmd, "48b: multi-word subcmd split into separate tokens")
+check(_s48_cmd.index("role") == 1, "48c: 'role' is at index 1 (right after binary)")
+check(_s48_cmd.index("install") == 2, "48d: 'install' is at index 2")
+check(_s48_cmd[-1] == "geerlingguy.docker", "48e: positional is last token")
+
+# 48b: Multi-word subcommand with global flags
+_s48_w.form._set_field_value(("__global__", "--verbose"), True)
+_s48_w.form._set_field_value(("role install", "ROLE"), "myrole")
+_s48_cmd2, _ = _s48_w.form.build_command()
+check(_s48_cmd2[0] == "echo", "48f: binary first with global flag")
+check(_s48_cmd2[1] == "--verbose", "48g: global flag before subcommand")
+check(_s48_cmd2[2] == "role" and _s48_cmd2[3] == "install", "48h: subcmd after global flags")
+check(_s48_cmd2[-1] == "myrole", "48i: positional last with global flag")
+
+# 48c: Multi-word subcommand with subcommand-scoped flags
+_s48_w.form._set_field_value(("__global__", "--verbose"), False)
+_s48_w.form._set_field_value(("role install", "--force"), True)
+_s48_w.form._set_field_value(("role install", "ROLE"), "myrole")
+_s48_cmd3, _ = _s48_w.form.build_command()
+check("role" in _s48_cmd3 and "install" in _s48_cmd3, "48j: subcmd parts in cmd with scoped flag")
+_s48_install_idx = _s48_cmd3.index("install")
+_s48_force_idx = _s48_cmd3.index("--force")
+check(_s48_force_idx > _s48_install_idx, "48k: --force comes after 'install'")
+check(_s48_cmd3[-1] == "myrole", "48l: positional last with scoped flag")
+
+# 48d: Single-word subcommands still work (regression check)
+_s48_git_path = str(Path(__file__).parent / "tools" / "git.json")
+_s48_w2 = scaffold.MainWindow()
+_s48_w2._load_tool_path(_s48_git_path)
+app.processEvents()
+_s48_w2.form.sub_combo.setCurrentIndex(0)
+app.processEvents()
+_s48_sub_name = _s48_w2.form.sub_combo.currentData()
+_s48_git_cmd, _ = _s48_w2.form.build_command()
+# Single-word subcmd should be one token, not split
+check(_s48_sub_name in _s48_git_cmd, "48m: single-word subcmd is one token in cmd")
+check(" " not in _s48_sub_name, "48n: single-word subcmd has no spaces")
+_s48_w2.close(); _s48_w2.deleteLater(); app.processEvents()
+
+# 48e: Three-word subcommand name
+_s48_tmpdir = tempfile.mkdtemp()
+_s48_three_tool = {
+    "tool": "test3word",
+    "binary": "gcloud",
+    "description": "Three-word subcmd test",
+    "subcommands": [
+        {
+            "name": "compute instances create",
+            "description": "Create a VM instance",
+            "arguments": [
+                _make_arg("Zone", "--zone"),
+            ],
+        }
+    ],
+    "elevated": None,
+    "arguments": [],
+}
+_s48_three_path = Path(_s48_tmpdir) / "test3word.json"
+_s48_three_path.write_text(json.dumps(_s48_three_tool))
+_s48_w3 = scaffold.MainWindow(tool_path=str(_s48_three_path))
+app.processEvents()
+_s48_f3 = _s48_w3.form
+_s48_f3.sub_combo.setCurrentIndex(0)
+app.processEvents()
+_s48_f3._set_field_value(("compute instances create", "--zone"), "us-east1")
+_s48_cmd4, _ = _s48_f3.build_command()
+check(_s48_cmd4[0] == "gcloud", "48o: three-word subcmd binary")
+check(_s48_cmd4[1] == "compute" and _s48_cmd4[2] == "instances" and _s48_cmd4[3] == "create",
+      "48p: three-word subcmd split into 3 consecutive tokens")
+check("--zone" in _s48_cmd4 and "us-east1" in _s48_cmd4, "48q: flag and value present")
+_s48_w3.close(); _s48_w3.deleteLater(); app.processEvents()
+shutil.rmtree(_s48_tmpdir, ignore_errors=True)
+
+# 48f: Preview colorizer colors each subcommand part
+_s48_w.form.sub_combo.setCurrentIndex(0)  # "role install"
+app.processEvents()
+_s48_w.form._set_field_value(("__global__", "--verbose"), False)
+_s48_w.form._set_field_value(("role install", "--force"), False)
+_s48_w.form._set_field_value(("role install", "ROLE"), "myrole")
+_s48_w._update_preview()
+app.processEvents()
+_s48_html = _s48_w.preview.toHtml()
+_s48_colors = scaffold.DARK_PREVIEW if scaffold._dark_mode else scaffold.LIGHT_PREVIEW
+_s48_sub_color = _s48_colors["subcommand"]
+import html as _s48_html_mod
+import re as _s48_re
+_s48_role_span = _s48_re.search(
+    r'<span[^>]*' + _s48_re.escape(_s48_sub_color) + r'[^>]*>role</span>', _s48_html)
+_s48_install_span = _s48_re.search(
+    r'<span[^>]*' + _s48_re.escape(_s48_sub_color) + r'[^>]*>install</span>', _s48_html)
+check(_s48_role_span is not None, "48r: 'role' colored with subcommand color")
+check(_s48_install_span is not None, "48s: 'install' colored with subcommand color")
+
+# 48g: Preset round-trip with multi-word subcommand
+_s48_w.form.sub_combo.setCurrentIndex(2)  # "collection install"
+app.processEvents()
+_s48_w.form._set_field_value(("collection install", "--force"), True)
+_s48_w.form._set_field_value(("collection install", "COLLECTION"), "community.general")
+_s48_preset = _s48_w.form.serialize_values()
+check(_s48_preset.get("_subcommand") == "collection install", "48t: _subcommand is 'collection install'")
+# Reset and restore
+_s48_w.form._set_field_value(("collection install", "--force"), False)
+_s48_w.form._set_field_value(("collection install", "COLLECTION"), "")
+_s48_w.form.sub_combo.setCurrentIndex(0)
+app.processEvents()
+_s48_w.form.apply_values(_s48_preset)
+app.processEvents()
+check(_s48_w.form.sub_combo.currentData() == "collection install",
+      "48u: preset restored subcommand to 'collection install'")
+_s48_restored = _s48_w.form.serialize_values()
+check(_s48_restored.get("collection install:--force") == True, "48v: preset restored --force flag")
+check(_s48_restored.get("collection install:COLLECTION") == "community.general",
+      "48w: preset restored COLLECTION value")
+
+_s48_w.close(); _s48_w.deleteLater(); app.processEvents()
+
+# 48h: Validation rejects bad subcommand names
+def _s48_make_sub_tool(sub_name):
+    return {
+        "tool": "test", "binary": "test", "description": "t",
+        "subcommands": [{"name": sub_name, "description": "d", "arguments": []}],
+        "arguments": [],
+    }
+
+_s48_errs_leading = scaffold.validate_tool(_s48_make_sub_tool("  role install"))
+check(any("whitespace" in e for e in _s48_errs_leading), "48x: leading whitespace rejected")
+
+_s48_errs_trailing = scaffold.validate_tool(_s48_make_sub_tool("role install  "))
+check(any("whitespace" in e for e in _s48_errs_trailing), "48y: trailing whitespace rejected")
+
+_s48_errs_double = scaffold.validate_tool(_s48_make_sub_tool("role  install"))
+check(any("double spaces" in e for e in _s48_errs_double), "48z: double spaces rejected")
+
+_s48_errs_empty = scaffold.validate_tool(_s48_make_sub_tool(""))
+check(any("non-empty" in e for e in _s48_errs_empty), "48aa: empty string rejected")
+
+_s48_errs_valid = scaffold.validate_tool(_s48_make_sub_tool("role install"))
+check(not any("name" in e.lower() and "subcommand" in e.lower() for e in _s48_errs_valid),
+      "48ab: valid multi-word name accepted")
+
+# 48i: Validation rejects duplicate subcommand names
+_s48_dup_tool = {
+    "tool": "test", "binary": "test", "description": "t",
+    "subcommands": [
+        {"name": "role install", "description": "d1", "arguments": []},
+        {"name": "role install", "description": "d2", "arguments": []},
+    ],
+    "arguments": [],
+}
+_s48_dup_errs = scaffold.validate_tool(_s48_dup_tool)
+check(any("duplicate" in e.lower() for e in _s48_dup_errs), "48ac: duplicate subcommand name rejected")
 
 # =====================================================================
 # Final cleanup

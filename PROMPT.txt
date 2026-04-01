@@ -70,7 +70,7 @@ Use ONLY these types. When unsure between file and string, use string. When unsu
 
 4. EXAMPLES vs ENUM: enum locks the GUI to ONLY those values — use it only when no other value is valid. examples shows suggestions but the user can type anything. Use examples when docs list common values but the flag accepts others too (phrases like "see list", "supported values include").
 
-5. SUBCOMMANDS: Only for clearly subcommand-based tools (git, docker). Most tools → null. Global flags go in top-level arguments, subcommand flags go in each subcommand's arguments.
+5. SUBCOMMANDS: Only for clearly subcommand-based tools (git, docker, ansible-galaxy). Most tools → null. Global flags go in top-level arguments, subcommand flags go in each subcommand's arguments. For tools with multi-level subcommands (e.g. "ansible-galaxy role install", "docker compose up"), use the full subcommand chain as the name: "role install", "compose up". Each word becomes a separate token in the assembled command.
 
 6. ELEVATED: "optional" if some features need root (e.g. nmap SYN scan). "always" if tool requires root (e.g. iptables). null when in doubt.
 
@@ -96,6 +96,7 @@ Use ONLY these types. When unsure between file and string, use string. When unsu
 
 Without subcommands: <binary> [flags] [positional args]
 With subcommands: <binary> [global flags] <subcommand> [subcommand flags] [positional args]
+With multi-level subcommands: <binary> [global flags] <sub1> <sub2> [subcommand flags] [positional args]
 
 === EXAMPLE ===
 
@@ -231,9 +232,10 @@ Before returning, verify:
 6. Positional args are LAST in the array with positional: true
 7. "flag" = long form, "short_flag" = short form — never reversed
 8. No duplicate flags within the same scope (top-level arguments or a single subcommand). The same flag MAY appear in multiple subcommands.
-9. Output is valid JSON — no trailing commas, no comments, no markdown
-10. min/max are only on integer or float types. If both are set, min <= max
-11. deprecated is null or a non-empty string. dangerous is a boolean
+9. Subcommand names have no leading/trailing whitespace and no double spaces
+10. Output is valid JSON — no trailing commas, no comments, no markdown
+11. min/max are only on integer or float types. If both are set, min <= max
+12. deprecated is null or a non-empty string. dangerous is a boolean
 
 === COVERAGE SELF-CHECK ===
 

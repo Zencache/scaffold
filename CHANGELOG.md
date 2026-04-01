@@ -2,6 +2,40 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.6] — 2026-04-01
+
+### Added
+
+- **Form auto-save & crash recovery** — form state is automatically saved to a temporary recovery file every 30 seconds. If the app crashes or is force-closed, the next launch offers to restore the unsaved work via a recovery prompt. Recovery files expire after 24 hours and are cleared on normal close.
+  - Auto-save timer starts when a tool is loaded, stops when returning to the picker
+  - Recovery files stored in the system temp directory, keyed by tool name
+  - Expired, mismatched, or corrupted recovery files are silently cleaned up
+  - Empty/default forms are not saved (no unnecessary recovery prompts)
+  - Immediate auto-save on first field change (no 30-second gap before first save)
+- **Multi-word subcommand names** — subcommand names like `"role install"`, `"compose up"`, or `"compute instances create"` are now split into separate command tokens during assembly. Single-word subcommands are unaffected. Enables schemas for tools like `ansible-galaxy`, `docker compose`, `aws s3`, and `gcloud compute`.
+  - Preview colorizer matches each subcommand word in sequence
+  - Validation rejects empty names, leading/trailing whitespace, double spaces, and duplicates
+  - New test schema: `tests/test_multiword_subcmd.json` (3 subcommands, global + scoped flags)
+  - Updated `PROMPT.txt`, `schema.md`, and `README.md`
+
+### Fixed
+
+- **Repeat spinner clipping** — the "x" count spinner on repeatable boolean fields (e.g. nmap's Verbose `-v`) was too narrow, clipping the number text. Increased `REPEAT_SPIN_WIDTH` from 60px to 75px. Audit: the timeout spinbox (80px) and subcommand combo (600px max) are adequate; no other spinboxes are affected.
+- **Required field status disappears after 3 seconds** — the red "Required: ..." message below the command preview was using `_show_status()`, which starts a 3-second auto-clear timer. Required field messages now set the label directly and stop the timer, persisting until the user fills in the missing fields. Transient messages (copy confirmations, etc.) still auto-clear normally.
+- **Test suites hang on stale recovery files** — auto-save recovery files left behind by crashed sessions caused a blocking `QMessageBox.question()` dialog on the next test run. Added global `QMessageBox.question` auto-decline patches to all 3 test files.
+
+#### Full suite results
+
+- **All 5 test suites pass: 891/891 assertions, 0 failures**
+  - Functional: 697/697
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 58/58
+  - Preset Validation: 23/23
+- All 10 tool schemas validate with zero errors
+
+---
+
 ## [v2.6.5] — 2026-03-31
 
 ### Added

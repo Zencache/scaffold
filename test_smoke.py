@@ -21,7 +21,11 @@ from PySide6.QtCore import Qt, QSettings, QProcess
 
 app = QApplication.instance() or QApplication(sys.argv)
 
+from PySide6.QtWidgets import QMessageBox
 import scaffold
+
+# Auto-decline recovery prompts so stale recovery files don't block tests
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
 
 passed = 0
 failed = 0

@@ -102,11 +102,11 @@ When `depends_on` names another argument's `flag`, the dependent argument is dis
 
 ## Subcommand Object
 
-Used for tools like `git`, `docker`, `ip` that have distinct subcommands each with their own arguments.
+Used for tools like `git`, `docker`, `ansible-galaxy` that have distinct subcommands each with their own arguments.
 
 | Field        | Type   | Required | Description                                      |
 |--------------|--------|----------|--------------------------------------------------|
-| `name`       | string | yes      | Subcommand name as typed on the command line.     |
+| `name`       | string | yes      | Subcommand name as typed on the command line. Multi-word names like `"role install"` are supported — each word becomes a separate token in the assembled command. |
 | `description`| string | no       | One-line description shown in the subcommand dropdown. |
 | `arguments`  | array  | yes      | List of argument objects specific to this subcommand. |
 
@@ -158,6 +158,12 @@ The assembled command follows this order:
 
 ```
 <binary> [global arguments] <subcommand> [subcommand arguments] [positional arguments]
+```
+
+For multi-word subcommand names (e.g. `"role install"`), each word becomes a separate token:
+
+```
+ansible-galaxy --verbose role install --force geerlingguy.docker
 ```
 
 ---

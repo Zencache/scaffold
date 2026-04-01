@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 import datetime
 import hashlib
@@ -60,7 +60,7 @@ ARG_DEFAULTS = {
 # Widget size constants
 SPINBOX_RANGE = 999999
 REPEAT_SPIN_MAX = 10
-REPEAT_SPIN_WIDTH = 60
+REPEAT_SPIN_WIDTH = 75
 TEXT_WIDGET_HEIGHT = 80
 MULTI_ENUM_HEIGHT = 120
 
@@ -77,6 +77,10 @@ OUTPUT_DEFAULT_HEIGHT = 150     # Default output panel height (pixels)
 
 # Tool schema file size limit (bytes)
 MAX_SCHEMA_SIZE = 1_000_000     # 1 MB — skip files larger than this
+
+# Auto-save / crash recovery
+AUTOSAVE_INTERVAL_MS = 30000    # 30 seconds between auto-saves
+AUTOSAVE_EXPIRY_HOURS = 24      # Recovery files older than this are ignored
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +168,7 @@ def validate_tool(data: dict) -> list[str]:
         if not isinstance(data["subcommands"], list):
             errors.append("\"subcommands\" must be a list or null")
         else:
+            seen_sub_names = {}
             for i, sub in enumerate(data["subcommands"]):
                 label = f"subcommand[{i}]"
                 if not isinstance(sub, dict):
@@ -172,7 +177,18 @@ def validate_tool(data: dict) -> list[str]:
                 if "name" not in sub:
                     errors.append(f"{label}: missing required key \"name\"")
                 else:
-                    label = f"subcommand \"{sub['name']}\""
+                    name = sub["name"]
+                    if not isinstance(name, str) or not name.strip():
+                        errors.append(f"{label}: \"name\" must be a non-empty string")
+                    elif name != name.strip():
+                        errors.append(f"subcommand \"{name}\": \"name\" has leading/trailing whitespace")
+                    elif "  " in name:
+                        errors.append(f"subcommand \"{name}\": \"name\" contains double spaces")
+                    else:
+                        if name in seen_sub_names:
+                            errors.append(f"duplicate subcommand name \"{name}\"")
+                        seen_sub_names[name] = True
+                    label = f"subcommand \"{name}\""
                 if "arguments" not in sub:
                     errors.append(f"{label}: missing required key \"arguments\"")
                 elif not isinstance(sub["arguments"], list):
@@ -1930,7 +1946,7 @@ class ToolForm(QWidget):
         # Insert subcommand name and its args
         if sub:
             sub_data = next(s for s in self.data["subcommands"] if s["name"] == sub)
-            cmd.append(sub)
+            cmd.extend(sub.split())
             self._assemble_args(sub_data["arguments"], sub, cmd, positional)
 
         # Positional args at end
@@ -2094,6 +2110,9 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
             style += "font-style:italic;"
         return f"<span style='{style}'>{_html.escape(text)}</span>"
 
+    sub_parts = subcommand.split() if subcommand else []
+    sub_idx = 0
+
     i = 0
     while i < len(cmd):
         token = cmd[i]
@@ -2105,6 +2124,10 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
         elif i >= core_len:
             # Extra flags section
             parts.append(_span(display_token, colors["extra"], italic=True))
+        elif sub_idx < len(sub_parts) and token == sub_parts[sub_idx]:
+            # Subcommand part
+            parts.append(_span(display_token, colors["subcommand"], bold=True))
+            sub_idx += 1
         elif token.startswith("-"):
             # Flag — check for = separator (e.g., --flag=value)
             if "=" in token:
@@ -2123,11 +2146,8 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
                     val_display = _quote_token(cmd[i])
                     parts.append(_span(val_display, colors["value"]))
         else:
-            # Subcommand name or positional
-            if subcommand and token == subcommand:
-                parts.append(_span(display_token, colors["subcommand"], bold=True))
-            else:
-                parts.append(_span(display_token, colors["value"]))
+            # Positional or unrecognized value
+            parts.append(_span(display_token, colors["value"]))
 
         i += 1
 
@@ -2800,6 +2820,9 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
         self.settings = QSettings("Scaffold", "Scaffold")
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
+        self._autosave_timer.timeout.connect(self._autosave_form)
 
         # Restore geometry
         self.setMinimumSize(640, 400)
@@ -3299,8 +3322,99 @@ class MainWindow(QMainWindow):
         if hasattr(self, "output"):
             self._clamp_output_height()
 
+    # ------------------------------------------------------------------
+    # Auto-save / crash recovery
+    # ------------------------------------------------------------------
+
+    def _recovery_file_path(self) -> Path | None:
+        """Return the recovery file path for the current tool, or None."""
+        if self.data is None:
+            return None
+        safe_name = re.sub(r'[^\w\-. ]', '_', self.data["tool"])
+        return Path(tempfile.gettempdir()) / f"scaffold_recovery_{safe_name}.json"
+
+    def _autosave_on_change(self) -> None:
+        """Auto-save immediately on first field change so there's no 30s gap."""
+        path = self._recovery_file_path()
+        if path is not None and not path.exists():
+            self._autosave_form()
+
+    def _autosave_form(self) -> None:
+        """Periodically serialize form state to a recovery file."""
+        if self.form is None or self.data is None:
+            return
+        values = self.form.serialize_values()
+        # Don't save if only meta keys are present (form is at defaults/empty)
+        if not any(k for k in values if not k.startswith("_")):
+            return
+        values["_recovery_tool_path"] = self.tool_path
+        values["_recovery_timestamp"] = time.time()
+        path = self._recovery_file_path()
+        if path is None:
+            return
+        try:
+            path.write_text(
+                json.dumps(values, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+    def _clear_recovery_file(self) -> None:
+        """Delete the recovery file if it exists."""
+        path = self._recovery_file_path()
+        if path is None:
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _check_for_recovery(self) -> None:
+        """On tool load, offer to restore auto-saved form state."""
+        path = self._recovery_file_path()
+        if path is None or not path.exists():
+            return
+        try:
+            recovery_data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        ts = recovery_data.get("_recovery_timestamp", 0)
+        if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        if recovery_data.get("_recovery_tool_path") != self.tool_path:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        human_time = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        btn = QMessageBox.question(
+            self, "Recover Unsaved Work",
+            f"An auto-saved form state was found from {human_time}.\n\n"
+            "Would you like to restore it?",
+        )
+        if btn == QMessageBox.StandardButton.Yes:
+            self.form.apply_values(recovery_data)
+            self.statusBar().showMessage("Form restored from auto-save")
+        else:
+            self.statusBar().showMessage("Recovery discarded")
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def closeEvent(self, event) -> None:
         """Persist window geometry and session state; kill any running process on exit."""
+        self._clear_recovery_file()
         self.settings.setValue("window/geometry", self.saveGeometry())
         if self.tool_path:
             self.settings.setValue("session/last_tool", self.tool_path)
@@ -3336,6 +3450,7 @@ class MainWindow(QMainWindow):
 
     def _show_picker(self) -> None:
         """Switch to the tool-picker view and reset form-specific menu items."""
+        self._autosave_timer.stop()
         self.picker.scan()
         self.stack.setCurrentIndex(0)
         self.setWindowTitle("Scaffold")
@@ -3346,6 +3461,7 @@ class MainWindow(QMainWindow):
 
     def _load_tool_path(self, path: str) -> None:
         """Load, validate, and display the tool at path; show an error dialog on failure."""
+        self._autosave_timer.stop()
         try:
             data = load_tool(path)
         except RuntimeError as e:
@@ -3420,6 +3536,9 @@ class MainWindow(QMainWindow):
             self.warning_bar.setVisible(True)
         else:
             self.warning_bar.setVisible(False)
+
+        self._autosave_timer.start()
+        self._check_for_recovery()
 
     def _show_load_error(self, msg: str) -> None:
         """Display a warning dialog for tool-load failures."""
@@ -3596,6 +3715,7 @@ class MainWindow(QMainWindow):
 
         # Connect live preview
         self.form.command_changed.connect(self._update_preview)
+        self.form.command_changed.connect(self._autosave_on_change)
         self._update_preview()
 
     # ------------------------------------------------------------------
@@ -3662,6 +3782,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error saving preset: {e}")
             return
         self.statusBar().showMessage(f"Preset saved: {safe_name}")
+        self._clear_recovery_file()
 
     def _on_load_preset(self) -> None:
         """Show a preset picker and restore the selected preset to the form."""
@@ -3850,6 +3971,7 @@ class MainWindow(QMainWindow):
         if self.data:
             self.form.reset_to_defaults()
             self.statusBar().showMessage("Reset to defaults")
+            self._clear_recovery_file()
 
     # ------------------------------------------------------------------
     # Preview
@@ -3878,7 +4000,11 @@ class MainWindow(QMainWindow):
                 field = self.form.fields.get(key)
                 if field:
                     names.append(field["arg"]["name"])
-            self._show_status(f"Required: {', '.join(names)}")
+            color = DARK_COLORS["error"] if _dark_mode else "red"
+            self.status.setText(f"Required: {', '.join(names)}")
+            self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
+            # Do NOT start _status_timer — this message must persist until fields are filled
+            self._status_timer.stop()
             # Keep Stop button clickable while a process is running
             self.run_btn.setEnabled(process_running)
         else:

@@ -70,7 +70,8 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown
 - **10 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, password fields, and more — each CLI argument gets the right input control
-- **Subcommand support** — tools like `git` with multiple subcommands work seamlessly
+- **Subcommand support** — tools like `git` with multiple subcommands work seamlessly, including multi-word chains like `ansible-galaxy role install` or `docker compose up`
+- **Form auto-save & crash recovery** — form state is periodically saved to a temp file; if the app crashes, the next launch offers to restore your work
 - **Collapsible display groups** — visually group related arguments into collapsible sections to tame tools with hundreds of flags
 - **Field search** — Ctrl+F to instantly find any field by name or flag in large forms
 - **Process timeout** — optional auto-kill after N seconds, saved per tool
@@ -299,6 +300,18 @@ For tools like `git` that have subcommands, each subcommand has its own argument
 ```
 
 The command is assembled as: `binary [global flags] [subcommand] [subcommand flags] [positionals] [extra flags]`
+
+For tools with multi-level subcommands like `ansible-galaxy` or `docker compose`, use the full chain as the name. Scaffold splits it into separate tokens: `ansible-galaxy role install --force` assembles correctly.
+
+```json
+{
+  "subcommands": [
+    { "name": "role install", "description": "Install a role", "arguments": [...] },
+    { "name": "role remove", "description": "Remove a role", "arguments": [...] },
+    { "name": "collection install", "description": "Install a collection", "arguments": [...] }
+  ]
+}
+```
 
 ### Mutual Exclusivity Groups
 
