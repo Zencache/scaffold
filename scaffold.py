@@ -2085,6 +2085,48 @@ def _format_display(cmd: list[str]) -> str:
     return " ".join(parts)
 
 
+def _format_bash(cmd: list[str]) -> str:
+    """Format a command list as a Bash command string."""
+    if not cmd:
+        return ""
+    return shlex.join(cmd)
+
+
+def _format_powershell(cmd: list[str]) -> str:
+    """Format a command list as a PowerShell command string."""
+    if not cmd:
+        return ""
+    parts = []
+    for i, token in enumerate(cmd):
+        needs_quote = " " in token or "\t" in token
+        if i == 0 and needs_quote:
+            # Binary with spaces needs & prefix and single-quoting
+            parts.append(f"& '{token}'")
+        elif needs_quote:
+            if "'" in token:
+                parts.append(f'"{token}"')
+            else:
+                parts.append(f"'{token}'")
+        else:
+            parts.append(token)
+    return " ".join(parts)
+
+
+def _format_cmd(cmd: list[str]) -> str:
+    """Format a command list as a Windows CMD command string."""
+    if not cmd:
+        return ""
+    _cmd_special = set(' &|<>^%')
+    parts = []
+    for token in cmd:
+        if any(c in _cmd_special for c in token):
+            escaped = token.replace('"', '\\"')
+            parts.append(f'"{escaped}"')
+        else:
+            parts.append(token)
+    return " ".join(parts)
+
+
 def _quote_token(token: str) -> str:
     """Shell-quote a token for display if it contains whitespace."""
     if " " in token or "\t" in token:
@@ -3757,6 +3799,8 @@ class MainWindow(QMainWindow):
                 f"QTextEdit {{ background-color: {DARK_COLORS['widget']};"
                 f" color: {DARK_COLORS['text']}; }}"
             )
+        self.preview.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.preview.customContextMenuRequested.connect(self._on_preview_context_menu)
         preview_bar.addWidget(self.preview, 1)
 
         self.copy_btn = QPushButton("Copy Command")
@@ -4175,6 +4219,37 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(display)
         color = DARK_COLORS["success"] if _dark_mode else "green"
         self._show_status("Copied to clipboard.", color)
+
+    def _on_preview_context_menu(self, pos) -> None:
+        """Show context menu with shell-specific copy options."""
+        if self.form.data is None:
+            return
+        menu = QMenu(self.preview)
+        menu.addAction("Copy as Bash", self._copy_as_bash)
+        menu.addAction("Copy as PowerShell", self._copy_as_powershell)
+        menu.addAction("Copy as CMD", self._copy_as_cmd)
+        menu.addSeparator()
+        menu.addAction("Copy", self._copy_command)
+        menu.exec(self.preview.mapToGlobal(pos))
+
+    def _copy_as_shell(self, formatter, label: str) -> None:
+        """Helper: copy command formatted for a specific shell."""
+        cmd, _ = self.form.build_command()
+        if self.form.is_elevation_checked():
+            cmd, _ = get_elevation_command(cmd)
+        text = formatter(cmd)
+        QApplication.clipboard().setText(text)
+        color = DARK_COLORS["success"] if _dark_mode else "green"
+        self._show_status(f"Copied as {label}.", color)
+
+    def _copy_as_bash(self) -> None:
+        self._copy_as_shell(_format_bash, "Bash")
+
+    def _copy_as_powershell(self) -> None:
+        self._copy_as_shell(_format_powershell, "PowerShell")
+
+    def _copy_as_cmd(self) -> None:
+        self._copy_as_shell(_format_cmd, "CMD")
 
     def _copy_output(self) -> None:
         """Copy the output panel's plain text to the clipboard."""

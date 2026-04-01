@@ -5335,6 +5335,106 @@ finally:
             _p50.unlink()
 
 # =====================================================================
+# Section 51 — Copy As Shell Formats
+# =====================================================================
+print("\n=== SECTION 51: Copy As Shell Formats ===")
+
+# --- Formatting function existence ---
+# 51a: _format_bash exists and is callable
+check(callable(getattr(scaffold, "_format_bash", None)),
+      "51a: _format_bash exists and is callable")
+
+# 51b: _format_powershell exists and is callable
+check(callable(getattr(scaffold, "_format_powershell", None)),
+      "51b: _format_powershell exists and is callable")
+
+# 51c: _format_cmd exists and is callable
+check(callable(getattr(scaffold, "_format_cmd", None)),
+      "51c: _format_cmd exists and is callable")
+
+# --- _format_bash tests ---
+# 51d: simple command
+check(scaffold._format_bash(["nmap", "-sS", "192.168.1.1"]) == "nmap -sS 192.168.1.1",
+      "51d: _format_bash simple command")
+
+# 51e: argument with spaces gets quoted
+_bash_spaced = scaffold._format_bash(["nmap", "-p", "80 443"])
+check("80 443" not in _bash_spaced or _bash_spaced.count("'") >= 2 or _bash_spaced.count('"') >= 2,
+      "51e: _format_bash quotes argument with spaces")
+
+# 51f: argument with single quotes gets escaped (shlex escapes them)
+_bash_sq = scaffold._format_bash(["echo", "it's"])
+check(_bash_sq.startswith("echo ") and len(_bash_sq) > 5,
+      "51f: _format_bash handles single quotes in argument")
+
+# 51g: empty list returns empty string
+check(scaffold._format_bash([]) == "", "51g: _format_bash empty list returns empty string")
+
+# 51h: single element (just binary)
+check(scaffold._format_bash(["nmap"]) == "nmap", "51h: _format_bash single element")
+
+# --- _format_powershell tests ---
+# 51i: simple command
+check(scaffold._format_powershell(["nmap", "-sS", "192.168.1.1"]) == "nmap -sS 192.168.1.1",
+      "51i: _format_powershell simple command")
+
+# 51j: spaces quoted with single quotes
+_ps_spaced = scaffold._format_powershell(["tool", "hello world"])
+check("'hello world'" in _ps_spaced, "51j: _format_powershell quotes spaces with single quotes")
+
+# 51k: binary with spaces gets & prefix
+_ps_bin = scaffold._format_powershell(["C:\\Program Files\\tool.exe", "-v"])
+check(_ps_bin.startswith("& "), "51k: _format_powershell prepends & for binary with spaces")
+
+# 51l: empty list
+check(scaffold._format_powershell([]) == "", "51l: _format_powershell empty list returns empty string")
+
+# 51m: single element
+check(scaffold._format_powershell(["nmap"]) == "nmap", "51m: _format_powershell single element")
+
+# --- _format_cmd tests ---
+# 51n: simple command
+check(scaffold._format_cmd(["nmap", "-sS", "192.168.1.1"]) == "nmap -sS 192.168.1.1",
+      "51n: _format_cmd simple command")
+
+# 51o: spaces use double quotes
+_cmd_spaced = scaffold._format_cmd(["tool", "hello world"])
+check('"hello world"' in _cmd_spaced, "51o: _format_cmd quotes spaces with double quotes")
+
+# 51p: special characters get quoted
+_cmd_special = scaffold._format_cmd(["tool", "a&b", "x|y"])
+check('"a&b"' in _cmd_special and '"x|y"' in _cmd_special,
+      "51p: _format_cmd quotes special characters")
+
+# 51q: empty list
+check(scaffold._format_cmd([]) == "", "51q: _format_cmd empty list returns empty string")
+
+# 51r: single element
+check(scaffold._format_cmd(["nmap"]) == "nmap", "51r: _format_cmd single element")
+
+# --- Integration tests ---
+# 51s: preview widget has CustomContextMenu policy
+check(window.preview.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu,
+      "51s: preview widget has CustomContextMenu policy")
+
+# 51t: methods exist
+check(callable(getattr(window, "_on_preview_context_menu", None)),
+      "51t: _on_preview_context_menu method exists")
+check(callable(getattr(window, "_copy_as_bash", None)),
+      "51u: _copy_as_bash method exists")
+check(callable(getattr(window, "_copy_as_powershell", None)),
+      "51v: _copy_as_powershell method exists")
+check(callable(getattr(window, "_copy_as_cmd", None)),
+      "51w: _copy_as_cmd method exists")
+
+# 51x: _copy_as_bash copies correctly formatted text to clipboard
+window._copy_as_bash()
+app.processEvents()
+_clip_51 = QApplication.clipboard().text()
+# The clipboard should contain bash-formatted command text
+check(len(_clip_51) > 0, "51x: _copy_as_bash puts text on clipboard")
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
