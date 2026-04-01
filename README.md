@@ -13,14 +13,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-4%2C180%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-4%2C236%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (793 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (804 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 
 ---
 
@@ -68,7 +68,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Presets** — save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again
 - **LLM-powered schema generation** — paste the included `PROMPT.txt` into any LLM along with a tool's `--help` output or man page, and get a working schema back. Works with any model that can output JSON
 - **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
-- **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, and one-click export to file
+- **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown
 - **10 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, password fields, and more — each CLI argument gets the right input control
 - **Subcommand support** — tools like `git` with multiple subcommands work seamlessly
 - **Collapsible display groups** — visually group related arguments into collapsible sections to tame tools with hundreds of flags
@@ -79,6 +79,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Mutual exclusivity & dependencies** — radio-button groups for conflicting flags, fields that activate only when their parent is set
 - **Validation** — regex patterns and required field checking, catch mistakes before you run
 - **Drag and drop** — drop a `.json` schema onto the window to load it
+- **Help menu** — About dialog with version info and GitHub link, keyboard shortcuts reference
 - **Session persistence** — remembers window size, position, theme, and last opened tool
 - **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
 
@@ -105,6 +106,7 @@ The tool picker appears showing all `.json` schemas in the `tools/` folder. Doub
 - Click **Run** to execute (or **Ctrl+Enter**)
 - Click **Stop** to kill a running process (or **Escape**)
 - Click **Copy Command** to copy to clipboard
+- Click **Copy Output** or **Save Output...** to capture command output
 
 > **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
 
@@ -449,14 +451,14 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (793 assertions across 5 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (804 assertions across 5 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-The project has 781 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 804 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 

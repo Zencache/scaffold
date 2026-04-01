@@ -4262,7 +4262,7 @@ _s40_combo = _s40_w.form.sub_combo
 _s40_item_text = _s40_combo.itemText(0)
 check(len(_s40_item_text) <= 80, f"40a: combo label is <= 80 chars (got {len(_s40_item_text)})")
 _s40_tooltip = _s40_combo.itemData(0, Qt.ItemDataRole.ToolTipRole)
-check(_s40_tooltip == _s40_long_desc, "40a: tooltip contains full untruncated description")
+check(_s40_tooltip == f"<p>{_s40_long_desc}</p>", "40a: tooltip contains full untruncated description")
 
 # 40b: Combo box width is bounded
 check(_s40_combo.maximumWidth() == 600, f"40b: combo max width is 600 (got {_s40_combo.maximumWidth()})")
@@ -4335,6 +4335,145 @@ check(_s41_w.run_btn.isEnabled(), "41e: button is enabled after FailedToStart")
 check(_s41_w._run_start_time is None, "41f: _run_start_time is None after FailedToStart")
 
 _s41_w.close(); _s41_w.deleteLater(); app.processEvents()
+
+# =====================================================================
+# Section 42 — ANSI Stripping, Help Menu, Subcommand Preview Color
+# =====================================================================
+print("\n--- Section 42: ANSI Stripping, Help Menu, Subcommand Preview Color ---")
+
+# 42a. ANSI escape code stripping in _flush_output
+_s42_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s42_w = scaffold.MainWindow()
+_s42_w._load_tool_path(_s42_ping)
+app.processEvents()
+
+# Simulate buffered output with ANSI codes
+_s42_w._output_buffer.append(("\x1b[0;32mgreen text\x1b[0m normal", scaffold.OUTPUT_FG))
+_s42_w._flush_output()
+app.processEvents()
+_s42_text = _s42_w.output.toPlainText()
+check("green text" in _s42_text, "42a: ANSI-stripped text contains 'green text'")
+check("\x1b" not in _s42_text, "42b: ANSI-stripped text contains no ESC character")
+check("[0;32m" not in _s42_text, "42c: ANSI-stripped text contains no escape sequence")
+
+_s42_w.close(); _s42_w.deleteLater(); app.processEvents()
+
+# 42d. Help menu exists with correct actions
+_s42_w2 = scaffold.MainWindow()
+app.processEvents()
+_s42_menus = {}
+for _act in _s42_w2.menuBar().actions():
+    if _act.menu():
+        _s42_menus[_act.text()] = _act.menu()
+check("Help" in _s42_menus, "42d: Help menu exists in menu bar")
+if "Help" in _s42_menus:
+    _s42_actions = [a.text() for a in _s42_menus["Help"].actions()]
+    check("About Scaffold" in _s42_actions, "42e: About Scaffold action exists")
+    check("Keyboard Shortcuts" in _s42_actions, "42f: Keyboard Shortcuts action exists")
+else:
+    check(False, "42e: About Scaffold action exists (no Help menu)")
+    check(False, "42f: Keyboard Shortcuts action exists (no Help menu)")
+
+_s42_w2.close(); _s42_w2.deleteLater(); app.processEvents()
+
+# 42g. Subcommand preview color
+_s42_sub_path = str(Path(__file__).parent / "tests" / "preset_roundtrip_subcommands.json")
+_s42_w3 = scaffold.MainWindow()
+_s42_w3._load_tool_path(_s42_sub_path)
+app.processEvents()
+
+# Select first subcommand and update preview
+_s42_w3.form.sub_combo.setCurrentIndex(0)
+app.processEvents()
+_s42_w3._update_preview()
+app.processEvents()
+_s42_html = _s42_w3.preview.toHtml()
+_s42_sub_name = _s42_w3.form.sub_combo.currentData()
+_s42_colors = scaffold.DARK_PREVIEW if scaffold._dark_mode else scaffold.LIGHT_PREVIEW
+_s42_sub_color = _s42_colors["subcommand"]
+_s42_val_color = _s42_colors["value"]
+check(_s42_sub_color in _s42_html, "42g: subcommand color present in preview HTML")
+# Ensure the subcommand name is in a span with the subcommand color, not value color
+# The subcommand span should have bold + subcommand color
+# Qt normalizes font-weight:bold to font-weight:700 and may reformat style attrs.
+# Check that a span with the subcommand color contains the subcommand name.
+import html as _s42_html_mod
+import re as _s42_re
+_s42_escaped_sub = _s42_html_mod.escape(_s42_sub_name)
+_s42_sub_span = _s42_re.search(
+    r'<span[^>]*' + _s42_re.escape(_s42_sub_color) + r'[^>]*>' + _s42_re.escape(_s42_escaped_sub) + r'</span>',
+    _s42_html
+)
+check(_s42_sub_span is not None, "42h: subcommand token rendered with subcommand color")
+
+_s42_w3.close(); _s42_w3.deleteLater(); app.processEvents()
+
+# =====================================================================
+# Section 43 — Tooltip Wrapping & Copy Output
+# =====================================================================
+print("\n--- Section 43: Tooltip Wrapping & Copy Output ---")
+
+# 43a. Subcommand tooltip is HTML-wrapped
+_s43_sub_path = str(Path(__file__).parent / "tests" / "preset_roundtrip_subcommands.json")
+_s43_w = scaffold.MainWindow()
+_s43_w._load_tool_path(_s43_sub_path)
+app.processEvents()
+
+_s43_has_html_tooltip = False
+for _s43_i in range(_s43_w.form.sub_combo.count()):
+    _s43_tt = _s43_w.form.sub_combo.itemData(_s43_i, Qt.ItemDataRole.ToolTipRole)
+    if _s43_tt and _s43_tt.startswith("<p>"):
+        _s43_has_html_tooltip = True
+        break
+check(_s43_has_html_tooltip, "43a: subcommand tooltip is HTML-wrapped with <p> tag")
+
+_s43_w.close(); _s43_w.deleteLater(); app.processEvents()
+
+# 43b. Copy Output with content
+_s43_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s43_w2 = scaffold.MainWindow()
+_s43_w2._load_tool_path(_s43_ping)
+app.processEvents()
+
+# Simulate output by appending text directly
+_s43_w2._output_buffer.append(("Hello from test\n", scaffold.OUTPUT_FG))
+_s43_w2._flush_output()
+app.processEvents()
+
+_s43_w2._copy_output()
+app.processEvents()
+_s43_clip = QApplication.clipboard().text()
+check("Hello from test" in _s43_clip, "43b: Copy Output copies output panel text to clipboard")
+
+# 43c. Copy Output when empty
+_s43_w2.output.clear()
+app.processEvents()
+_s43_w2._copy_output()
+app.processEvents()
+check("No output to copy" in _s43_w2.status.text(), "43c: Copy Output shows 'No output to copy' when empty")
+
+_s43_w2.close(); _s43_w2.deleteLater(); app.processEvents()
+
+# =====================================================================
+# Section 44 — Status Message Auto-Clear
+# =====================================================================
+print("\n--- Section 44: Status Message Auto-Clear ---")
+
+_s44_path = str(Path(__file__).parent / "tools" / "ping.json")
+_s44_w = scaffold.MainWindow()
+_s44_w._load_tool_path(_s44_path)
+app.processEvents()
+
+_s44_w._show_status("test message")
+app.processEvents()
+check(_s44_w.status.text() == "test message", "44a: _show_status sets status label text")
+check(_s44_w._status_timer.isActive(), "44b: _status_timer is active after _show_status")
+
+_s44_w._status_timer.timeout.emit()
+app.processEvents()
+check(_s44_w.status.text() == "", "44c: status label cleared after timer fires")
+
+_s44_w.close(); _s44_w.deleteLater(); app.processEvents()
 
 # =====================================================================
 # Final cleanup

@@ -2,38 +2,79 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.6.4] — 2026-03-31
+
+### Added
+
+- **Copy Output button** — copies the output panel's plain text to the clipboard. Placed in the action bar next to "Save Output...". Shows "No output to copy" if the panel is empty.
+- **Tooltip word wrapping** — long tooltips on subcommand combo items and field descriptions now wrap instead of stretching across the screen. Tooltips use HTML rich text for automatic word wrapping.
+- **Status message auto-clear** — transient status messages (copy confirmations, validation errors) now auto-clear after 3 seconds via a single-shot QTimer. Process state messages (Running, Exit) are unaffected.
+- **About dialog GitHub link** — the Help > About Scaffold dialog now includes a clickable link to the GitHub repository.
+
+#### Full suite results
+
+- **All 5 test suites pass: 807/807 assertions, 0 failures**
+  - Functional: 614/614
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
+- All 9 tool schemas validate with zero errors
+
+---
+
+## [v2.6.3] — 2026-03-31
+
+### Fixed
+
+- **Field search highlight jarring in dark mode** — highlight color now uses theme-aware selection color instead of hard-coded bright yellow.
+- **Header separator stale color after theme toggle** — separator now updates when the user toggles themes.
+- **Elevation note hard-coded gray** — now uses theme-aware dim text color.
+- **Search no-match label hard-coded red** — now uses Catppuccin error color in dark mode.
+- **Subcommand not colored in command preview** — subcommand tokens now render with a distinct bold color instead of generic value color.
+- **ANSI escape codes in output panel** — CLI tools emitting ANSI escape codes (e.g. color sequences) no longer appear as raw text; they are stripped before display.
+- **Documentation out of sync** — `password` type was missing from `schema.md` and `CLAUDE.md`. Six argument fields and the top-level `elevated` field were also undocumented. All now documented.
+- **CLAUDE.md type count** — listed 9 valid widget types; updated to 10 (adding `password`).
+- **Misleading comment** — reworded incorrect comment about `QTextDocument.find` case sensitivity.
+- **Scroll position on subcommand switch** — switching subcommands now resets scroll to top.
+- **Scroll area right margin** — removed unnecessary 8px right padding; `QScrollArea` handles scrollbar space internally.
+- Dead code removal: removed unused methods and attributes that were defined but never called.
+
+### Added
+
+- **Help menu** — new "Help" menu in the menu bar with two items:
+  - "About Scaffold" — app name, version, one-line description
+  - "Keyboard Shortcuts" — listing of all 11 keyboard shortcuts
+- **Subcommand combo box truncation** — long subcommand descriptions are truncated in the combo label with full text available in a tooltip.
+
+#### Full suite results
+
+- **All 5 test suites pass: 801/801 assertions, 0 failures**
+  - Functional: 608/608
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
+- All 9 tool schemas validate with zero errors
+
+---
+
 ## [v2.6.2] — 2026-03-31
 
 ### Fixed
 
-- **`_on_error()` missing cleanup for FailedToStart** — when `QProcess` emits `errorOccurred(FailedToStart)`, Qt does NOT emit `finished`. This left `_elapsed_timer` ticking the status bar with "Running... (Ns)", `_force_kill_timer` dangling, `_run_start_time` stale, and `self.process` never set to None. Added the same cleanup that `_on_finished()` performs: stop both timers, clear `_run_start_time`, and set `self.process = None`.
-- **"Stopping..." disabled button styling** — the "Stopping..." stylesheets in `_style_run_btn()` lacked `QPushButton:disabled` selectors. On some Qt themes/platforms, the default disabled rendering dims the button to ~50% opacity, making the amber styling look washed out. Added explicit `:disabled` blocks for both dark and light mode that repeat the same colors, preventing the platform from overriding the look.
-
-### Changed
-
-- `_on_error()`: now stops `_elapsed_timer` and `_force_kill_timer`, clears `_run_start_time`, and sets `self.process = None` after handling the error
-- `_style_run_btn()`: "Stopping..." stylesheets now include `QPushButton:disabled` selectors in both themes
-
-### Tested
-
-- **Section 41** — FailedToStart Cleanup (6 assertions): process is None after FailedToStart, `_elapsed_timer` stopped, `_force_kill_timer` stopped, button text is "Run", button is enabled, `_run_start_time` is None
+- **Process cleanup missing for FailedToStart** — when `QProcess` emits `errorOccurred(FailedToStart)`, Qt does not emit `finished`. This left timers ticking, stale state, and process reference dangling. Added the same cleanup that normal finish performs.
+- **"Stopping..." disabled button styling** — the "Stopping..." stylesheets lacked `:disabled` selectors, causing the amber styling to look washed out on some platforms. Added explicit disabled selectors for both themes.
 
 #### Full suite results
 
 - **All 5 test suites pass: 793/793 assertions, 0 failures**
-  - Functional: 600/600 (+6: Section 41)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
-  - Preset Validation: 23/23 (unchanged)
+  - Functional: 600/600
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
-
-### Metadata
-
-- Version bump 2.6.1 → 2.6.2
-- scaffold.py line count: 4,153 → 4,180
-- Test assertion total: 787 → 793 across 5 suites
 
 ---
 
@@ -41,56 +82,31 @@ All notable changes to Scaffold are documented here.
 
 ### Fixed
 
-- **Process kill hardening** — `QProcess.kill()` sends SIGKILL, which pkexec cannot forward to grandchild processes. Elevated commands (via pkexec/gsudo) would orphan the actual tool process when stopped. Now uses SIGTERM first (which pkexec can forward), with SIGKILL as a 2-second fallback.
-- **Centralized kill logic** — all 5 process kill sites (`_on_run_stop`, `_on_timeout_fired`, `closeEvent`, `_on_back`, `_build_form_view`) now call a single `_stop_process()` method instead of calling `self.process.kill()` directly.
-- **"QProcess: Destroyed while process is still running" warning** — `self.process` is now set to `None` in `_on_finished()`, preventing the warning on window close.
-- **"Stopping..." button state** — after clicking Stop, the button shows "Stopping..." in amber/italic and is disabled until the process exits, preventing confusion if SIGTERM takes a moment. `_style_run_btn()` now handles three states: green "Run", red "Stop", and amber italic "Stopping...".
-- **"Stopping..." repaint on Linux** — `QApplication.processEvents()` is called after setting the "Stopping..." state but before `_stop_process()`, forcing Qt to repaint the button immediately. Without this, the process could die before Qt ever painted the intermediate state.
-- **`_on_error()` button re-enable** — `setEnabled(True)` added before text reset, preventing the button from staying disabled if a QProcess error fires while in "Stopping..." state.
+- **Process kill hardening** — `QProcess.kill()` sends SIGKILL, which pkexec cannot forward to grandchild processes. Elevated commands would orphan the actual tool process when stopped. Now uses SIGTERM first (which pkexec can forward), with SIGKILL as a 2-second fallback.
+- **Centralized kill logic** — all 5 process kill sites now call a single `_stop_process()` method instead of calling kill directly.
+- **"QProcess: Destroyed while process is still running" warning** — process reference is now cleared on finish, preventing the warning on window close.
+- **"Stopping..." button state** — after clicking Stop, the button shows "Stopping..." in amber/italic and is disabled until the process exits, preventing confusion if SIGTERM takes a moment.
+- **"Stopping..." repaint on Linux** — forces Qt to repaint the button immediately before stopping the process, so the intermediate state is always visible.
+- **Error handler button re-enable** — prevents the button from staying disabled if a QProcess error fires while in "Stopping..." state.
 
 ### Added
 
-- `_stop_process()` method — sends SIGTERM via `QProcess.terminate()`, starts a 2-second `_force_kill_timer`
-- `_on_force_kill()` method — escalates to SIGKILL; for non-elevated non-Windows processes, also tries `os.killpg()` to kill the process group
-- `_force_kill_timer` — single-shot QTimer (2s) for SIGTERM→SIGKILL escalation
-
-### Changed
-
-- `_on_finished()`: stops `_force_kill_timer`, re-enables run button, sets `self.process = None`
-- `_on_timeout_fired()`: sets "Stopping..." state with `processEvents()` before calling `_stop_process()`
-- `_on_run_stop()`: sets "Stopping..." state with `processEvents()` before calling `_stop_process()`
-- `_style_run_btn()`: handles three button states — "Run" (green), "Stop" (red), "Stopping..." (amber italic)
-- `_on_error()`: re-enables button before resetting text
-- `closeEvent`, `_on_back`, `_build_form_view`: `waitForFinished` timeout increased from 2000ms to 3000ms to allow for SIGTERM + force kill cycle
-
-### Tested
-
-- **Section 39** — Process Kill Hardening (15 assertions): `_force_kill_timer` exists and is single-shot, `_stop_process()` safe with no process, process is `None` after natural finish, process is `None` after stop, button shows "Stopping..." with italic style and warning color then restores to "Run" and re-enabled, `_stop_process()` safe when already stopped
+- SIGTERM-first process stop with 2-second escalation to SIGKILL
+- Process group kill fallback for non-elevated non-Windows processes
 
 #### Full suite results
 
 - **All 5 test suites pass: 781/781 assertions, 0 failures**
-  - Functional: 588/588 (+15: Section 39)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
-  - Preset Validation: 23/23 (unchanged)
+  - Functional: 588/588
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
-
-### Metadata
-
-- Version bump 2.6.0 → 2.6.1
-- scaffold.py line count: 4,104 → 4,153
-- Test assertion total: 766 → 781 across 5 suites
 
 ---
 
 ## [v2.6.0] — 2026-03-31
-
-### External Code Review — MiniMax M2.7 (Round 2)
-
-The updated codebase was submitted to **MiniMax M2.7** for a second review with more targeted instructions. The review informed new features (min/max constraints, deprecated/dangerous indicators, password input type) and schema improvements.
 
 ### Added
 
@@ -98,66 +114,35 @@ The updated codebase was submitted to **MiniMax M2.7** for a second review with 
 
 Optional `min` and `max` fields on integer and float argument types constrain the spinbox range in the GUI.
 
-- **Schema fields:** `"min": null` and `"max": null` added to `ARG_DEFAULTS`. Accept a number or null. Only valid on `integer` and `float` types — other types produce a validation error.
-- **Validation:** `_validate_args()` checks that min/max are numbers or null, only on integer/float types, and that min <= max when both are set.
-- **Widget behavior:** When `min` or `max` is set, `_build_widget_inner()` calls `setMinimum()`/`setMaximum()` on the `QSpinBox`/`QDoubleSpinBox`. For fields with no default (sentinel system), the sentinel is set to `min - 1` to preserve the unset/0 distinction.
-- **Backwards compatible:** Existing schemas without min/max normalize to null via `ARG_DEFAULTS`. No schema changes required.
+- **Schema fields:** `"min": null` and `"max": null`. Accept a number or null. Only valid on `integer` and `float` types — other types produce a validation error.
+- **Backwards compatible:** Existing schemas without min/max normalize to null. No schema changes required.
 
 #### Deprecated & Dangerous Flag Indicators
 
 Two new optional argument fields provide visual indicators for flagged arguments without disabling them.
 
-- **`deprecated`** (string or null): When set, the field label gets HTML strikethrough (`<s>`) and an amber "(deprecated)" suffix. The deprecation message is prepended to the tooltip. The field remains fully functional — deprecated does not mean disabled. Empty string produces a validation error.
+- **`deprecated`** (string or null): When set, the field label gets strikethrough and an amber "(deprecated)" suffix. The deprecation message is prepended to the tooltip. The field remains fully functional.
 - **`dangerous`** (boolean, default false): When true, the field label gets a red warning symbol prefix. A caution message is prepended to the tooltip. Purely visual — no behavioral change.
-- **Theme-aware colors:** Deprecated suffix uses `#856404` (light) / `#fab387` (dark). Dangerous prefix uses `red` (light) / `#f38ba8` (dark).
-- **Both combine:** A field can be both deprecated and dangerous — both indicators render correctly together.
+- **Theme-aware colors** for both indicators.
+- A field can be both deprecated and dangerous.
 
 #### Password Input Type
 
 New `password` widget type for flags that accept sensitive values like passwords, API keys, and tokens.
 
-- **`"password"` added to `VALID_TYPES`** — now 10 widget types.
-- **Widget:** `QLineEdit` with `EchoMode.Password`, paired with a `QCheckBox("Show")` toggle in a `QHBoxLayout`. Toggle switches between Password and Normal echo modes.
-- **Value handling:** Password fields work identically to string fields for command assembly, preset serialization, and preset loading. Added `password` branches in `get_field_value()`, `_raw_field_value()`, and `_set_field_value()`.
-- **Validation:** Supports `validation` regex (same as string). Using `examples` on a password type produces a validation warning.
-- **Dependency wiring:** Handled by existing `hasattr(w, '_line_edit')` fallback in `_is_field_active()` and `_connect_dependency()`.
-
-#### Metadata
-
-- Version bump 2.5.10 → 2.6.0
-- scaffold.py line count: 4,006 → 4,104
-- VALID_TYPES: 9 → 10 (added `password`)
-- Argument fields: 16 → 20 (added `min`, `max`, `deprecated`, `dangerous`)
-- ARG_DEFAULTS: 14 → 17 keys
-- Test assertion total: 710 → 766 across 5 suites
-- PROMPT.txt: field count 16 → 20, types table updated, 4 new rules added (min/max, deprecated, dangerous, password), checklist updated
-
-### Changed
-
-- `VALID_TYPES` set: added `"password"`
-- `ARG_DEFAULTS` dict: added `"min": None`, `"max": None`, `"deprecated": None`, `"dangerous": False`
-- `_validate_args()`: added validation for min/max, deprecated, dangerous, and password+examples
-- `_build_widget_inner()`: added `password` branch (QLineEdit + Show toggle), min/max application on integer/float branches
-- `_build_tooltip()`: prepends deprecated/dangerous warnings before standard tooltip content
-- `_add_single_arg()`: label construction adds strikethrough/suffix for deprecated, warning prefix for dangerous
-- `get_field_value()`, `_raw_field_value()`, `_set_field_value()`: added `password` branches
-
-### Tested
-
-- **Section 36** — Integer/Float Min/Max Constraints (18 assertions): null min/max preserves default SPINBOX_RANGE, integer min/max constrains spinbox with sentinel at min-1, float min/max constrains double spinbox, min > max validation error, min/max on boolean/string validation errors, legacy schemas without min/max validate and normalize, integer with default uses min directly, non-number min validation error
-- **Section 37** — Deprecated & Dangerous Flag Indicators (23 assertions): normal label has no markers, deprecated adds strikethrough + suffix, deprecated message in tooltip, dangerous adds warning prefix, dangerous warning in tooltip, both together render correctly, deprecated field still emits in command, empty/non-string deprecated validation errors, non-bool dangerous validation error, normalize_tool fills defaults
-- **Section 38** — Password Input Type (15 assertions): password in VALID_TYPES, creates masked QLineEdit with Password echo mode, Show toggle switches echo mode, password value in command, examples on password produces warning, preset save/load round-trip, validation regex works
+- Renders as a masked `QLineEdit` with a "Show" toggle checkbox.
+- Works identically to string fields for command assembly, preset serialization, and preset loading.
+- Supports `validation` regex (same as string). Using `examples` on a password type produces a validation warning.
 
 #### Full suite results
 
 - **All 5 test suites pass: 766/766 assertions, 0 failures**
-  - Functional: 573/573 (+56: 18 Section 36, 23 Section 37, 15 Section 38)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
-  - Preset Validation: 23/23 (unchanged)
+  - Functional: 573/573
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
 
 ---
 
@@ -165,26 +150,23 @@ New `password` widget type for flags that accept sensitive values like passwords
 
 ### Added
 
-- **Preset Picker dialog** — replaced the plain `QInputDialog` dropdown for Load/Delete Preset with a full table-based picker (`PresetPicker` class), modeled on the tool picker. 4 columns: favorite star, preset name, description, last modified date. Three modes: load, delete, edit.
-- **Preset favorites** — click the star column to mark presets as favorites. Favorites sort to the top of the list. Stored in QSettings (not in preset files), with automatic cleanup of stale favorites when preset files are deleted.
-- **Edit Description** — "Edit Description..." button in the preset picker allows updating a preset's `_description` field after saving. Reads the preset JSON, updates only `_description`, writes it back without modifying other keys.
-- **Edit Preset mode** — new "edit" mode for PresetPicker with "Edit Description..." and "Delete" buttons. Delete includes confirmation dialog with git restore tip, removes the table row in-place, and auto-closes when the last preset is deleted.
-- Version bump 2.5.8 → 2.5.10
-- scaffold.py line count: 3,748 → 4,006
-- Test assertion total: 662 → 710 across 5 suites
+- **Preset Picker dialog** — replaced the plain dropdown for Load/Delete Preset with a full table-based picker. 4 columns: favorite star, preset name, description, last modified date. Three modes: load, delete, edit.
+- **Preset favorites** — click the star column to mark presets as favorites. Favorites sort to the top. Stored in QSettings with automatic cleanup of stale favorites.
+- **Edit Description** — update a preset's description after saving via the preset picker.
+- **Edit Preset mode** — "Edit Preset..." menu item opens the picker with "Edit Description..." and "Delete" buttons. Delete includes confirmation dialog with git restore tip.
 
 ### Changed
 
-- **Presets menu restructured** — "Delete Preset..." replaced with "Edit Preset..." which opens the picker in edit mode for managing descriptions and deleting presets
-- `_on_load_preset()` — uses `PresetPicker(mode="load")` instead of `QInputDialog.getItem()`
-- `_on_delete_preset()` removed from MainWindow — delete logic moved into `PresetPicker._on_delete()`
-- `_on_edit_preset()` added to MainWindow — opens PresetPicker in edit mode
-- `QDialog` added to PySide6 widget imports
+- **Presets menu restructured** — "Delete Preset..." replaced with "Edit Preset..." which opens the picker in edit mode
 
-### Tested
+#### Full suite results
 
-- **Section 34** — Preset Picker (28 assertions): alphabetical sort with no favorites, description display from `_description` key, empty description for old presets, star toggle updates QSettings, favorited preset sorts first, stale favorite cleanup, double-click selection, cancel returns None, load/delete mode button text and titles, action button enable/disable, last modified date, star characters, column headers, edit description button enable/disable, edit existing description, add description to old preset, clear description to empty, cancel edit no-op
-- **Section 35** — Edit Preset Mode (20 assertions): menu shows "Edit Preset..." not "Delete Preset...", edit mode title/buttons/layout, buttons disabled until selection, double-click no-op in edit mode, edit description works in edit mode, delete removes file and table row, deleting last preset auto-closes dialog, load mode unchanged
+- **All 5 test suites pass: 710/710 assertions, 0 failures**
+  - Functional: 517/517
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
+  - Preset Validation: 23/23
 
 ---
 
@@ -192,9 +174,7 @@ New `password` widget type for flags that accept sensitive values like passwords
 
 ### Added
 
-- **Preset descriptions** — optional description field when saving presets, displayed as "name — description" in the load/delete picker. Stored as `_description` in the preset JSON. Fully backwards-compatible with existing presets.
-- Version bump 2.5.7 → 2.5.8
-- Test assertion total: 662 across 5 suites
+- **Preset descriptions** — optional description field when saving presets, displayed as "name -- description" in the load/delete picker. Stored as `_description` in the preset JSON. Fully backwards-compatible with existing presets.
 
 ---
 
@@ -202,18 +182,12 @@ New `password` widget type for flags that accept sensitive values like passwords
 
 ### Changed
 
-- **Delete Tool** rebuilt as a button on the tool picker instead of a File menu action — simpler, more discoverable, and handles deletion entirely within ToolPicker
-- **Preset deletion** hardened: uses `unlink()` instead of `unlink(missing_ok=True)` and uses early-return pattern for clearer control flow
-- Removed right-click context menu and File menu "Delete Tool..." action
+- **Delete Tool** rebuilt as a button on the tool picker instead of a File menu action — simpler and more discoverable
 - Delete button disabled by default, enables only when a valid tool is selected
-- scaffold.py line count: 3,760 → 3,724
-- Test assertion total: 654 across 5 suites
-- Version bump 2.5.6 → 2.5.7
 
 ### Fixed
 
 - **Delete Tool** file menu action was permanently greyed out — replaced with picker button that tracks selection state
-- **Preset delete** control flow clarified with early-return pattern
 
 ---
 
@@ -221,17 +195,8 @@ New `password` widget type for flags that accept sensitive values like passwords
 
 ### Fixed
 
-- **Preset delete dialog** now includes a git restore tip (`git checkout -- presets/{tool}/{file}`) matching the tool schema delete dialog
-- **Delete Tool tests** now exercise the real `_delete_tool()` code path with mocked dialogs instead of bypassing it with direct `unlink()` calls
-
-### Added
-- **Test 30l** — verifies preset delete dialog includes git restore tip (3 assertions)
-- **Test 30m** — verifies Delete Tool menu enable/disable across picker ↔ form transitions (3 assertions)
-
-### Changed
-- Version bump 2.5.5 → 2.5.6
-- scaffold.py line count: 3,368 → 3,760
-- Test assertion total: 576 → 659 across 5 suites
+- **Preset delete dialog** now includes a git restore tip matching the tool schema delete dialog
+- **Delete Tool tests** now exercise the real code path with mocked dialogs instead of bypassing with direct calls
 
 ---
 
@@ -243,27 +208,19 @@ New `password` widget type for flags that accept sensitive values like passwords
 
 Auto-kill processes that run too long. Useful for fire-and-forget execution of tools like `nmap` or `hashcat` where the user may walk away.
 
-- **Timeout spinbox** in the action bar next to the Run/Stop button. Label: "Timeout (s):", range 0–99999, default 0 (no timeout). Fixed width 80px.
-- **Single-shot QTimer** (`_timeout_timer`) starts when Run is clicked and timeout > 0. If the timer fires before the process finishes, the process is killed with a warning message: "Process timed out after N seconds" in `COLOR_WARN`.
-- **Timer cancellation** — timer is stopped when the process finishes normally, when the user clicks Stop, or when a new tool is loaded.
-- **Per-tool persistence** — timeout value saved to QSettings as `timeout/{tool_name}` and restored when the tool is loaded. Each tool remembers its own timeout independently.
-- **`_timed_out` flag** — distinguishes timeout kills from manual stops. Status bar shows "Timed out (Ns)" instead of "Process stopped".
-- **`blockSignals`** used during timeout restore to prevent spurious QSettings writes.
-- **`datetime`** module (stdlib) was added in v2.5.4 and is reused here — no new dependencies.
-
-### Changed
-- Version bump 2.5.4 → 2.5.5
-- scaffold.py line count: 3,324 → 3,368
-
-### Tested
-- **Section 29** — Process Timeout (12 assertions): timeout spinbox exists and defaults to 0, range 0–99999, value persisted to QSettings, value restored on tool reload, timeout timer exists and is single-shot, `_timed_out` attribute exists, timer not active when no process running, different tools get independent timeout values
+- **Timeout spinbox** in the action bar next to the Run/Stop button. Label: "Timeout (s):", range 0-99999, default 0 (no timeout).
+- If the timer fires before the process finishes, the process is killed with a warning message.
+- Timer is stopped when the process finishes normally, when the user clicks Stop, or when a new tool is loaded.
+- **Per-tool persistence** — timeout value saved to QSettings and restored when the tool is loaded. Each tool remembers its own timeout independently.
+- Status bar shows "Timed out (Ns)" instead of "Process stopped" for timeout kills.
 
 #### Full suite results
+
 - **All 4 test suites pass: 576/576 assertions, 0 failures**
-  - Functional: 406/406 (+12 Section 29)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 406/406
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
@@ -276,27 +233,19 @@ Auto-kill processes that run too long. Useful for fire-and-forget execution of t
 Save command output to a text file for later review or sharing.
 
 - **"Save Output..." button** added to the action bar, next to "Clear Output".
-- **`QFileDialog.getSaveFileName`** opens a native save dialog with a suggested filename: `{tool_name}_output_{YYYYMMDD_HHMMSS}.txt`, defaulting to the user's home directory.
-- **Plain text export** via `QPlainTextEdit.toPlainText()` — strips all formatting. Includes the command echo line (`$ command`) if present.
-- **UTF-8 encoding** for saved files.
-- **Empty output guard** — if the output panel is empty, shows "No output to save" in the status bar instead of opening the dialog.
-- **Status bar confirmation** — shows the saved file path on success, or an error message on failure.
-- **`MainWindow._save_output(path=None)`** — accepts an optional `path` argument for testability (skips the dialog). Normalizes the `bool` passed by `QPushButton.clicked` to `None` via `isinstance` check.
-- **`datetime`** module added to imports (stdlib, no new dependencies).
-
-### Changed
-- Version bump 2.5.3 → 2.5.4
-- scaffold.py line count: 3,291 → 3,324
-
-### Tested
-- **Section 28** — Output Export (11 assertions): Save Output button exists, saved file contains command echo line and output text and exit line, UTF-8 encoding preserves snowman/heart/accented characters, empty output creates no file and shows status bar message, status bar confirms save path on success
+- Native save dialog with a suggested filename: `{tool_name}_output_{YYYYMMDD_HHMMSS}.txt`, defaulting to the user's home directory.
+- Plain text export — strips all formatting. Includes the command echo line if present.
+- UTF-8 encoding for saved files.
+- Empty output guard — shows "No output to save" in the status bar if the output panel is empty.
+- Status bar confirmation on success or error.
 
 #### Full suite results
+
 - **All 4 test suites pass: 564/564 assertions, 0 failures**
-  - Functional: 394/394 (+11 Section 28)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 394/394
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
@@ -308,32 +257,20 @@ Save command output to a text file for later review or sharing.
 
 Search within the output panel to find text in command output. Separate from the form field search (Ctrl+F).
 
-- **Search bar:** A `QLineEdit` + match count label appears above the output panel when Ctrl+Shift+F is pressed. Initially hidden. Placeholder: "Search output... (Ctrl+Shift+F)".
-- **Highlighting:** Uses `QPlainTextEdit.extraSelections` to highlight all matches — yellow (`#fff176`) for non-current matches, orange (`#ff9800`) for the current match. Highlights are cleared when the search bar is closed.
-- **Navigation:** Enter jumps to next match, Shift+Enter to previous. Wrap-around at both ends. Each jump scrolls the output panel to the current match via `ensureCursorVisible()`.
-- **Match count:** Label next to search bar shows "X of Y" (e.g., "2 of 5") or "0 matches" when nothing is found.
-- **Case-insensitive:** Uses `QTextDocument.find()` without `FindCaseSensitively` flag — "ERROR" matches "error", "Error", etc.
-- **Escape handling:** Escape closes the output search bar only when it has focus — does not steal Escape from the Stop button or the field search bar. Priority: output search → field search → stop process.
-- **`MainWindow.eventFilter()`** — new override to intercept Enter/Shift+Enter/Escape on the output search bar.
-- **`MainWindow._close_output_search()`** — hides bar, clears matches, clears extraSelections.
-- **`MainWindow._on_output_search_changed()`** — recomputes all matches when search text changes.
-- **`MainWindow._apply_output_search_highlights()`** — builds extraSelections list with current-match and other-match formatting.
-- **`MainWindow._output_search_next()` / `_output_search_prev()`** — cycle through matches with wrap-around.
-- **`QTextCursor`** added to `PySide6.QtGui` import line.
-
-### Changed
-- Version bump 2.5.2 → 2.5.3
-- scaffold.py line count: 3,144 → 3,291
-
-### Tested
-- **Section 27** — Output Search (25 assertions): search bar initially hidden, Ctrl+Shift+F shows it, search bar exists on MainWindow, 3 matches for "error" found, count label shows "1 of 3", current match index starts at 0, Enter advances through matches with correct count labels, Enter wraps around to first match, Shift+Enter wraps to last match, 3 extraSelections applied, current match has orange background while others have yellow, Escape hides bar and clears highlights and count label, 0-match search shows "0 matches" without crash, case-insensitive "ERROR" matches 3 times, clearing search text clears highlights and count label
+- **Search bar** appears above the output panel when Ctrl+Shift+F is pressed. Initially hidden.
+- **Highlighting:** All matches highlighted in yellow, current match in orange. Highlights cleared when search is closed.
+- **Navigation:** Enter jumps to next match, Shift+Enter to previous. Wrap-around at both ends.
+- **Match count:** Label shows "X of Y" or "0 matches".
+- **Case-insensitive** search.
+- **Escape handling:** Escape closes the output search bar only when it has focus — does not steal Escape from the Stop button or the field search bar.
 
 #### Full suite results
+
 - **All 4 test suites pass: 553/553 assertions, 0 failures**
-  - Functional: 383/383 (+25 Section 27)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 383/383
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
@@ -343,29 +280,18 @@ Search within the output panel to find text in command output. Separate from the
 
 #### Output Panel Drag Handle Off-Screen Bug
 
-The output panel resize handle allowed dragging the panel taller than the visible window area. The oversized height was saved to QSettings, so the problem persisted across restarts and could only be fixed by fullscreening the window.
+The output panel resize handle allowed dragging the panel taller than the visible window area. The oversized height was saved to QSettings, so the problem persisted across restarts.
 
-- **Root cause:** `DragHandle.mouseMoveEvent` clamped height to a static `OUTPUT_MAX_HEIGHT` (800px) which can exceed available space on smaller windows.
-- **`DragHandle._effective_max_height()`** — new method that returns `min(OUTPUT_MAX_HEIGHT, window.height() // 2)`, dynamically capping the drag limit to half the actual window height.
-- **`DragHandle.mouseMoveEvent()`** — now uses `_effective_max_height()` instead of the static `OUTPUT_MAX_HEIGHT`.
-- **`MainWindow._clamp_output_height()`** — new method that checks if the output panel exceeds the effective max and shrinks it, updating QSettings.
-- **`MainWindow.resizeEvent()`** — new override that calls `_clamp_output_height()` when the window shrinks.
-- **`MainWindow.showEvent()`** — new override that calls `_clamp_output_height()` on first display, clamping any oversized height restored from QSettings.
-- `OUTPUT_MIN_HEIGHT` and `OUTPUT_MAX_HEIGHT` constants are unchanged; the effective maximum is now `min(OUTPUT_MAX_HEIGHT, window_height // 2)`.
-
-### Changed
-- Version bump 2.5.1 → 2.5.2
-- scaffold.py line count: 3,116 → 3,144
-
-### Tested
-- **Section 26** — Output Panel Height Clamping (8 assertions): direct clamping reduces height to half window, OUTPUT_MIN_HEIGHT floor respected, effective max calculation correct, resizeEvent and showEvent overrides exist, QSettings updated on clamp, height within limits left unchanged
+- Drag limit now dynamically capped to half the actual window height.
+- Output height is clamped on window resize and on first display, fixing any oversized height restored from settings.
 
 #### Full suite results
+
 - **All 4 test suites pass: 528/528 assertions, 0 failures**
-  - Functional: 358/358 (+8 Section 26)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 358/358
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
@@ -377,41 +303,21 @@ The output panel resize handle allowed dragging the panel taller than the visibl
 
 The command preview panel now displays syntax-colored output. Each token type is rendered in a distinct color for instant visual parsing of the assembled command.
 
-- **Color constants:** Two new dicts `LIGHT_PREVIEW` and `DARK_PREVIEW` define per-token-type colors for light and dark modes. Token types: `binary` (bold blue), `flag` (amber/orange), `value` (default text), `subcommand` (bold blue), `extra` (dimmed gray, italic).
-  - Light mode: binary `#0550ae`, flag `#953800`, value `#24292f`, subcommand `#0550ae`, extra `#656d76`
-  - Dark mode: binary `#89b4fa`, flag `#fab387`, value `#cdd6f4`, subcommand `#89b4fa`, extra `#a6adc8`
-- **Preview widget replaced:** `QPlainTextEdit` → `QTextEdit` for rich text support. `QTextEdit` is a built-in PySide6 widget that accepts HTML-like markup for inline styling — no web engine, no external dependencies, no HTML files. `toPlainText()` still works identically for all existing code paths.
-- **`_quote_token(token)`** — helper function that wraps tokens containing spaces or shell metacharacters in single quotes for display, matching the quoting behavior of `_format_display()`.
-- **`_colored_preview_html(cmd, extra_count)`** — walks the command token list and wraps each token in a `<span>` with the appropriate color from the active theme's palette. Handles:
-  - Binary name (index 0): bold + binary color
-  - Flags (`-` prefix): flag color, with `--flag=value` split into flag-colored flag part and value-colored value part
-  - Flag values (token after a flag): value color
-  - Extra flags (last `extra_count` tokens): italic + dimmed extra color
-  - All tokens are HTML-escaped via `html.escape()` to prevent injection
-- **`_update_preview()`** now calls `_colored_preview_html()` and sets the result via `self.preview.setHtml()` instead of `setPlainText()`.
-- **Theme toggle re-colors:** Switching dark/light mode triggers `_update_preview()`, which regenerates HTML with the new color palette. No stale colors.
-- **Copy Command unchanged:** `_copy_command()` still copies plain text via `_format_display()` — no HTML in clipboard.
-- **Dark mode stylesheet:** Updated selector from `QPlainTextEdit` to `QTextEdit` for the preview panel background color.
-- **No new dependencies:** `html` module (stdlib) imported locally inside `_colored_preview_html()`. `QTextEdit` is part of PySide6.QtWidgets (already imported).
-
-### Changed
-- Version bump 2.5.0 → 2.5.1
-- scaffold.py line count: 3,023 → 3,116
-- Preview widget type: `QPlainTextEdit` → `QTextEdit` (rich text capable, same API for plain text extraction)
-- `QTextEdit` added to PySide6.QtWidgets import line
-- Dark mode stylesheet selector updated from `QPlainTextEdit` to `QTextEdit`
-
-### Tested
-- **Section 25** — Colored Command Preview (26 assertions): preview widget is `QTextEdit` (not `QPlainTextEdit`), plain text extraction contains binary name, HTML output contains `color:` styles and `<span>` tags, binary is bold (`font-weight:bold/600/700`), setting a flag value produces correctly colored HTML with flag color from `LIGHT_PREVIEW`/`DARK_PREVIEW`, Copy Command produces plain text with no HTML tags, dark mode toggle updates preview to use `DARK_PREVIEW` colors, light mode toggle restores `LIGHT_PREVIEW` colors, reset-to-defaults shows just binary name still with color and bold styling, direct `_colored_preview_html()` contract tests (token count, span count), extra flags rendered italic, equals separator `--flag=value` splits correctly with flag color on flag part
+- **Token types:** binary (bold blue), flag (amber/orange), value (default text), subcommand (bold blue), extra (dimmed gray, italic).
+- **Light and dark mode** palettes with Catppuccin-inspired dark colors.
+- **Preview widget** uses `QTextEdit` for rich text support — still a native PySide6 widget, no web engine.
+- **Copy Command** still copies plain text — no HTML in clipboard.
+- **Theme toggle** re-colors the preview immediately.
+- Tokens with spaces or shell metacharacters are single-quoted for display. `--flag=value` is split with flag-colored flag part and value-colored value part.
 
 #### Full suite results
+
 - **All 4 test suites pass: 520/520 assertions, 0 failures**
-  - Functional: 350/350 (+26 Section 25)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 350/350
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
 
 ---
 
@@ -419,60 +325,33 @@ The command preview panel now displays syntax-colored output. Each token type is
 
 ### Added
 
-#### Collapsible Argument Groups — `display_group` field
+#### Collapsible Argument Groups -- `display_group` field
 
-New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
+New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. Clicking the header toggles visibility.
 
-- **Schema field:** `"display_group": null` added to `ARG_DEFAULTS` as the 16th argument field. Accepts a string (group name) or null (ungrouped — renders flat as before).
-- **Normalization:** `normalize_tool()` automatically fills missing `display_group` keys with null via the existing `ARG_DEFAULTS` loop. All existing schemas remain valid with no changes.
-- **Validation:** `_validate_args()` accepts `display_group` as an optional string-or-null field. Non-string, non-null values produce a validation error.
-- **Form rendering:** `_add_args()` partitions arguments by `display_group` value. Ungrouped arguments render directly in the form layout. Grouped arguments are collected into a `QGroupBox` per unique `display_group` name, with a `QFormLayout` inside. The group box title is clickable (pointer cursor) and toggles content visibility via `_toggle_display_group()`.
-- **Collapse state:** Tracked via `_dg_collapsed` property on each `QGroupBox`. Default: expanded (False). State does not persist across sessions.
+- **Schema field:** `"display_group": null`. Accepts a string (group name) or null (ungrouped -- renders flat as before).
+- **Normalization:** Existing schemas remain valid with no changes; missing keys fill to null.
 - **Subcommand support:** Display groups work identically within subcommand argument sections.
-- **No impact on existing behavior:** Command assembly (`build_command()`), preset serialization/deserialization (`serialize_values()` / `apply_values()` / `reset_to_defaults()`), mutual exclusivity groups, dependencies, and all existing widget types are completely unchanged.
-- **New `ToolForm` attributes:**
-  - `self.display_groups` — dict keyed by scope → `{display_group_name: QGroupBox}`
-  - `_add_single_arg()` — extracted from `_add_args` loop body for reuse by both ungrouped and grouped code paths
-  - `_toggle_display_group(box)` — toggles collapsed state and content visibility of a display group QGroupBox
-- **PROMPT.txt updated:** Field count 15 → 16, `display_group` documented in the argument object spec, added to all example arguments, checklist updated.
+- **No impact on existing behavior:** Command assembly, presets, mutual exclusivity, dependencies, and all widget types are unchanged.
 
-#### Field Search / Jump — Ctrl+F
+#### Field Search / Jump -- Ctrl+F
 
-Always-visible `QLineEdit` search bar positioned below the tool name, description, and separator. Users can type to search or press Ctrl+F to focus it. Searches field names and flag names across all visible fields (global args + current subcommand).
+Always-visible search bar below the tool header. Users can type to search or press Ctrl+F to focus it. Searches field names and flag names across all visible fields.
 
-- **Search bar widget:** `QLineEdit` with placeholder text `"Find field...  (Ctrl+F)"`, always visible at the top of the form area (below tool header, above elevation/subcommand controls). Paired with a `QLabel` "No matches" indicator that appears when a query has zero results.
-- **Search behavior:** Case-insensitive substring matching against both the argument `name` (human-readable label) and `flag` (CLI flag string). As the user types, the first matching field's label receives a yellow highlight (`background-color: #fff176`) and the `QScrollArea` scrolls to make it visible via `ensureWidgetVisible()`.
-- **Match cycling:** Enter key jumps to the next match (`_search_next`), Shift+Enter jumps to the previous match (`_search_prev`). Index wraps around at both ends.
-- **Display group integration:** If a match is found inside a collapsed `display_group` section, the section is automatically expanded before scrolling.
-- **Scope filtering:** Only searches fields in visible scopes — global args (`__global__`) and the currently selected subcommand. Hidden subcommand sections are excluded.
-- **Keyboard shortcuts:** Ctrl+F focuses the search bar and selects all text. Escape clears the search text, removes all highlights, and defocuses the bar. Enter/Shift+Enter handled via `eventFilter` installed on the search bar.
-- **Implementation:** `open_search()` focuses the bar, `close_search()` clears text/highlights/state and defocuses. `_on_search_text_changed()` rebuilds the match list on every keystroke. `_highlight_and_scroll()` applies the highlight stylesheet and scrolls. `_clear_search_highlights()` resets all highlighted labels.
-- **No impact on existing behavior:** No schema changes, no command assembly changes, no preset changes. Ctrl+F does not conflict with any existing shortcut (Ctrl+Enter, Escape, Ctrl+S, Ctrl+L, Ctrl+O, Ctrl+R, Ctrl+D, Ctrl+B, Ctrl+Q).
-
-### Changed
-- Version bump to 2.5.0
-- scaffold.py line count: 2,823 → 3,023
-- Argument field count: 15 → 16 (`display_group` added)
-- PROMPT.txt: argument object field count 15 → 16, example arguments updated with `display_group: null`, checklist updated
-- `QScrollArea` in `ToolForm._build_ui()` stored as `self._scroll` (was local variable `scroll`) to support `ensureWidgetVisible()` in field search
-- `_shortcut_stop()` in `MainWindow` now checks if the search bar is active and clears it before attempting to stop a running process
-
-### Tested
-- **Section 23** — Collapsible Argument Groups (24 assertions): QGroupBox creation with correct title, field containment (3 grouped fields inside box, 2 ungrouped fields outside), `_dg_content` property existence, initial expanded state, collapse toggle, expand toggle, `build_command()` output unchanged with grouped fields, preset serialization/deserialization round-trip, `display_groups` dict populated correctly, subcommand schema with display groups
-- **Section 24** — Field Search / Jump (29 assertions): search bar always visible with correct placeholder text, open_search focuses bar, partial name match highlights correct label with `background-color` style, close_search clears text/highlights/state while bar remains visible, flag name search (`--top-ports`) finds exact match, no-match query shows "No matches" label without crash, clearing text hides "No matches" label, Enter cycles to next match (index advances, previous highlight cleared, new highlight applied), Shift+Enter cycles backward, Escape clears search state, single-match wrap-around
-
-#### Test schemas added
-- `tests/test_display_groups.json` — 5 arguments: 3 with `display_group: "Network"` (string, integer, enum types), 2 with `display_group: null` (boolean, file types)
-- `tests/test_display_groups_subcmd.json` — subcommand schema with `display_group: "Scan Options"` on 2 of 3 subcommand arguments, plus 1 ungrouped global argument
+- Case-insensitive substring matching against both argument name and flag.
+- First match is highlighted and scrolled into view. Enter/Shift+Enter cycle through matches.
+- Collapsed display groups are automatically expanded when a match is inside them.
+- Only searches visible scopes (global args + current subcommand).
+- **Shortcuts:** Ctrl+F focuses, Escape clears and defocuses.
 
 #### Full suite results
+
 - **All 4 test suites pass: 494/494 assertions, 0 failures**
-  - Functional: 324/324 (+24 Section 23, +29 Section 24)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 324/324
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
 
 ---
 
@@ -480,44 +359,16 @@ Always-visible `QLineEdit` search bar positioned below the tool name, descriptio
 
 ### Added
 
-#### Collapsible Argument Groups — `display_group` field
-
-New optional argument field `display_group` (string or null) enables visual grouping of related arguments into collapsible sections. Arguments sharing the same `display_group` value are rendered inside a `QGroupBox` with that value as the title. The group box is collapsible: clicking its header toggles visibility of the contained fields.
-
-- **Schema field:** `"display_group": null` added to `ARG_DEFAULTS` as the 16th argument field. Accepts a string (group name) or null (ungrouped — renders flat as before).
-- **Normalization:** `normalize_tool()` automatically fills missing `display_group` keys with null via the existing `ARG_DEFAULTS` loop. All existing schemas remain valid with no changes.
-- **Validation:** `_validate_args()` accepts `display_group` as an optional string-or-null field. Non-string, non-null values produce a validation error.
-- **Form rendering:** `_add_args()` partitions arguments by `display_group` value. Ungrouped arguments render directly in the form layout. Grouped arguments are collected into a `QGroupBox` per unique `display_group` name, with a `QFormLayout` inside. The group box title is clickable (pointer cursor) and toggles content visibility via `_toggle_display_group()`.
-- **Collapse state:** Tracked via `_dg_collapsed` property on each `QGroupBox`. Default: expanded (False). State does not persist across sessions.
-- **Subcommand support:** Display groups work identically within subcommand argument sections.
-- **No impact on existing behavior:** Command assembly (`build_command()`), preset serialization/deserialization (`serialize_values()` / `apply_values()` / `reset_to_defaults()`), mutual exclusivity groups, dependencies, and all existing widget types are completely unchanged.
-- **New `ToolForm` attributes:**
-  - `self.display_groups` — dict keyed by scope → `{display_group_name: QGroupBox}`
-  - `_add_single_arg()` — extracted from `_add_args` loop body for reuse by both ungrouped and grouped code paths
-  - `_toggle_display_group(box)` — toggles collapsed state and content visibility of a display group QGroupBox
-- **PROMPT.txt updated:** Field count 15 → 16, `display_group` documented in the argument object spec, added to all example arguments, checklist updated.
-
-### Changed
-- Version bump to 2.4.0
-- scaffold.py line count: 2,823 → 2,885
-- Argument field count: 15 → 16 (`display_group` added)
-- PROMPT.txt: argument object field count 15 → 16, example arguments updated with `display_group: null`
-
-### Tested
-- **Section 23** — Collapsible Argument Groups (24 assertions): QGroupBox creation with correct title, field containment (3 grouped fields inside box, 2 ungrouped fields outside), `_dg_content` property existence, initial expanded state, collapse toggle hides content, expand toggle restores content, `build_command()` output unchanged with grouped fields, preset serialization includes grouped field keys with correct values, `reset_to_defaults()` clears grouped fields, `apply_values()` restores grouped fields, `display_groups` dict populated with correct scope/name/QGroupBox references, subcommand schema creates separate display group QGroupBox with correct field containment
-
-#### Test schemas added
-- `tests/test_display_groups.json` — 5 arguments: 3 with `display_group: "Network"` (string, integer, enum types), 2 with `display_group: null` (boolean, file types)
-- `tests/test_display_groups_subcmd.json` — subcommand schema with `display_group: "Scan Options"` on 2 of 3 subcommand arguments, plus 1 ungrouped global argument
+- Added `display_group` field for collapsible argument groups -- see v2.5.0 for details.
 
 #### Full suite results
+
 - **All 4 test suites pass: 465/465 assertions, 0 failures**
-  - Functional: 295/295 (+24 new in Section 23)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
+  - Functional: 295/295
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 - All 9 tool schemas validate with zero errors
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
 
 ---
 
@@ -532,7 +383,7 @@ New optional argument field `display_group` (string or null) enables visual grou
 
 #### Keyboard Navigation
 - Enter/Return key opens the selected tool from the picker
-- Tab order: search bar → table for natural keyboard flow
+- Tab order: search bar -> table for natural keyboard flow
 - Numpad Enter also supported
 
 #### Enhanced Tooltips
@@ -541,32 +392,17 @@ New optional argument field `display_group` (string or null) enables visual grou
 - Boolean fields hide separator; positional fields show placeholder name
 
 #### Status Bar Improvements
-- On tool load: shows field count and required count — `Loaded {tool} — {N} fields ({M} required)`
-- During execution: elapsed timer ticks every second — `Running... (Ns)`
-- On completion: elapsed time in exit message — `Exit 0 (N.1fs)` or `Process stopped (N.1fs)`
-
-#### Exhaustive Preset Round-Trip Tests
-- Section 18: all 9 widget types, edge cases (integer 0, float 0.0, empty multi_enum, paths with spaces), subcommand presets
-
-### Changed
-- Version bump to 2.3.1
-- `time` added to stdlib imports (no new external dependencies)
-- scaffold.py line count: 2,739 → 2,823
-- Test files and test schemas now tracked in git (removed `test_*.py` from .gitignore)
-
-### Tested
-- **Section 19** — Search/Filter (11 assertions): bar existence, placeholder, name/description/case filtering, clear restore, no-match
-- **Section 20** — Keyboard Navigation (6 assertions): Enter opens tool, no-selection safety, tab order, numpad Enter
-- **Section 21** — Tooltip Flag Reference (11 assertions): flag, short_flag, type, validation, separator, positional, widget/label match
-- **Section 22** — Status Bar Improvements (12 assertions): field counts, required counts, subcommand totals, timer attributes
+- On tool load: shows field count and required count
+- During execution: elapsed timer ticks every second
+- On completion: elapsed time in exit message
 
 #### Full suite results
+
 - **All 4 test suites pass: 441/441 assertions, 0 failures**
-  - Functional: 271/271 (+98 new)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+  - Functional: 271/271
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
@@ -576,442 +412,257 @@ New optional argument field `display_group` (string or null) enables visual grou
 
 #### Dependency Validation at Schema Load Time
 
-`validate_tool()` now checks that every `depends_on` reference points to an existing flag within the same scope (top-level arguments or within a single subcommand). Previously, a broken `depends_on` reference (e.g., `depends_on: "--nonexistent"`) was silently ignored at load time and only failed at runtime when the GUI tried to wire up the dependency.
-
-- New `_check_dependencies()` validation helper, called for both top-level and per-subcommand argument lists — same pattern as `_check_duplicate_flags` and `_check_groups`
-- Error message format: `{scope}: argument "{name}" depends on "{dep}" which does not exist in this scope`
-- New test schemas: `tests/invalid_bad_dependency.json` (catches broken dep, exits 1) and `tests/valid_good_dependency.json` (passes validation)
+`validate_tool()` now checks that every `depends_on` reference points to an existing flag within the same scope. Previously, a broken reference was silently ignored at load time and only failed at runtime.
 
 #### Widget Creation Fallback
 
-`_build_widget()` is now wrapped in a try/except. If an unexpected argument configuration causes an exception during widget construction, the form no longer crashes — instead, a plain `QLineEdit` fallback is returned with a tooltip explaining the rendering failure. The error is logged to stderr for debugging.
-
-- New `_build_widget_inner()` contains the original dispatch logic; `_build_widget()` is now the try/except wrapper
-- Fallback widget marked with `_is_fallback = True` attribute so `get_field_value`, `_raw_field_value`, and `_set_field_value` treat it as a plain string regardless of the declared type
-- One bad field does not break the rest of the form — fields before and after render normally
-- This is defense-in-depth: `validate_tool()` still catches invalid types at load time; this catches edge cases that pass validation but fail rendering
+If an unexpected argument configuration causes an exception during widget construction, the form no longer crashes -- a plain `QLineEdit` fallback is returned with a tooltip explaining the failure. One bad field does not break the rest of the form.
 
 #### Preset Schema Versioning
 
-Presets now include a `_schema_hash` field — an 8-character MD5 hash of the tool's argument flags at the time the preset was saved. When loading a preset against a schema that has changed (arguments added or removed), the status bar shows a non-blocking warning: *"Note: This preset was saved with a different schema version. Some fields may not have loaded."*
-
-- New `schema_hash(data)` helper computes the hash from sorted flag names across all scopes (global + subcommands)
-- `serialize_values()` now includes `_schema_hash` in every saved preset
-- `_on_load_preset()` compares the saved hash to the current schema's hash; shows warning on mismatch
-- **Backwards compatible** — old presets without `_schema_hash` load normally with no warning
-- Existing behavior unchanged: missing fields get defaults, extra fields are silently skipped
+Presets now include a `_schema_hash` field -- an 8-character hash of the tool's argument flags at save time. When loading a preset against a changed schema, the status bar shows a non-blocking warning. Old presets without the hash load normally.
 
 #### Runtime Dependency Audit (GUI)
 
-Defense-in-depth layer for dependency wiring. After `_apply_dependencies()` fails to find a parent widget for a `depends_on` reference, it now logs a warning to stderr and leaves the dependent field enabled (fail-open) instead of silently skipping it.
-
-- `_apply_dependencies()` now prints a warning to stderr when a parent widget is missing: `Warning: dependency wiring failed for "{name}" -- parent "{flag}" not found in form. Field left enabled (fail-open).`
-- This is a startup-time check (runs once when the form is built), not a per-interaction check
-- Complements load-time validation — `_check_dependencies()` catches bad references in the schema, this catches anything that slips through to the GUI
+After dependency wiring fails to find a parent widget, a warning is logged to stderr and the dependent field is left enabled (fail-open) instead of silently skipped.
 
 ### Improved
 
 #### Flagship Schema Polish (nmap)
 
-No code changes to scaffold.py. Purely data work on the nmap schema and presets.
-
-- **Description rewrites** — all 111 argument descriptions in `tools/nmap.json` rewritten in plain English that a non-expert can understand. Key flags include beginner-friendly explanations of scan types, timing, port specification, OS detection, scripting, and output formats
-- **Examples fields** — populated on key string fields:
-  - `--script`: `["vuln", "safe", "default", "discovery", "auth", "brute", "http-title"]`
-  - `-p`: `["80", "443", "1-1000", "1-65535", "22,80,443,8080"]`
-  - `TARGET`: `["192.168.1.1", "192.168.1.0/24", "10.0.0.0/8", "scanme.nmap.org"]`
-- **Three ready-to-use presets** in `presets/nmap/`:
-  - `quick_ping_sweep.json` — discover live hosts: `-sn`, target `192.168.1.0/24`
-  - `full_port_scan.json` — thorough scan: `-sS -p 1-65535 -sV -T4`, target `192.168.1.1`
-  - `stealth_recon.json` — slow careful scan: `-sS -T2 -O --script=safe -oN results.txt`, target `192.168.1.1`
-
-### Changed
-- Version bump to 2.3.0
-- `hashlib` added to stdlib imports (no new external dependencies)
-- scaffold.py line count: 2,661 -> 2,739
-
-### Tested
-
-#### Command Assembly Property Tests
-
-New Section 14 in `test_functional.py` — 25 assertions testing `build_command()` directly with programmatically constructed tool dicts:
-
-- **Separator tests** (6): `space` produces two list elements, `equals` produces one joined element, `none` concatenates flag+value, each with empty value excludes the flag entirely
-- **Positional tests** (5): positionals appear at end, two positionals maintain schema order, spaces preserved as single element, positionals always after all flagged args
-- **Repeatable tests** (3): unchecked excluded, count 1 produces one flag, count 3 produces three separate flags
-- **Edge cases** (11): all empty produces just `[binary]`, shell metacharacters (`$`, `&`, `;`, `|`, backticks) pass through as literal strings, integer 0 included in command, extra flags appended at end with correct ordering, empty extra flags append nothing, unclosed quote in extra flags falls back without crash
-
-#### New test sections
-
-- **Section 15 — Widget Creation Fallback** (7 assertions): form renders despite bad field, broken enum falls back to QLineEdit with fallback tooltip, stderr warning logged, good fields before and after render correctly
-- **Section 16 — Preset Schema Versioning** (11 assertions): hash is deterministic and 8 chars, serialize_values includes hash, matching hash produces no warning, adding/removing arguments changes hash, old presets without hash load normally (backwards compat), mismatch detection works
-- **Section 17 — Runtime Dependency Audit** (9 assertions): valid deps produce no warnings with correct enable/disable behavior, broken deps (bypassing validator) produce stderr warning with fail-open behavior, adjacent fields unaffected
+- All 111 argument descriptions rewritten in plain English
+- Examples populated on key string fields (`--script`, `-p`, `TARGET`)
+- Three ready-to-use presets: `quick_ping_sweep`, `full_port_scan`, `stealth_recon`
 
 #### Full suite results
 
 - **All 4 test suites pass: 343/343 assertions, 0 failures**
-  - Functional: 173/173 (+52 new: 25 Section 14, 7 Section 15, 11 Section 16, 9 Section 17)
-  - Examples: 52/52 (unchanged)
-  - Manual Verification: 61/61 (unchanged)
-  - Smoke: 57/57 (unchanged)
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new external dependencies
+  - Functional: 173/173
+  - Examples: 52/52
+  - Manual Verification: 61/61
+  - Smoke: 57/57
 
 ---
 
 ## [v2.2.0] — 2026-03-29
 
-### Release
-
 Public release of Scaffold. All changes from v2.1.0 and v2.1.1 are included.
 
 ### Changed
-- Version bump to 2.2.0
 - README disclaimer updated: assertion count corrected from 157 to 291
 
 ### Tested
-- **Full pre-release audit passed** — all recent fixes verified (spinbox 0 vs unset, extra flags validation, coverage field, CLI entry points), visual/theme review, core pipeline, presets, final scan
 - **All 4 test suites pass: 291/291 assertions, 0 failures**
   - Functional: 121/121
   - Examples: 52/52
   - Manual Verification: 61/61
   - Smoke: 57/57
-- No debug prints, no TODO/FIXME/HACK, no `shell=True`, no new dependencies
 
 ---
 
 ## [v2.1.1] — 2026-03-29
 
-### External Code Review — MiniMax M2.7
+### External Code Review -- MiniMax M2.7
 
-The full Scaffold codebase was submitted to **MiniMax M2.7** for an independent code review. The model evaluated the project across six categories — bugs, code quality, prompt design, documentation, feature requests, and testing gaps — and produced 27 discrete findings. Three bugs were fixed, three new test sections added, and the PROMPT.txt completeness directive was rewritten.
+The full codebase was submitted to MiniMax M2.7 for an independent code review. Three bugs were fixed, three new test sections added, and PROMPT.txt was improved.
 
 ### Fixed
 
-#### BUG 1 — Spinbox value 0 silently dropped from command (HIGH)
+#### Spinbox value 0 silently dropped from command
 
-Integer and float fields with no schema default used 0 as both the "empty/unset" sentinel and as a valid user value. This caused flags like `-m 0` (hashcat MD5 mode), `--max-retries 0`, or `--rate 0.0` to be silently omitted from the assembled command. The bug affected five code paths:
+Integer and float fields with no schema default used 0 as both the "empty/unset" sentinel and as a valid user value. This caused flags like `-m 0` (hashcat MD5 mode) or `--rate 0.0` to be silently omitted from the assembled command. The fix uses -1/-1.0 as the sentinel instead, so value 0 is now correctly included in the command.
 
-- **`_build_widget`** — for integer/float fields without a default, the spinbox range now starts at -1 (integer) or -1.0 (float) instead of 0. The Qt `specialValueText(" ")` is set at this new minimum, making the spinbox appear blank when unset. Value 0 is now one step above the sentinel and is treated as a real user input.
-- **`_is_field_active`** — previously returned `w.value() != 0`, which broke dependency chains (a child field depending on a spinbox parent would stay disabled when the parent was set to 0). Now checks `w.specialValueText() and w.value() == w.minimum()` — only the sentinel state is inactive. Spinboxes with defaults (no special value text) are always considered active.
-- **`get_field_value`** — previously returned `None` when `arg["default"] is None and w.value() == 0`. Now returns `None` only when `w.specialValueText() and w.value() == w.minimum()`. This means 0 is included in the command, and the sentinel -1 is not.
-- **`_raw_field_value`** — same fix as `get_field_value` (this method is used for preset serialization and ignores the widget's enabled state).
-- **`_set_field_value`** — reset now sets the widget to `w.minimum()` (the sentinel) instead of hardcoded 0, so "Reset to Defaults" correctly returns the field to the unset state.
+#### No visual feedback on invalid Additional Flags input
 
-Boundary behavior after the fix:
-| Widget state | `get_field_value` | In command? | Dependency children |
-|---|---|---|---|
-| Unset (sentinel, -1) | `None` | No | Disabled |
-| Set to 0 | `0` | Yes (`-m 0`) | Enabled |
-| Set to 5 | `5` | Yes (`-m 5`) | Enabled |
-| Has default, set to 0 | `0` | Yes | Enabled |
-| Has default, set to -5 | `-5` | Yes | Enabled |
+The Additional Flags free-text field uses `shlex.split()` to tokenize user input. When the input contains unclosed quotes, the code silently fell back to naive splitting. Added a red border (theme-aware) on invalid input to warn the user. The fallback to naive splitting is preserved -- the border is a warning, not a blocker.
 
-#### BUG 3 — No visual feedback on invalid Additional Flags input (MEDIUM)
+#### PROMPT.txt improvements
 
-The Additional Flags free-text field uses `shlex.split()` to tokenize user input. When the input contains unclosed quotes (e.g., `--flag "unclosed`), `shlex.split()` raises `ValueError` and the code silently falls back to naive `text.split()`. The user had no indication that their input was malformed.
-
-Added `_validate_extra_flags()` method to `ToolForm`, connected to the `textChanged` signal of the extra flags editor. On every keystroke:
-- If the field is empty: clear any error styling
-- If `shlex.split()` succeeds: clear any error styling
-- If `shlex.split()` raises `ValueError`: apply a red border via `_invalid_style()`
-
-The border color is theme-aware — uses `#f38ba8` (Catppuccin error pink) in dark mode and `red` in light mode, matching the existing validation border style used by regex-validated string fields.
-
-The fallback to `text.split()` is preserved — the command still runs with naively-split tokens if the user clicks Run with invalid quotes. The red border serves as a warning, not a blocker.
-
-#### P1 — PROMPT.txt Rule 8 completeness directive (MEDIUM)
-
-Rule 8 originally read: *"Include ALL documented flags. For tools with 100+ flags, focus on the 30-50 most common."* This contradicted itself within one sentence and also conflicted with Rule 9 (*"Only include flags from the provided documentation. Do not invent flags."*).
-
-Updated Rule 8 to: *"Include ALL documented flags, regardless of how many there are. If output is truncated, the user will re-prompt to continue."*
-
-This aligns with the project's goal of complete CLI coverage — if an LLM truncates output mid-JSON on a very large tool, `scaffold.py --validate` catches the broken output and the user can ask the LLM to continue where it left off.
-
-#### PROMPT.txt Checklist item 8 — duplicate flag scoping (LOW)
-
-The no-duplicates checklist rule previously read: *"No duplicate entries for the same flag."* This was ambiguous — it could be read as a global constraint, causing LLMs to deduplicate flags like `--verbose` that legitimately appear in multiple subcommands. Updated to: *"No duplicate flags within the same scope (top-level arguments or a single subcommand). The same flag MAY appear in multiple subcommands."*
-
-This matches how Scaffold's `_check_duplicate_flags()` validator already works — it validates per-scope, not globally.
-
-#### PROMPT.txt Coverage self-check section (NEW)
-
-Added a new `=== COVERAGE SELF-CHECK ===` section after the checklist. Instructs the LLM to count arguments in its output, compare to the source documentation, and include a top-level `_coverage` field with value `"full"` or `"partial: [list of omitted flags]"`. This provides a machine-readable way to verify completeness and catches silent truncation.
-
-The `_coverage` field is silently accepted by `validate_tool()` — no code changes needed. Schemas without it (pre-update) continue to pass validation.
-
----
+- Rule 8 completeness directive rewritten: now says "Include ALL documented flags" without the contradictory cap at 30-50.
+- No-duplicates checklist rule clarified: duplicates are per-scope, not global. The same flag may appear in multiple subcommands.
+- New coverage self-check section added: instructs the LLM to count arguments and include a `_coverage` field.
 
 ### Regenerated Schemas
 
-Three tool schemas were regenerated using the updated PROMPT.txt with full-coverage and self-check directives. The old schemas were generated under the previous Rule 8 which capped output at "30-50 most common" flags. The new schemas include all documented flags.
+Three tool schemas were regenerated with the updated full-coverage directives:
 
 | Schema | Before | After | `_coverage` |
 |--------|--------|-------|-------------|
 | **nmap.json** | 34 args | 111 args | `full` |
-| **curl.json** | 50 args | 271 args | `partial` (3 meta flags skipped: --help, --manual, --version) |
+| **curl.json** | 50 args | 271 args | `partial` (3 meta flags skipped) |
 | **hashcat.json** | 46 args | 136 args | `full` |
 
-Schemas not regenerated (already comprehensive): gobuster (103 args), ffmpegv2 (123 args), openclaw (213 args), nikto (48 args), ping (19 args), git (76 args across 4 subcommands — regeneration deferred to a future release that adds more subcommands).
-
 All 9 schemas pass `scaffold.py --validate` with zero errors.
-
----
 
 ### Tested
 
 Four test suites now cover the codebase. **Total: 291 assertions, 0 failures.**
 
-#### Functional test suite — 121/121 pass (+16 new vs v2.1.0)
-
-New Section 12 — **Spinbox Value 0 (BUG 1 regression)**:
-- Integer with no default: initially returns `None`, not in command
-- Integer with no default set to 0: returns `0`, flag appears as `-m 0` in command
-- Integer with no default set to 5: returns `5`
-- Float with no default: initially returns `None`
-- Float with no default set to 0.0: returns `0.0`, flag appears in command
-- Integer with default set to 0: returns `0` (no sentinel interference)
-- `_is_field_active` returns `False` at sentinel, `True` at 0
-
-New Section 13 — **Extra Flags Validation (BUG 3 regression)**:
-- Valid input: no error border
-- Unclosed quote: red error border appears
-- Cleared field: error border removed
-
-Note: functional test count increased from 118 to 121 because the regenerated nmap schema (111 args) adds additional tool picker rows, each of which is individually asserted.
-
-#### Examples feature test suite — 52/52 pass (unchanged)
-
-No changes to the examples feature. All existing tests continue to pass — schema normalization, validation rules, editable dropdowns, command assembly, preset round-trips, dependency interaction with examples fields, and validation on examples fields.
-
-#### Manual verification test suite — 61/61 pass (NEW)
-
-`test_manual_verification.py` — exercises edge cases that functional tests don't cover: visual behavior, command execution pipeline, preset persistence across sessions, elevation wrapping, dark mode styling, and boundary conditions.
-
-**Test A — Spinbox Value 0 (10 test groups, 38 assertions):**
-- A1: Zero appears in command preview (`-m 0` visible in preview text)
-- A2: Zero and unset produce genuinely different commands (CRITICAL — the two states must never collapse into the same output)
-- A3: Zero survives full preset round-trip: set to 0 -> serialize -> reset to defaults (confirms unset) -> load preset (confirms 0 restored) -> close app -> reopen -> load preset from disk (confirms 0 persists across sessions)
-- A4: Zero persists through elevation wrapping (`gsudo echo -m 0` or `pkexec echo -m 0`)
-- A5: Float 0.0 — same unset/zero distinction as integer, `--rate 0.0` in command and preview
-- A6: Sentinel boundary — confirms -1 is unset, 0 is valid, integers with defaults have no sentinel (full range including negatives), dependency children enable at 0 and disable at sentinel
-
-**Test B — Extra Flags Validation (8 test groups, 23 assertions):**
-- B1: Valid input baseline — no border, flags in command and preview
-- B2: Unclosed single quote — red border appears, closing quote clears it, flags parse correctly after fix
-- B3: Unclosed double quote — same behavior as B2
-- B4: Run with unclosed quote — command builds without crash, fallback split produces tokens, red border stays visible
-- B5: Red border clears when field is emptied
-- B6: Red border clears immediately when input becomes valid (closing a quote)
-- B7: Dark mode — error border uses theme color `#f38ba8`, not hardcoded `red`; clears correctly in dark mode
-- B8: Corrupted preset (manually edited `_extra_flags` with unclosed quote) — loads without crash, red border fires, rest of preset applies normally
-
-#### Smoke test suite — 57/57 pass (NEW)
-
-`test_smoke.py` — pre-deploy sanity check covering the full user workflow:
-- Section 1 — Launch and load: tool picker renders all 9 tools, form loads with all fields, light/dark mode toggle, widget styling in both themes
-- Section 2 — Form and preview: checkbox, dropdown, text input, positional field all respond to input; live preview updates; copy command works
-- Section 3 — Run a command: process starts, output streams, command echo visible, exit code colored, run button state transitions
-- Section 4 — Preset round-trip: save -> reset (fields clear) -> load (fields restore) -> command preview matches
-- Section 5 — Window behavior: small/large resize, geometry persists across sessions, theme preference persists
+- Functional: 121/121 (+16 new)
+- Examples: 52/52 (unchanged)
+- Manual Verification: 61/61 (new suite -- spinbox 0 edge cases, extra flags validation, dark mode colors, corrupted presets)
+- Smoke: 57/57 (new suite -- full user workflow: launch, load, form, preview, run, presets, window behavior)
 
 ---
 
 ## [v2.1.0] — 2026-03-29
 
 ### Added
-- **OpenClaw tool schema** (`tools/openclaw.json`) — AI agent platform with 10+ subcommands including gateway, channels, models, browser automation, and node management
-- **Gateway `--restart` flag** — added missing `--restart` boolean to the openclaw gateway subcommand
-- **Linux install troubleshooting** — README note covering `--break-system-packages` workaround and `libxcb-cursor0` dependency for Ubuntu/Debian users
-- **Crypto donation addresses** — updated Support section with BTC, LTC, ETH, BCH, and SOL addresses
+- **OpenClaw tool schema** (`tools/openclaw.json`) -- AI agent platform with 10+ subcommands
+- **Gateway `--restart` flag** -- added missing boolean to the openclaw gateway subcommand
+- **Linux install troubleshooting** -- README note covering `--break-system-packages` workaround and `libxcb-cursor0` dependency
+- **Crypto donation addresses** -- BTC, LTC, ETH, BCH, and SOL
 
 ### Fixed
-- **Dark mode scrollbars now match light mode exactly** — replaced custom QSS scrollbar styling with `QStyleHints.setColorScheme(Qt.ColorScheme.Dark)`, which tells the Windows platform plugin to render scrollbars using the native dark-mode renderer. This preserves all native behavior — smooth animations, expand-on-hover, arrow buttons appearing — with dark colors, because the exact same native renderer draws both modes. Previous QSS and QProxyStyle approaches could not replicate native behavior because QSS bypasses the native renderer entirely and the Windows theme API ignores QPalette for scrollbar painting. Gracefully falls back on Qt < 6.8.
+- **Dark mode scrollbars now match light mode exactly** -- uses `QStyleHints.setColorScheme(Qt.ColorScheme.Dark)` for native dark scrollbar rendering. Gracefully falls back on Qt < 6.8.
 
 ### Improved
-- **Side-by-side screenshots** in README — nmap and hashcat examples displayed at 48% width
-- **README updates** — line-count badge updated to 2,646; assertion count updated to 157; openclaw added to example schemas table
+- Side-by-side screenshots in README
+- README updates -- line-count badge, assertion count, openclaw added to schemas table
 
 ### Tested
-- **Functional test suite**: 105/105 assertions pass
-- **Examples feature test suite**: 52/52 assertions pass
-- **Scrollbar visual parity**: dark mode scrollbars confirmed identical to light mode (size, animation, hover expansion, arrow buttons) on Windows 11 with PySide6 6.11.0
+- Functional: 105/105 pass
+- Examples: 52/52 pass
+- Scrollbar visual parity confirmed on Windows 11 with PySide6 6.11.0
+
+---
 
 ## [v2.0.1] — 2026-03-29
 
 ### Fixed
-- **README assertion count** — second mention in "About This Project" section still said 661; corrected to 156
+- **README assertion count** -- second mention still said 661; corrected to 156
+
+---
 
 ## [v2.0.0] — 2026-03-29
 
 ### Added
-- **`__version__` constant** (`2.0.0`) and `--version` / `-V` CLI flag for bug reports and preset compatibility
-- **Shebang line** (`#!/usr/bin/env python3`) for direct execution on Unix (`./scaffold.py`)
-- **Minimum Python version** documented in module docstring (`3.10`)
-- **Resizable output panel** — drag handle between command controls and output panel
-  - Custom `DragHandle` widget with two-line grip indicator and vertical resize cursor
-  - Drag up to shrink, drag down to grow (80px–800px range)
-  - Panel height persisted across sessions via QSettings
-- **Command options border** — form area wrapped in a rounded `QFrame` with a subtle border to visually distinguish it from the preview and output sections below
-- **Separator line** between tool header and command options for cleaner visual hierarchy
-- **UI polish** — section labels, separator lines, and colored action button
-  - Centered, uppercase "Command Preview" and "Output" section labels with theme-aware styling
-  - Subtle horizontal separator lines before each section for visual clarity
-  - Run button styled green; switches to red when in "Stop" state
-  - All new elements update correctly on light/dark theme toggle
+- **`__version__` constant** (`2.0.0`) and `--version` / `-V` CLI flag
+- **Shebang line** for direct execution on Unix (`./scaffold.py`)
+- **Resizable output panel** -- drag handle between command controls and output panel (80px-800px range, persisted via QSettings)
+- **Command options border** -- form area wrapped in a rounded frame for visual distinction
+- **Separator line** between tool header and command options
+- **UI polish** -- centered section labels, separator lines, green Run / red Stop button styling
 - New example tool schemas: `nikto.json`, `gobuster.json`, `hashcat.json`, `ffmpegv2.json`
-  - nikto: demonstrates string+examples for code-concatenation flags (-Tuning, -Display, -evasion)
-  - gobuster: demonstrates full subcommand architecture (7 modes with scoped flags)
-  - hashcat: demonstrates examples-vs-enum distinction (-m as string vs -a as enum)
-  - ffmpegv2: demonstrates large schema with 123 arguments across encoding, filtering, and I/O
-- New screenshot: `hashcat example.png`
-- Validation feedback tip in README — paste errors back into LLM to self-correct
+- Validation feedback tip in README
 
 ### Improved
-- **Tighter vertical spacing** — reduced padding on section labels, status bar, action bar, and command preview to reclaim screen space for tools with many arguments
-- **Higher contrast light theme** — borders for form frame, separators, and drag handle darkened from `#d0d0d0`/`#aaaaaa` to `#999999`/`#888888` for better visibility
-- **`--help` output** now includes version number and `--version` flag; replaced em dash with ASCII dash to avoid encoding issues on Windows cp1252 terminals
-- **Updated nmap screenshot** — reflects new UI (form border, section labels, drag handle, colored Run button); optimized from 445 KB to 114 KB
-- **README updates** — line-count badge updated to 2,634; assertion count corrected to 156; nikto, gobuster, hashcat added to example schemas table
-- **PROMPT.txt rewrite** — 5-stage review, test, iterate, harden, slim
-  - Added complete example JSON (5 arguments demonstrating all key patterns)
-  - Added type hallucination guard table with wrong→correct name mappings
-  - Added JSON formatting rules (no comments, no trailing commas, null not "")
-  - Added completeness + accuracy rules (don't truncate, don't invent flags)
-  - Added no-duplicates rule (short+long forms = one entry, aliases merged)
-  - Strengthened positional placement rule (MUST be last in array)
-  - Clarified flag vs short_flag convention (long form in flag, short in short_flag)
-  - Expanded separator detection guidance (look for "=" in docs)
-  - Added unclear/incomplete docs handling ("inferred — verify" annotation, version notes)
-  - Added examples-vs-enum "why" explanation to prevent silent misclassification
-  - Collapsed self-check into compact 9-item checklist
-  - Compressed prompt to ~1,039 words while preserving all rules
+- Tighter vertical spacing to reclaim screen space
+- Higher contrast light theme borders
+- `--help` output now includes version number
+- **PROMPT.txt rewrite:**
+  - Added complete example JSON demonstrating all key patterns
+  - Added type hallucination guard table with wrong-to-correct name mappings
+  - Expanded separator detection guidance, flag/short_flag convention, and completeness rules
+  - Compressed to ~1,039 words while preserving all rules
 
 ### Fixed
-- **QPushButton stylesheet parse error** — added missing whitespace between QSS rule blocks in Run/Stop button styling (both dark and light mode)
-- **`nmap.json` `-sC` mislabeled as `short_flag` of `--script`** — `-sC` is a distinct flag (`--script=default`), not the short form of `--script`. Split into separate "Default Scripts" boolean entry
+- **QPushButton stylesheet parse error** -- missing whitespace between QSS rule blocks
+- **`nmap.json` `-sC` mislabeled** -- `-sC` is a distinct flag, not the short form of `--script`. Split into separate entry.
 
 ### Tested
-- **Full pre-release audit** (9 sections): first impressions, dependencies, cross-platform, security, error handling, UI polish, file deliverables, CLI interface, final sanity
-- **Security audit passed** — no `shell=True`, no `eval()`/`exec()`, binary passed as single string to `QProcess.setProgram()`, extra flags use `shlex.split()`, JSON loaded with `json.loads()` in try/except, no secrets in QSettings
-- **Cross-platform audit passed** — all paths use `pathlib.Path`, elevation gated by `sys.platform`, `shutil.which()` for binary detection, `QSettings("Scaffold", "Scaffold")`
-- **CLI entry points verified** — `--help`, `--version`, `--validate`, `--prompt`, direct path, missing file, invalid file all produce clean output with correct exit codes and no tracebacks
-- **Functional test suite**: 104/104 assertions pass (tool picker, all 9 widget types, tooltips, required fields, defaults, mutual exclusivity, dependencies, extra flags, command preview, process execution, stop, dark mode, presets, session persistence, subcommands, editable dropdowns, file/directory widgets, output batching, file size guard)
-- **Examples feature test suite**: 52/52 assertions pass (schema normalization, validation rules, editable dropdowns, command assembly)
-- **Schema conformance check**: all 8 bundled tool schemas (nmap, ping, git, curl, nikto, gobuster, hashcat, ffmpegv2) pass PROMPT.txt 15-field spec with all top-level keys present; original 4 schemas audited against new prompt conventions (flag/short_flag, no duplicates, positionals last, boolean separators)
-- Prompt validated against 6 CLI tools across 3 complexity levels (ping, nmap, curl, nikto, gobuster, hashcat)
-- All generated schemas pass `scaffold.py --validate` with zero structural errors
-- Cross-model testing: Opus 4.6 (zero failures) and Haiku 4.5 (structural pass, semantic improvements from guardrails)
-- `--prompt` output verified on Windows (cp1252 encoding handled correctly)
+- Full pre-release audit (security, cross-platform, CLI entry points, error handling, UI polish)
+- Functional: 104/104 pass
+- Examples: 52/52 pass
+- All 8 bundled tool schemas pass validation
+
+---
 
 ## [v1.4.0] — 2026-03-28
 
+### Added
+- **`--help` / `-h` flag** with usage summary listing all available CLI modes
+- Expanded module-level docstring with usage examples
+
 ### Improved
-- **Code review — Part 5: Final cleanup**
-  - Added `--help` / `-h` flag with usage summary listing all available CLI modes
-  - Expanded module-level docstring with usage examples and dependency note
-  - Linted with `ruff check` — all checks pass (E402 suppressed for intentional deferred PySide6 imports, E741 fixed by renaming `l` → `le` in browse lambdas)
-  - Updated README line-count badge to 2,441
-  - Verified internal structure follows: constants → helpers → data layer → widget classes → main window → entry point
-- **Code review — Part 4: Functional test**
-  - Fixed `UnicodeEncodeError` in `--prompt` on Windows terminals using cp1252 (PROMPT.txt contains U+2192 arrow character)
-  - Added comprehensive automated functional test suite (`test_functional.py`, 101 assertions) covering: launch/navigation, all 9 widget types, tooltips, required fields, defaults, mutual exclusivity, dependencies, extra flags, command preview, process execution, stop, dark mode, presets, session persistence, subcommands, editable dropdowns, file/directory widgets, output batching, and file size guard
-- **Code review — Part 3: Performance**
-  - Output panel now buffers `readyRead` data and flushes every 100ms via `QTimer`, preventing UI stalls on high-volume output
-  - Output panel capped at 10,000 lines (`setMaximumBlockCount`) — older lines are automatically discarded to bound memory usage
-  - Tool schema loader rejects files over 1 MB with a clear error, preventing accidental hangs from oversized or malicious JSON files
-  - Verified: signal connections are not duplicated on subcommand switch (visibility toggle, not rebuild)
-  - Verified: live preview has no signal loops (`build_command` does not emit signals)
-  - Verified: `ToolForm` cleanup via `deleteLater()` on tool switch — no memory leaks
-  - Verified: `shutil.which()` per-tool during picker scan is fast with 20+ schemas
-- **Code review — Part 1: Cleanup and consistency**
-  - Organized imports: moved `tempfile` to stdlib section, consolidated PySide6 imports (`QPoint`, `QPolygon`) at top level
-  - Extracted magic numbers into named constants: `SPINBOX_RANGE`, `REPEAT_SPIN_MAX`, `REPEAT_SPIN_WIDTH`, `TEXT_WIDGET_HEIGHT`, `MULTI_ENUM_HEIGHT`, `DEFAULT_WINDOW_WIDTH`, `DEFAULT_WINDOW_HEIGHT`
-  - Extracted theme-independent output/status colors into named constants: `COLOR_OK`, `COLOR_ERR`, `COLOR_WARN`, `COLOR_CMD`, `COLOR_DIM`, `OUTPUT_BG`, `OUTPUT_FG`, `LIGHT_WARNING_BG`, `LIGHT_WARNING_FG`, `LIGHT_WARNING_BORDER`
-  - Converted `apply_theme` QSS stylesheet from `%` dict formatting to f-strings
-  - Renamed signal handlers for clarity: `_read_stdout` → `_on_stdout_ready`, `_read_stderr` → `_on_stderr_ready`
-  - Removed misleading internal comments from section banners
-  - Simplified `reset_to_defaults` by collapsing redundant `elif`/`else` branches
-  - Simplified `_is_field_active` with tuple-form `isinstance`
-  - Simplified `_on_run_stop` empty-list check to idiomatic `if not cmd:`
-  - Removed unused local variable in `_apply_widget_theme`
-  - Removed trivial inline comments in `_build_shortcuts`
-  - Removed stale comment referencing removed `radio` field type
-  - Added docstrings to `MainWindow`, `ToolForm`, `ToolPicker`, and 40+ methods
-  - Added Python 3.10+ type hints (`str | None` style) to all key function signatures
-- **Code review — Part 2: Error handling audit**
-  - `load_tool`: added separate `PermissionError` handler before generic `OSError`
-  - `_on_save_preset`: wrapped `write_text()` in try/except `OSError` with user-facing error dialog
-  - `_on_delete_preset`: wrapped `unlink()` in try/except `OSError` with user-facing error dialog
-  - `_tools_dir` / `_presets_dir`: added guard against file-at-directory-path before `mkdir()`
-  - `print_prompt`: wrapped `read_text()` in try/except `OSError` with stderr fallback
-  - Audited all QProcess error paths — confirmed Run button and command preview reset correctly in all cases
-  - Audited all empty-state edge cases — confirmed all already handled
+- Linted with `ruff check` -- all checks pass
+- **Output buffering** -- output panel now buffers data and flushes every 100ms, preventing UI stalls on high-volume output
+- **Output line cap** -- capped at 10,000 lines to bound memory usage
+- **File size guard** -- tool schema loader rejects files over 1 MB
+- **Error handling audit** -- added `PermissionError` handler in loader, try/except on preset save/delete, guards against file-at-directory-path
+- **Cleanup** -- extracted magic numbers into named constants, organized imports, added docstrings and type hints to all key functions, simplified several methods
+
+### Tested
+- Functional: 101/101 pass
+- Verified: no signal duplication on subcommand switch, no memory leaks on tool switch, `--prompt` output on Windows cp1252
+
+---
 
 ## [v1.3.1] — 2026-03-28
 
 ### Improved
 - Added right padding between form fields and scrollbar for cleaner layout
 
+---
+
 ## [v1.3.0] — 2026-03-28
 
 ### Added
-- **Elevated execution (sudo/admin) support** — run commands with elevated privileges from within Scaffold
+- **Elevated execution (sudo/admin) support** -- run commands with elevated privileges from within Scaffold
 - New `elevated` schema field: `null`, `"never"`, `"optional"`, or `"always"`
-- Platform-specific elevation: `gsudo` on Windows, `pkexec` on Linux, `pkexec` on macOS
-- Elevation checkbox in tool form with contextual notes for optional vs always
+- Platform-specific elevation: `gsudo` on Windows, `pkexec` on Linux/macOS
+- Elevation checkbox in tool form with contextual notes
 - "Running as administrator" status bar indicator when app is already elevated
 - Elevation state included in preset save/load
-- Graceful handling of missing elevation tools, cancelled password dialogs (exit 126/127), and binary-not-found errors
+- Graceful handling of missing elevation tools and cancelled password dialogs
 - Custom arrow icons for dropdown and spinbox controls in dark mode
 - Updated `PROMPT.txt` with `elevated` field and decision rule
-- All example tool schemas updated with `elevated` field (nmap: optional, others: null)
+- All example tool schemas updated with `elevated` field
 
 ### Security
-- Full command injection audit passed — QProcess uses list-based execution, no shell invocation anywhere
-- Malicious schema values (defaults, flags, binary) treated as literal strings, never interpreted
+- Full command injection audit passed -- QProcess uses list-based execution, no shell invocation
+
+---
 
 ## [v1.2.3] — 2026-03-28
 
 ### Improved
-- Added prerequisites section to Getting Started (Python version, pip, CLI tool installation, JSON schema)
-- Added platform compatibility note (tested on Windows, should work on macOS/Linux)
+- Added prerequisites section to Getting Started
+- Added platform compatibility note
+
+---
 
 ## [v1.2.2] — 2026-03-28
 
 ### Added
 - **Dark mode** with system detection and manual toggle (View > Theme menu, Ctrl+D shortcut)
-- Three theme options: Light, Dark, and System Default — persisted across sessions
+- Three theme options: Light, Dark, and System Default -- persisted across sessions
 - Catppuccin Mocha-inspired dark color palette with full widget coverage
 - Getting started instructions at the top of README
 
-### Improved
-- Comprehensive dark mode styling for all widgets (dropdowns, checkboxes, spinboxes, tables, scrollbars, buttons, menus, tooltips, group boxes)
-- README disclaimer now notes limitations with large/complex CLI tools
+---
 
 ## [v1.2.1] — 2026-03-28
 
 ### Improved
 - Command preview bar now uses a scrollable widget with a horizontal scrollbar for long commands
 
+---
+
 ## [v1.2.0] — 2026-03-28
 
 ### Added
-- **Examples field** for string arguments — editable dropdown (QComboBox) showing common values as suggestions while still allowing custom input
+- **Examples field** for string arguments -- editable dropdown showing common values as suggestions while still allowing custom input
 - Updated `PROMPT.txt` to include examples field (15 fields per argument)
-- Updated all example tool schemas (nmap, ping, git, curl) with expanded argument coverage and examples support
-- LLM context window note added to schema generation docs in README
+- Updated all example tool schemas with expanded argument coverage and examples support
+
+---
 
 ## [v1.1.0] — 2026-03-28
 
 ### Added
-- **Binary availability check** in tool picker — green checkmark for installed tools, red X for missing ones
+- **Binary availability check** in tool picker -- green checkmark for installed tools, red X for missing ones
 - Tools sorted by availability (available first, unavailable second, invalid last)
 - 4-column tool picker table (status, tool, description, path)
+
+---
 
 ## [v1.0.1] — 2026-03-28
 
 ### Added
 - ffmpeg example schema (later removed as incomplete)
+
+---
 
 ## [v1.0] — 2026-03-28
 

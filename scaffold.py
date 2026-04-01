@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.2"
+__version__ = "2.6.4"
 
 import datetime
 import hashlib
@@ -324,6 +324,9 @@ def schema_hash(data: dict) -> str:
         flags.sort()
     return hashlib.md5(json.dumps(flags).encode()).hexdigest()[:8]
 
+
+# ANSI escape sequence pattern — compiled once, used in _flush_output()
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
 # Maximum length for any single string key or value in a preset
 _PRESET_MAX_STRING_LEN = 10_000
@@ -855,14 +858,14 @@ class ToolForm(QWidget):
             root.addWidget(desc)
 
         # Separator between header and options
-        header_sep = QFrame()
-        header_sep.setFrameShape(QFrame.Shape.HLine)
-        header_sep.setFrameShadow(QFrame.Shadow.Plain)
+        self._header_sep = QFrame()
+        self._header_sep.setFrameShape(QFrame.Shape.HLine)
+        self._header_sep.setFrameShadow(QFrame.Shadow.Plain)
         color = DARK_COLORS["border"] if _dark_mode else "#999999"
-        header_sep.setStyleSheet(
+        self._header_sep.setStyleSheet(
             f"QFrame {{ color: {color}; max-height: 1px; margin: 4px 0 2px 0; }}"
         )
-        root.addWidget(header_sep)
+        root.addWidget(self._header_sep)
 
         # Field search bar (always visible, Ctrl+F focuses it)
         self._search_bar = QLineEdit()
@@ -871,9 +874,10 @@ class ToolForm(QWidget):
         self._search_bar.installEventFilter(self)
         self._search_matches = []
         self._search_index = -1
-        self._search_highlight_timer = None
+
         self._search_no_match_label = QLabel("No matches")
-        self._search_no_match_label.setStyleSheet("color: red; font-style: italic; margin-left: 4px;")
+        err_color = DARK_COLORS["error"] if _dark_mode else "red"
+        self._search_no_match_label.setStyleSheet(f"color: {err_color}; font-style: italic; margin-left: 4px;")
         self._search_no_match_label.setVisible(False)
         search_row = QHBoxLayout()
         search_row.setContentsMargins(0, 0, 0, 0)
@@ -895,7 +899,9 @@ class ToolForm(QWidget):
             else:
                 note = QLabel("Some features of this tool may require elevated privileges.")
             note.setWordWrap(True)
-            note.setStyleSheet("color: gray; font-style: italic;")
+            note_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            note.setStyleSheet(f"color: {note_color}; font-style: italic;")
+            self._elevation_note = note
             elev_row.addWidget(self.elevation_check)
             elev_row.addWidget(note, 1)
             root.addLayout(elev_row)
@@ -920,7 +926,7 @@ class ToolForm(QWidget):
                 self.sub_combo.addItem(label, sub["name"])
                 if full_desc:
                     idx = self.sub_combo.count() - 1
-                    self.sub_combo.setItemData(idx, full_desc, Qt.ItemDataRole.ToolTipRole)
+                    self.sub_combo.setItemData(idx, f"<p>{full_desc}</p>", Qt.ItemDataRole.ToolTipRole)
             self.sub_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.sub_combo.setMinimumWidth(200)
             self.sub_combo.setMaximumWidth(600)
@@ -936,7 +942,7 @@ class ToolForm(QWidget):
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(scroll_widget)
-        self.scroll_layout.setContentsMargins(0, 0, 8, 0)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
         self._scroll.setWidget(scroll_widget)
         root.addWidget(self._scroll, 1)
 
@@ -1136,8 +1142,9 @@ class ToolForm(QWidget):
                 if box.isAncestorOf(label) and box.property("_dg_collapsed"):
                     self._toggle_display_group(box)
 
-        # Apply highlight
-        label.setStyleSheet("background-color: #fff176;")
+        # Apply highlight — theme-aware
+        highlight = DARK_COLORS["selection"] if _dark_mode else "#fff176"
+        label.setStyleSheet(f"background-color: {highlight};")
         label.setProperty("_search_highlighted", True)
 
         # Scroll into view
@@ -1422,7 +1429,7 @@ class ToolForm(QWidget):
             lines.append(arg["description"])
         if arg.get("validation"):
             lines.append(f"Validation: {arg['validation']}")
-        return "\n".join(lines)
+        return "<p>" + "<br>".join(lines) + "</p>"
 
     # ------------------------------------------------------------------
     # Browse dialogs
@@ -1591,10 +1598,11 @@ class ToolForm(QWidget):
         """Show only the selected subcommand's options section."""
         for i, section in enumerate(self.sub_sections):
             section.setVisible(i == index)
+        self._scroll.verticalScrollBar().setValue(0)
         self.command_changed.emit()
 
     # ------------------------------------------------------------------
-    # Value reading (for command assembly in Phase 5)
+    # Value reading (for command assembly)
     # ------------------------------------------------------------------
 
     def get_current_subcommand(self) -> str | None:
@@ -1991,6 +1999,18 @@ class ToolForm(QWidget):
                 w.setStyleSheet(_invalid_style())
             if hasattr(w, "_line_edit") and w._line_edit.styleSheet() and "border" in w._line_edit.styleSheet():
                 w._line_edit.setStyleSheet(_invalid_style())
+        # Header separator
+        sep_color = DARK_COLORS["border"] if _dark_mode else "#999999"
+        self._header_sep.setStyleSheet(
+            f"QFrame {{ color: {sep_color}; max-height: 1px; margin: 4px 0 2px 0; }}"
+        )
+        # Elevation note
+        if hasattr(self, "_elevation_note"):
+            note_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            self._elevation_note.setStyleSheet(f"color: {note_color}; font-style: italic;")
+        # Search no-match label
+        err_color = DARK_COLORS["error"] if _dark_mode else "red"
+        self._search_no_match_label.setStyleSheet(f"color: {err_color}; font-style: italic; margin-left: 4px;")
 
     def validate_required(self) -> list[tuple]:
         """Check required fields. Returns list of field keys that are missing values."""
@@ -2052,12 +2072,13 @@ def _quote_token(token: str) -> str:
     return token
 
 
-def _colored_preview_html(cmd: list[str], extra_count: int) -> str:
+def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | None = None) -> str:
     """Build an HTML string with syntax-colored command tokens.
 
     Args:
         cmd: The full command list from build_command().
         extra_count: Number of tokens at the end that are extra flags.
+        subcommand: The active subcommand name, if any, for distinct coloring.
     """
     import html as _html
     colors = DARK_PREVIEW if _dark_mode else LIGHT_PREVIEW
@@ -2101,10 +2122,11 @@ def _colored_preview_html(cmd: list[str], extra_count: int) -> str:
                     val_display = _quote_token(cmd[i])
                     parts.append(_span(val_display, colors["value"]))
         else:
-            # Subcommand name or positional — use subcommand color if it looks
-            # like a subcommand (no dashes, appears right after global flags
-            # before more flags), otherwise treat as value/positional
-            parts.append(_span(display_token, colors["value"]))
+            # Subcommand name or positional
+            if subcommand and token == subcommand:
+                parts.append(_span(display_token, colors["subcommand"], bold=True))
+            else:
+                parts.append(_span(display_token, colors["value"]))
 
         i += 1
 
@@ -2895,6 +2917,13 @@ class MainWindow(QMainWindow):
         toggle_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
         toggle_shortcut.activated.connect(self._toggle_dark_mode)
 
+        # Help menu
+        help_menu = self.menuBar().addMenu("Help")
+        act_about = help_menu.addAction("About Scaffold")
+        act_about.triggered.connect(self._on_about)
+        act_shortcuts = help_menu.addAction("Keyboard Shortcuts")
+        act_shortcuts.triggered.connect(self._on_keyboard_shortcuts)
+
     def _sync_theme_checks(self) -> None:
         """Update View > Theme check marks to match the stored preference."""
         pref = self.settings.value("appearance/theme", "system")
@@ -2917,6 +2946,35 @@ class MainWindow(QMainWindow):
         """Toggle between dark and light themes (Ctrl+D)."""
         self._set_theme("dark" if not _dark_mode else "light")
         self._sync_theme_checks()
+
+    def _on_about(self) -> None:
+        """Show the About Scaffold dialog."""
+        QMessageBox.about(
+            self,
+            "About Scaffold",
+            f"<b>Scaffold {__version__}</b><br><br>"
+            "Dynamic GUI form generator for CLI tools.<br><br>"
+            "<a href='https://github.com/Zencache/scaffold'>github.com/Zencache/scaffold</a>",
+        )
+
+    def _on_keyboard_shortcuts(self) -> None:
+        """Show a list of keyboard shortcuts."""
+        shortcuts = (
+            "Ctrl+O          Load Tool...\n"
+            "Ctrl+R          Reload Tool\n"
+            "Ctrl+B          Back to Tool List\n"
+            "Ctrl+Q          Exit\n"
+            "\n"
+            "Ctrl+S          Save Preset...\n"
+            "Ctrl+L          Load Preset...\n"
+            "\n"
+            "Ctrl+D          Toggle Dark/Light Theme\n"
+            "Ctrl+F          Find Field\n"
+            "Ctrl+Shift+F    Search Output\n"
+            "Ctrl+Enter      Run Command\n"
+            "Escape          Stop Process / Close Search"
+        )
+        QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
 
     def _apply_widget_theme(self) -> None:
         """Re-apply theme-sensitive inline stylesheets for output panel, preview bar, and warning bar."""
@@ -2947,9 +3005,6 @@ class MainWindow(QMainWindow):
         for attr in ("preview_label", "output_label"):
             if hasattr(self, attr):
                 self._style_section_label(getattr(self, attr))
-        for attr in ("preview_sep",):
-            if hasattr(self, attr):
-                self._style_separator(getattr(self, attr))
         # Form frame border
         if hasattr(self, "form_frame"):
             self._style_form_frame()
@@ -2977,21 +3032,6 @@ class MainWindow(QMainWindow):
             f" letter-spacing: 1px; padding: 2px 0 1px 0; color: {color};"
         )
 
-    def _make_separator(self) -> QFrame:
-        """Create a subtle horizontal separator line."""
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFrameShadow(QFrame.Shadow.Plain)
-        self._style_separator(sep)
-        return sep
-
-    @staticmethod
-    def _style_separator(sep: QFrame) -> None:
-        """Apply theme-appropriate styling to a separator line."""
-        color = DARK_COLORS["border"] if _dark_mode else "#999999"
-        sep.setStyleSheet(
-            f"QFrame {{ color: {color}; max-height: 1px; margin: 4px 16px 0 16px; }}"
-        )
 
     def _style_form_frame(self) -> None:
         """Apply theme-appropriate border styling to the command options frame."""
@@ -3159,7 +3199,7 @@ class MainWindow(QMainWindow):
         doc = self.output.document()
         cursor = QTextCursor(doc)
         flags = doc.FindFlag(0)  # no flags = forward, case-insensitive by default
-        # QTextDocument.find is case-sensitive by default, so we don't set FindCaseSensitively
+        # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
         while True:
             cursor = doc.find(query, cursor)
             if cursor.isNull():
@@ -3435,6 +3475,10 @@ class MainWindow(QMainWindow):
         self.status.setStyleSheet("padding: 0 8px 0 8px;")
         layout.addWidget(self.status)
 
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(lambda: self.status.setText(""))
+
         # Action buttons bar
         action_widget = QWidget()
         action_bar = QHBoxLayout(action_widget)
@@ -3448,6 +3492,10 @@ class MainWindow(QMainWindow):
         self.clear_btn = QPushButton("Clear Output")
         self.clear_btn.clicked.connect(self._clear_output)
         action_bar.addWidget(self.clear_btn)
+
+        self.copy_output_btn = QPushButton("Copy Output")
+        self.copy_output_btn.clicked.connect(self._copy_output)
+        action_bar.addWidget(self.copy_output_btn)
 
         self.save_output_btn = QPushButton("Save Output...")
         self.save_output_btn.clicked.connect(self._save_output)
@@ -3780,7 +3828,8 @@ class MainWindow(QMainWindow):
             extra_count = len(self.form.get_extra_flags())
             cmd = elev_cmd
             display = _format_display(elev_cmd)
-        html = _colored_preview_html(cmd, extra_count)
+        sub = self.form.sub_combo.currentData() if self.form.sub_combo else None
+        html = _colored_preview_html(cmd, extra_count, subcommand=sub)
         self.preview.setHtml(html)
         process_running = (
             self.process is not None
@@ -3810,12 +3859,23 @@ class MainWindow(QMainWindow):
         color = DARK_COLORS["success"] if _dark_mode else "green"
         self._show_status("Copied to clipboard.", color)
 
+    def _copy_output(self) -> None:
+        """Copy the output panel's plain text to the clipboard."""
+        text = self.output.toPlainText()
+        if not text.strip():
+            self._show_status("No output to copy")
+            return
+        QApplication.clipboard().setText(text)
+        color = DARK_COLORS["success"] if _dark_mode else "green"
+        self._show_status("Output copied to clipboard.", color)
+
     def _show_status(self, text: str, color: str | None = None) -> None:
         """Display a colored message in the status label below the command preview."""
         if color is None:
             color = DARK_COLORS["error"] if _dark_mode else "red"
         self.status.setText(text)
         self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
+        self._status_timer.start(3000)
 
     # ------------------------------------------------------------------
     # Process execution
@@ -3943,6 +4003,7 @@ class MainWindow(QMainWindow):
         cursor = self.output.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
         for text, color in self._output_buffer:
+            text = _ANSI_RE.sub('', text)
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(color))
             cursor.insertText(text, fmt)
