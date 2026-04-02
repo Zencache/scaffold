@@ -27,6 +27,18 @@ import scaffold
 # Auto-decline recovery prompts so stale recovery files don't block tests
 QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
 
+
+def _cleanup_recovery_files():
+    """Remove all Scaffold recovery files from temp directory."""
+    tmp = Path(tempfile.gettempdir())
+    for f in tmp.glob("scaffold_recovery_*.json"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+_cleanup_recovery_files()
+
 passed = 0
 failed = 0
 errors = []
@@ -367,6 +379,7 @@ win2.deleteLater()
 win.close()
 win.deleteLater()
 app.processEvents()
+_cleanup_recovery_files()
 
 print(f"\n{'=' * 60}")
 print(f"SMOKE TEST RESULTS: {passed}/{passed + failed} passed, {failed} failed")

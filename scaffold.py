@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.6.8"
+__version__ = "2.7.0"
 
 import datetime
 import hashlib
@@ -81,7 +81,7 @@ OUTPUT_DEFAULT_HEIGHT = 150     # Default output panel height (pixels)
 MAX_SCHEMA_SIZE = 1_000_000     # 1 MB — skip files larger than this
 
 # Auto-save / crash recovery
-AUTOSAVE_INTERVAL_MS = 30000    # 30 seconds between auto-saves
+AUTOSAVE_DEBOUNCE_MS = 2000     # Debounce delay — save 2s after last field change
 AUTOSAVE_EXPIRY_HOURS = 24      # Recovery files older than this are ignored
 
 # Command history
@@ -1015,6 +1015,7 @@ class ToolForm(QWidget):
         group.setLayout(layout)
         self.scroll_layout.addWidget(group)
         self.extra_flags_group = group
+        group.toggled.connect(lambda _: self.command_changed.emit())
 
     def _validate_extra_flags(self) -> None:
         """Show a red border on the extra flags field if shlex parsing fails."""
@@ -2255,6 +2256,41 @@ def _binary_in_path(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
+def _fit_last_column(table: QTableWidget) -> None:
+    """Make the last column fill remaining viewport space."""
+    header = table.horizontalHeader()
+    last_col = table.columnCount() - 1
+    used = sum(header.sectionSize(i) for i in range(last_col))
+    remaining = table.viewport().width() - used
+    header.resizeSection(last_col, max(remaining, 50))
+
+
+def _clamp_for_last_column(table: QTableWidget, logical_index: int, old_size: int, new_size: int) -> None:
+    """After a column resize, adjust the last column to fill remaining space.
+
+    If the resized column took too much space, clamp it so the last column
+    keeps at least 50px.
+    """
+    header = table.horizontalHeader()
+    last_col = table.columnCount() - 1
+    if logical_index == last_col:
+        return
+    used = sum(header.sectionSize(i) for i in range(last_col))
+    remaining = table.viewport().width() - used
+    if remaining < 50:
+        overflow = 50 - remaining
+        header.blockSignals(True)
+        header.resizeSection(logical_index, max(new_size - overflow, 50))
+        used = sum(header.sectionSize(i) for i in range(last_col))
+        remaining = table.viewport().width() - used
+        header.resizeSection(last_col, max(remaining, 50))
+        header.blockSignals(False)
+    else:
+        header.blockSignals(True)
+        header.resizeSection(last_col, remaining)
+        header.blockSignals(False)
+
+
 # ---------------------------------------------------------------------------
 # Tool picker
 # ---------------------------------------------------------------------------
@@ -2263,6 +2299,7 @@ class ToolPicker(QWidget):
     """Displays available tools and lets the user pick one."""
 
     tool_selected = Signal(str)  # emits the file path
+    back_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2282,20 +2319,25 @@ class ToolPicker(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["", "Tool", "Description", "Path"])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setCascadingSectionResizes(True)
+        self.table.horizontalHeader().setMinimumSectionSize(50)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
+            1, QHeaderView.ResizeMode.Interactive
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
+            2, QHeaderView.ResizeMode.Interactive
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _orig_resize = self.table.resizeEvent
+        self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
 
@@ -2317,6 +2359,11 @@ class ToolPicker(QWidget):
         btn_bar.addWidget(load_btn)
 
         btn_bar.addStretch()
+
+        self.back_btn = QPushButton("Back")
+        self.back_btn.setEnabled(False)
+        self.back_btn.clicked.connect(self.back_requested.emit)
+        btn_bar.addWidget(self.back_btn)
 
         self.delete_btn = QPushButton("Delete")
         self.delete_btn.setEnabled(False)
@@ -2388,7 +2435,10 @@ class ToolPicker(QWidget):
 
             if data:
                 name_item = QTableWidgetItem(data["tool"])
-                desc_item = QTableWidgetItem(data.get("description", ""))
+                desc_text = data.get("description", "")
+                desc_item = QTableWidgetItem(desc_text)
+                if desc_text:
+                    desc_item.setToolTip(f"<p style='max-width:400px;'>{desc_text}</p>")
             else:
                 name_item = QTableWidgetItem(fname)
                 desc_item = QTableWidgetItem(f"[invalid] {error}")
@@ -2414,6 +2464,12 @@ class ToolPicker(QWidget):
         self.open_btn.setEnabled(False)
         self.search_bar.clear()
         self.search_bar.setFocus()
+        self.table.resizeColumnToContents(1)
+        _fit_last_column(self.table)
+
+    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
+        """Redistribute space so the last column fills remaining viewport width."""
+        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_filter(self, text: str) -> None:
         """Hide table rows that don't match the search text."""
@@ -2574,7 +2630,7 @@ class PresetPicker(QDialog):
         self.selected_path: str | None = None
         self._presets: list[Path] = []  # ordered list matching table rows
 
-        titles = {"load": "Load Preset", "delete": "Delete Preset", "edit": "Edit Preset"}
+        titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(f"{titles.get(mode, mode)} \u2014 {tool_name}")
         self.resize(600, 400)
 
@@ -2585,22 +2641,25 @@ class PresetPicker(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["\u2605", "Preset", "Description", "Last Modified"])
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setCascadingSectionResizes(True)
+        self.table.horizontalHeader().setMinimumSectionSize(50)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
+            1, QHeaderView.ResizeMode.Interactive
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents
+            2, QHeaderView.ResizeMode.Interactive
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _orig_resize = self.table.resizeEvent
+        self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
@@ -2621,9 +2680,9 @@ class PresetPicker(QDialog):
             btn_bar.addWidget(self.delete_btn)
             btn_bar.addStretch()
             self.action_btn = None  # no load/accept action in edit mode
-            self.cancel_btn = QPushButton("Close")
-            self.cancel_btn.clicked.connect(self.reject)
-            btn_bar.addWidget(self.cancel_btn)
+            self.back_btn = QPushButton("Back")
+            self.back_btn.clicked.connect(self.reject)
+            btn_bar.addWidget(self.back_btn)
         else:
             btn_bar.addStretch()
             action_label = "Load" if mode == "load" else "Delete"
@@ -2635,9 +2694,9 @@ class PresetPicker(QDialog):
             self.edit_desc_btn.setEnabled(False)
             self.edit_desc_btn.clicked.connect(self._on_edit_description)
             btn_bar.addWidget(self.edit_desc_btn)
-            self.cancel_btn = QPushButton("Cancel")
-            self.cancel_btn.clicked.connect(self.reject)
-            btn_bar.addWidget(self.cancel_btn)
+            self.back_btn = QPushButton("Back")
+            self.back_btn.clicked.connect(self.reject)
+            btn_bar.addWidget(self.back_btn)
 
         layout.addLayout(btn_bar)
 
@@ -2704,7 +2763,10 @@ class PresetPicker(QDialog):
                 desc = pdata.get("_description", "") or ""
             except (json.JSONDecodeError, OSError):
                 pass
-            self.table.setItem(row, 2, QTableWidgetItem(desc))
+            desc_item = QTableWidgetItem(desc)
+            if desc:
+                desc_item.setToolTip(f"<p style='max-width:400px;'>{desc}</p>")
+            self.table.setItem(row, 2, desc_item)
 
             # Column 3 — last modified
             try:
@@ -2715,11 +2777,18 @@ class PresetPicker(QDialog):
                 date_str = "Unknown"
             self.table.setItem(row, 3, QTableWidgetItem(date_str))
 
+        self.table.resizeColumnToContents(1)
+        _fit_last_column(self.table)
+
         if self.action_btn is not None:
             self.action_btn.setEnabled(False)
         self.edit_desc_btn.setEnabled(False)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(False)
+
+    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
+        """Redistribute space so the last column fills remaining viewport width."""
+        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -2810,7 +2879,7 @@ class PresetPicker(QDialog):
         desc_item = self.table.item(row, 2)
         if desc_item:
             desc_item.setText(new_desc.strip())
-        titles = {"load": "Load Preset", "delete": "Delete Preset", "edit": "Edit Preset"}
+        titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(
             f"{titles.get(self.mode, self.mode)}"
             f" \u2014 {self.tool_name} \u2014 Description updated"
@@ -2879,24 +2948,26 @@ class HistoryDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Exit", "Command", "Time", "Age"])
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setCascadingSectionResizes(True)
+        self.table.horizontalHeader().setMinimumSectionSize(50)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            1, QHeaderView.ResizeMode.Interactive
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents
+            2, QHeaderView.ResizeMode.Interactive
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setColumnWidth(0, 50)
-        self.table.setColumnWidth(3, 80)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _orig_resize = self.table.resizeEvent
+        self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
 
@@ -2956,6 +3027,13 @@ class HistoryDialog(QDialog):
                 age_str = f"{int(age_secs // 86400)}d ago"
             self.table.setItem(row, 3, QTableWidgetItem(age_str))
 
+        self.table.resizeColumnToContents(2)
+        _fit_last_column(self.table)
+
+    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
+        """Redistribute space so the last column fills remaining viewport width."""
+        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
+
     def _on_selection(self) -> None:
         """Enable/disable Restore button based on selection."""
         self.restore_btn.setEnabled(len(self.table.selectedItems()) > 0)
@@ -3012,8 +3090,11 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.timeout.connect(self._update_elapsed)
         self.settings = _create_settings()
         self._autosave_timer = QTimer(self)
-        self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(AUTOSAVE_DEBOUNCE_MS)
         self._autosave_timer.timeout.connect(self._autosave_form)
+        self._default_form_snapshot = None
+        self._cleanup_stale_recovery_files()
 
         # Restore geometry
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
@@ -3033,6 +3114,7 @@ class MainWindow(QMainWindow):
         # Picker
         self.picker = ToolPicker()
         self.picker.tool_selected.connect(self._load_tool_path)
+        self.picker.back_requested.connect(self._on_picker_back)
         self.stack.addWidget(self.picker)
 
         # Form container (built on load)
@@ -3073,7 +3155,7 @@ class MainWindow(QMainWindow):
         self.act_reload.triggered.connect(self._on_reload)
         self.act_reload.setEnabled(False)
 
-        self.act_back = menu.addAction("Back to Tool List")
+        self.act_back = menu.addAction("Tool List")
         self.act_back.setShortcut("Ctrl+B")
         self.act_back.triggered.connect(self._on_back)
         self.act_back.setEnabled(False)
@@ -3092,7 +3174,7 @@ class MainWindow(QMainWindow):
         self.act_save_preset.setShortcut("Ctrl+S")
         self.act_save_preset.triggered.connect(self._on_save_preset)
 
-        self.act_load_preset = self.preset_menu.addAction("Load Preset...")
+        self.act_load_preset = self.preset_menu.addAction("Preset List...")
         self.act_load_preset.setShortcut("Ctrl+L")
         self.act_load_preset.triggered.connect(self._on_load_preset)
 
@@ -3106,12 +3188,6 @@ class MainWindow(QMainWindow):
 
         self.act_export_preset = self.preset_menu.addAction("Export Preset...")
         self.act_export_preset.triggered.connect(self._on_export_preset)
-
-        self.preset_menu.addSeparator()
-
-        self.act_history = self.preset_menu.addAction("Command History...")
-        self.act_history.setShortcut("Ctrl+H")
-        self.act_history.triggered.connect(self._on_show_history)
 
         self.act_reset = self.preset_menu.addAction("Reset to Defaults")
         self.act_reset.triggered.connect(self._on_reset_defaults)
@@ -3135,6 +3211,12 @@ class MainWindow(QMainWindow):
         # Shortcut to toggle between light/dark
         toggle_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
         toggle_shortcut.activated.connect(self._toggle_dark_mode)
+
+        view_menu.addSeparator()
+        self.act_history = view_menu.addAction("Command History...")
+        self.act_history.setShortcut("Ctrl+H")
+        self.act_history.triggered.connect(self._on_show_history)
+        self.act_history.setEnabled(False)
 
         # Help menu
         help_menu = self.menuBar().addMenu("Help")
@@ -3181,11 +3263,11 @@ class MainWindow(QMainWindow):
         shortcuts = (
             "Ctrl+O          Load Tool...\n"
             "Ctrl+R          Reload Tool\n"
-            "Ctrl+B          Back to Tool List\n"
+            "Ctrl+B          Tool List\n"
             "Ctrl+Q          Exit\n"
             "\n"
             "Ctrl+S          Save Preset...\n"
-            "Ctrl+L          Load Preset...\n"
+            "Ctrl+L          Preset List...\n"
             "Ctrl+H          Command History...\n"
             "\n"
             "Ctrl+D          Toggle Dark/Light Theme\n"
@@ -3522,6 +3604,21 @@ class MainWindow(QMainWindow):
     # Auto-save / crash recovery
     # ------------------------------------------------------------------
 
+    def _cleanup_stale_recovery_files(self) -> None:
+        """Delete expired recovery files from previous sessions."""
+        tmp = Path(tempfile.gettempdir())
+        for f in tmp.glob("scaffold_recovery_*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                ts = data.get("_recovery_timestamp", 0)
+                if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
+                    f.unlink()
+            except (OSError, json.JSONDecodeError):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+
     def _recovery_file_path(self) -> Path | None:
         """Return the recovery file path for the current tool, or None."""
         if self.data is None:
@@ -3530,16 +3627,22 @@ class MainWindow(QMainWindow):
         return Path(tempfile.gettempdir()) / f"scaffold_recovery_{safe_name}.json"
 
     def _autosave_on_change(self) -> None:
-        """Auto-save immediately on first field change so there's no 30s gap."""
-        path = self._recovery_file_path()
-        if path is not None and not path.exists():
-            self._autosave_form()
+        """Restart the debounce timer on every field change."""
+        if self.data is None:
+            return
+        self._autosave_timer.start()
 
     def _autosave_form(self) -> None:
-        """Periodically serialize form state to a recovery file."""
+        """Serialize form state to a recovery file after the debounce delay."""
         if self.form is None or self.data is None:
             return
         values = self.form.serialize_values()
+        # Don't save if form matches default state (user hasn't changed anything)
+        if self._default_form_snapshot is not None:
+            current = {k: v for k, v in values.items() if not k.startswith("_")}
+            default = {k: v for k, v in self._default_form_snapshot.items() if not k.startswith("_")}
+            if current == default:
+                return
         # Don't save if only meta keys are present (form is at defaults/empty)
         if not any(k for k in values if not k.startswith("_")):
             return
@@ -3600,7 +3703,9 @@ class MainWindow(QMainWindow):
         )
         if btn == QMessageBox.StandardButton.Yes:
             self.form.apply_values(recovery_data)
+            self._default_form_snapshot = self.form.serialize_values()
             self.statusBar().showMessage("Form restored from auto-save")
+            self._autosave_form()
         else:
             self.statusBar().showMessage("Recovery discarded")
         try:
@@ -3610,6 +3715,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Persist window geometry and session state; kill any running process on exit."""
+        # Stop timers FIRST to prevent them from recreating files during teardown
+        self._autosave_timer.stop()
+        self._elapsed_timer.stop()
+        self._force_kill_timer.stop()
         self._clear_recovery_file()
         self.settings.setValue("window/geometry", self.saveGeometry())
         if self.tool_path:
@@ -3653,7 +3762,19 @@ class MainWindow(QMainWindow):
         self.act_reload.setEnabled(False)
         self.act_back.setEnabled(False)
         self.preset_menu.setEnabled(False)
+        self.act_history.setEnabled(False)
+        self.picker.back_btn.setEnabled(self.data is not None)
         self.statusBar().showMessage("Ready")
+
+    def _on_picker_back(self) -> None:
+        """Return from the tool picker to the previously loaded tool form."""
+        if self.data is not None:
+            self.stack.setCurrentIndex(1)
+            self.setWindowTitle(f"Scaffold \u2014 {self.data['tool']}")
+            self.act_reload.setEnabled(True)
+            self.act_back.setEnabled(True)
+            self.preset_menu.setEnabled(True)
+            self.act_history.setEnabled(True)
 
     def _load_tool_path(self, path: str) -> None:
         """Load, validate, and display the tool at path; show an error dialog on failure."""
@@ -3708,6 +3829,7 @@ class MainWindow(QMainWindow):
         self.act_reload.setEnabled(True)
         self.act_back.setEnabled(True)
         self.preset_menu.setEnabled(True)
+        self.act_history.setEnabled(True)
         self.settings.setValue("session/last_tool", path)
         # Count fields and required fields for status message
         total_fields = len(data.get("arguments") or [])
@@ -3733,7 +3855,7 @@ class MainWindow(QMainWindow):
         else:
             self.warning_bar.setVisible(False)
 
-        self._autosave_timer.start()
+        self._default_form_snapshot = self.form.serialize_values()
         self._check_for_recovery()
 
     def _show_load_error(self, msg: str) -> None:
@@ -4041,6 +4163,7 @@ class MainWindow(QMainWindow):
             return
 
         self.form.apply_values(preset)
+        self._default_form_snapshot = self.form.serialize_values()
 
         # Check schema hash for version mismatch
         saved_hash = preset.get("_schema_hash")
@@ -4168,6 +4291,7 @@ class MainWindow(QMainWindow):
         """Reset all form fields to their schema-defined defaults."""
         if self.data:
             self.form.reset_to_defaults()
+            self._default_form_snapshot = self.form.serialize_values()
             self.statusBar().showMessage("Reset to defaults")
             self._clear_recovery_file()
 
@@ -4532,6 +4656,7 @@ class MainWindow(QMainWindow):
         dlg = HistoryDialog(self.data["tool"], history, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_entry is not None:
             self.form.apply_values(dlg.selected_entry["preset_data"])
+            self._default_form_snapshot = self.form.serialize_values()
             self._show_status("Form restored from history")
 
     def _append_output(self, text: str, color: str) -> None:

@@ -4805,7 +4805,7 @@
       "choices": null,
       "group": null,
       "depends_on": null,
-      "repeatable": true,
+      "repeatable": false,
       "separator": "none",
       "positional": false,
       "validation": null,

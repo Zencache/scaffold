@@ -21,7 +21,7 @@ from pathlib import Path
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QColor, QKeyEvent
 
@@ -45,6 +45,18 @@ QMessageBox.warning = _patched_warning
 # cause a blocking modal dialog that hangs the test process.
 _original_qmb_question = QMessageBox.question
 QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
+
+
+def _cleanup_recovery_files():
+    """Remove all Scaffold recovery files from temp directory."""
+    tmp = Path(tempfile.gettempdir())
+    for f in tmp.glob("scaffold_recovery_*.json"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+_cleanup_recovery_files()
 
 passed = 0
 failed = 0
@@ -458,7 +470,8 @@ if window.process and window.process.state() != QProcess.ProcessState.NotRunning
 
     # Stop it
     window._on_run_stop()
-    window.process.waitForFinished(5000)
+    if window.process:
+        window.process.waitForFinished(5000)
     app.processEvents()
     window._flush_output()
     app.processEvents()
@@ -3308,8 +3321,8 @@ check(_pp_picker_load.action_btn.text() == "Load",
       "34h: load mode shows 'Load' button")
 check(_pp_picker_del.action_btn.text() == "Delete",
       "34h: delete mode shows 'Delete' button")
-check("Load Preset" in _pp_picker_load.windowTitle(),
-      "34h: load mode dialog title contains 'Load Preset'")
+check("Preset List" in _pp_picker_load.windowTitle(),
+      "34h: load mode dialog title contains 'Preset List'")
 check("Delete Preset" in _pp_picker_del.windowTitle(),
       "34h: delete mode dialog title contains 'Delete Preset'")
 _pp_picker_load.close()
@@ -3525,8 +3538,8 @@ check(_em_picker1.delete_btn is not None,
       "35b: edit mode has 'Delete' button")
 check(_em_picker1.action_btn is None,
       "35b: edit mode has no action (Load/Delete) button")
-check(_em_picker1.cancel_btn.text() == "Close",
-      "35b: edit mode close button says 'Close'")
+check(_em_picker1.back_btn.text() == "Back",
+      "35b: edit mode back button says 'Back'")
 _em_picker1.close()
 _em_picker1.deleteLater()
 app.processEvents()
@@ -3641,8 +3654,8 @@ _em_load_path.write_text(json.dumps({"__global__:--verbose": True,
 _em_picker7 = scaffold.PresetPicker(window.data["tool"], _em_dir, mode="load")
 check(_em_picker7.action_btn is not None and _em_picker7.action_btn.text() == "Load",
       "35h: load mode still has 'Load' button")
-check(_em_picker7.cancel_btn.text() == "Cancel",
-      "35h: load mode cancel button says 'Cancel'")
+check(_em_picker7.back_btn.text() == "Back",
+      "35h: load mode back button says 'Back'")
 _em_picker7.close()
 _em_picker7.deleteLater()
 app.processEvents()
@@ -4677,15 +4690,15 @@ app.processEvents()
 
 # 46a: _autosave_timer exists and has correct interval
 check(hasattr(_s46_w, "_autosave_timer"), "46a: _autosave_timer attribute exists")
-check(_s46_w._autosave_timer.interval() == scaffold.AUTOSAVE_INTERVAL_MS,
-      f"46b: autosave timer interval is {scaffold.AUTOSAVE_INTERVAL_MS}ms")
+check(_s46_w._autosave_timer.interval() == scaffold.AUTOSAVE_DEBOUNCE_MS,
+      f"46b: autosave timer interval is {scaffold.AUTOSAVE_DEBOUNCE_MS}ms")
 
-# 46c: Timer is a QTimer and is repeating (not single-shot)
+# 46c: Timer is a QTimer and is single-shot (debounce)
 check(isinstance(_s46_w._autosave_timer, QTimer), "46c: _autosave_timer is a QTimer")
-check(not _s46_w._autosave_timer.isSingleShot(), "46d: autosave timer is repeating (not single-shot)")
+check(_s46_w._autosave_timer.isSingleShot(), "46d: autosave timer is single-shot (debounce)")
 
-# 46e: After loading a tool, timer is active
-check(_s46_w._autosave_timer.isActive(), "46e: autosave timer is active after loading tool")
+# 46e: After loading a tool (no changes), timer is NOT active
+check(not _s46_w._autosave_timer.isActive(), "46e: autosave timer not active before any field changes")
 
 # 46f: _recovery_file_path() returns a Path in tempdir with tool name
 _s46_rpath = _s46_w._recovery_file_path()
@@ -4786,15 +4799,15 @@ check(not _s46_rpath.exists(), "46s: corrupted recovery file is silently deleted
 _s46_w5.close(); _s46_w5.deleteLater()
 app.processEvents()
 
-# 46t: Loading a new tool stops and restarts autosave timer
+# 46t: Debounce timer starts after a field change
 _s46_w6 = scaffold.MainWindow()
 _s46_w6._load_tool_path(str(_s46_tool_path))
 app.processEvents()
-check(_s46_w6._autosave_timer.isActive(), "46t-pre: timer active after first load")
-# Load a second time (simulates loading a new tool)
-_s46_w6._load_tool_path(str(_s46_tool_path))
+check(not _s46_w6._autosave_timer.isActive(), "46t-pre: timer not active after fresh load")
+_s46_w6.form._set_field_value(("__global__", "--name"), "debounce_test")
+_s46_w6.form.command_changed.emit()
 app.processEvents()
-check(_s46_w6._autosave_timer.isActive(), "46t: timer still active after reloading tool")
+check(_s46_w6._autosave_timer.isActive(), "46t: debounce timer starts after field change")
 
 # 46u: Timer is stopped when going back to picker
 _s46_w6._show_picker()
@@ -4810,6 +4823,33 @@ QMessageBox.warning = _s46_orig_warning
 _s46_w.deleteLater()
 app.processEvents()
 shutil.rmtree(_s46_tmpdir, ignore_errors=True)
+
+# 46v: End-to-end nmap autosave — boolean change triggers debounce and writes file
+_s46_nmap_w = scaffold.MainWindow()
+_s46_nmap_w._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+check(not _s46_nmap_w._autosave_timer.isActive(), "46v: debounce timer not active after fresh nmap load")
+check(_s46_nmap_w._default_form_snapshot is not None, "46w: snapshot set after nmap load")
+_s46_nmap_rpath = _s46_nmap_w._recovery_file_path()
+if _s46_nmap_rpath and _s46_nmap_rpath.exists():
+    _s46_nmap_rpath.unlink()
+# Check a boolean field
+for _s46nk, _s46nf in _s46_nmap_w.form.fields.items():
+    if _s46nf["arg"]["type"] == "boolean" and not _s46nf["arg"].get("depends_on"):
+        _s46nf["widget"].setChecked(True)
+        break
+app.processEvents()
+check(_s46_nmap_w._autosave_timer.isActive(), "46x-pre: debounce timer started after boolean change")
+# Simulate debounce completing
+_s46_nmap_w._autosave_form()
+app.processEvents()
+check(_s46_nmap_rpath is not None and _s46_nmap_rpath.exists(),
+      "46x: boolean field change creates recovery file after debounce")
+# Cleanup
+if _s46_nmap_rpath and _s46_nmap_rpath.exists():
+    _s46_nmap_rpath.unlink()
+_s46_nmap_w.close(); _s46_nmap_w.deleteLater()
+app.processEvents()
 
 # =====================================================================
 # Section 47 — Repeat Spinner Width + Required Field Status Persistence
@@ -5193,13 +5233,19 @@ check(_exit_item_1 is not None and _exit_item_1.text() == "1", f"49t: second row
 # 49u: Ctrl+H shortcut is registered (on the menu action)
 check(window.act_history.shortcut().toString() == "Ctrl+H", "49u: Ctrl+H shortcut is registered on history action")
 
-# 49v: History menu action exists in preset_menu
-_hist_action_found = False
-for action in window.preset_menu.actions():
-    if "History" in (action.text() or ""):
-        _hist_action_found = True
+# 49v: History menu action exists in View menu
+_hist_view_menu = None
+for menu_action in window.menuBar().actions():
+    if menu_action.text() == "View":
+        _hist_view_menu = menu_action.menu()
         break
-check(_hist_action_found, "49v: Command History action exists in preset_menu")
+_hist_action_found = False
+if _hist_view_menu:
+    for action in _hist_view_menu.actions():
+        if "History" in (action.text() or ""):
+            _hist_action_found = True
+            break
+check(_hist_action_found, "49v: Command History action exists in View menu")
 
 # 49w: Corrupted history JSON in QSettings returns empty list gracefully
 window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
@@ -5435,11 +5481,452 @@ _clip_51 = QApplication.clipboard().text()
 check(len(_clip_51) > 0, "51x: _copy_as_bash puts text on clipboard")
 
 # =====================================================================
+print("\n=== SECTION 52: Extra Flags Toggle Updates Command Preview ===")
+# =====================================================================
+
+# Load nmap for this test
+window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+form = window.form
+
+# 52a: Set extra_flags_group checked, type a custom flag
+form.extra_flags_group.setChecked(True)
+form.extra_flags_edit.setPlainText("--custom-flag value")
+app.processEvents()
+cmd_52a, _ = form.build_command()
+check("--custom-flag" in cmd_52a, "52a: --custom-flag in command when group checked")
+
+# 52b: Uncheck extra_flags_group — flag should disappear from command
+form.extra_flags_group.setChecked(False)
+app.processEvents()
+cmd_52b, _ = form.build_command()
+check("--custom-flag" not in cmd_52b, "52b: --custom-flag NOT in command when group unchecked")
+
+# 52c: Re-check — flag should return
+form.extra_flags_group.setChecked(True)
+app.processEvents()
+cmd_52c, _ = form.build_command()
+check("--custom-flag" in cmd_52c, "52c: --custom-flag back in command when group re-checked")
+
+# 52d: Verify toggling the group emits command_changed
+_52_emissions = []
+form.command_changed.connect(lambda: _52_emissions.append(True))
+form.extra_flags_group.setChecked(False)
+app.processEvents()
+check(len(_52_emissions) > 0, "52d: toggling extra flags group emits command_changed")
+form.command_changed.disconnect()
+
+# Clean up
+form.extra_flags_group.setChecked(False)
+form.extra_flags_edit.setPlainText("")
+app.processEvents()
+
+# =====================================================================
+print("\n=== SECTION 53: Tool Picker Description Tooltips and Resizable Columns ===")
+# =====================================================================
+
+picker = window.picker
+
+# 53a: Find a row with a non-empty description and verify tooltip
+_53_found_tooltip = False
+for _r in range(picker.table.rowCount()):
+    _desc_item = picker.table.item(_r, 2)
+    if _desc_item and _desc_item.text():
+        check(len(_desc_item.toolTip()) > 0, "53a: description cell has tooltip")
+        check(_desc_item.text() in _desc_item.toolTip(), "53a: tooltip contains description text")
+        _53_found_tooltip = True
+        break
+if not _53_found_tooltip:
+    check(False, "53a: no tool with non-empty description found for tooltip test")
+
+# 53b: Tool name column (1) is Interactive (user-resizable)
+_53_mode1 = picker.table.horizontalHeader().sectionResizeMode(1)
+check(_53_mode1 == QHeaderView.ResizeMode.Interactive, "53b: tool name column is user-resizable")
+
+# 53c: Description column (2) is Interactive
+_53_mode2 = picker.table.horizontalHeader().sectionResizeMode(2)
+check(_53_mode2 == QHeaderView.ResizeMode.Interactive, "53c: description column is user-resizable")
+
+# 53d: Status icon column (0) stays ResizeToContents
+_53_mode0 = picker.table.horizontalHeader().sectionResizeMode(0)
+check(_53_mode0 == QHeaderView.ResizeMode.ResizeToContents, "53d: status icon column stays auto-sized")
+
+# 53e: columns fill viewport width (last column managed manually via _fit_last_column)
+_53_total = sum(picker.table.horizontalHeader().sectionSize(i) for i in range(picker.table.columnCount()))
+_53_vp = picker.table.viewport().width()
+check(abs(_53_total - _53_vp) <= 2, "53e: columns fill viewport width")
+
+# 53f: cascadingSectionResizes prevents columns from going off-screen
+check(picker.table.horizontalHeader().cascadingSectionResizes(), "53f: tool picker has cascading section resizes")
+
+# =====================================================================
+print("\n=== SECTION 54: Preset Picker Description Tooltips and Resizable Columns ===")
+# =====================================================================
+
+# Create test presets with descriptions
+window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+app.processEvents()
+_54_dir = scaffold._presets_dir(window.data["tool"])
+_54_dir.mkdir(parents=True, exist_ok=True)
+_54_path_a = _54_dir / "tooltip_test_a.json"
+_54_path_a.write_text(json.dumps({
+    "_description": "A test preset with a description for tooltip verification",
+    "_format": "scaffold_preset",
+    "__global__:--count": 5
+}), encoding="utf-8")
+_54_path_b = _54_dir / "tooltip_test_b.json"
+_54_path_b.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "__global__:--count": 3
+}), encoding="utf-8")
+
+_54_picker = scaffold.PresetPicker(window.data["tool"], _54_dir, mode="load")
+
+# 54a: Preset with description has tooltip on column 2
+_54_found_desc_tooltip = False
+_54_found_no_desc_tooltip = False
+for _r in range(_54_picker.table.rowCount()):
+    _ni = _54_picker.table.item(_r, 1)
+    _di = _54_picker.table.item(_r, 2)
+    if _ni and _ni.text() == "tooltip_test_a" and _di:
+        check(len(_di.toolTip()) > 0, "54a: preset with description has tooltip")
+        check("tooltip verification" in _di.toolTip(), "54a: tooltip contains description text")
+        _54_found_desc_tooltip = True
+    elif _ni and _ni.text() == "tooltip_test_b" and _di:
+        check(_di.toolTip() == "", "54a: preset without description has no tooltip")
+        _54_found_no_desc_tooltip = True
+check(_54_found_desc_tooltip, "54a: found preset with description for tooltip test")
+
+# 54b: Preset name column (1) is Interactive
+_54_mode1 = _54_picker.table.horizontalHeader().sectionResizeMode(1)
+check(_54_mode1 == QHeaderView.ResizeMode.Interactive, "54b: preset name column is user-resizable")
+
+# 54c: Description column (2) is Interactive
+_54_mode2 = _54_picker.table.horizontalHeader().sectionResizeMode(2)
+check(_54_mode2 == QHeaderView.ResizeMode.Interactive, "54c: preset description column is user-resizable")
+
+# 54d: Star column (0) stays ResizeToContents
+_54_mode0 = _54_picker.table.horizontalHeader().sectionResizeMode(0)
+check(_54_mode0 == QHeaderView.ResizeMode.ResizeToContents, "54d: star column stays auto-sized")
+
+# 54e: Last Modified column (3) is Interactive
+_54_mode3 = _54_picker.table.horizontalHeader().sectionResizeMode(3)
+check(_54_mode3 == QHeaderView.ResizeMode.Interactive, "54e: last modified column is user-resizable")
+
+# 54f: cascadingSectionResizes prevents columns from going off-screen
+check(_54_picker.table.horizontalHeader().cascadingSectionResizes(), "54f: preset picker has cascading section resizes")
+
+_54_picker.close()
+_54_picker.deleteLater()
+app.processEvents()
+
+# Clean up test presets
+for _pf in [_54_path_a, _54_path_b]:
+    if _pf.exists():
+        _pf.unlink()
+
+# =====================================================================
+print("\n=== SECTION 55: History Dialog Resizable Columns ===")
+# =====================================================================
+
+import time as _time_mod
+_55_history = [
+    {"exit_code": 0, "display": "ping -c 4 localhost", "timestamp": _time_mod.time() - 60},
+    {"exit_code": 1, "display": "ping -c 4 badhost", "timestamp": _time_mod.time() - 3600},
+]
+_55_dialog = scaffold.HistoryDialog(window.data["tool"], _55_history)
+
+# 55a: Exit column (0) stays ResizeToContents
+_55_mode0 = _55_dialog.table.horizontalHeader().sectionResizeMode(0)
+check(_55_mode0 == QHeaderView.ResizeMode.ResizeToContents, "55a: exit code column stays auto-sized")
+
+# 55b: Command column (1) is Interactive (user-resizable)
+_55_mode1 = _55_dialog.table.horizontalHeader().sectionResizeMode(1)
+check(_55_mode1 == QHeaderView.ResizeMode.Interactive, "55b: command column is user-resizable")
+
+# 55c: Time column (2) is Interactive
+_55_mode2 = _55_dialog.table.horizontalHeader().sectionResizeMode(2)
+check(_55_mode2 == QHeaderView.ResizeMode.Interactive, "55c: time column is user-resizable")
+
+# 55d: Age column (3) is Interactive
+_55_mode3 = _55_dialog.table.horizontalHeader().sectionResizeMode(3)
+check(_55_mode3 == QHeaderView.ResizeMode.Interactive, "55d: age column is user-resizable")
+
+_55_dialog.close()
+_55_dialog.deleteLater()
+app.processEvents()
+
+# =====================================================================
+print("\n=== SECTION 56: Column Resize Redistribution ===")
+# =====================================================================
+
+# 56a: ToolPicker — column 1 actually grows when resized
+_56_picker = window.picker
+_56_picker.show()
+app.processEvents()
+_56_header = _56_picker.table.horizontalHeader()
+_56_vp_width = _56_picker.table.viewport().width()
+_56_orig_width = _56_header.sectionSize(1)
+_56_header.resizeSection(1, _56_orig_width + 100)
+app.processEvents()
+_56_new_width = _56_header.sectionSize(1)
+check(_56_new_width > _56_orig_width, "56a: tool picker column 1 grew after resize")
+
+# 56b: ToolPicker — resizing column 1 to 5000px keeps total within viewport
+_56_header.resizeSection(1, 5000)
+app.processEvents()
+_56_col1_width = _56_header.sectionSize(1)
+check(_56_col1_width <= _56_vp_width, "56b: tool picker column 1 clamped within viewport")
+_56_total = sum(_56_header.sectionSize(i) for i in range(_56_picker.table.columnCount()))
+check(_56_total <= _56_vp_width + 2, "56b: tool picker total columns fit within viewport")
+
+# 56c: PresetPicker — column 1 actually grows when resized
+_56_pp_dir = scaffold._presets_dir(window.data["tool"])
+_56_pp_path = _56_pp_dir / "_clamp_test.json"
+_56_pp_path.write_text(json.dumps({"_description": "clamp test"}), encoding="utf-8")
+_56_pp = scaffold.PresetPicker(window.data["tool"], _56_pp_dir, mode="load")
+_56_pp.show()
+app.processEvents()
+_56_pp_header = _56_pp.table.horizontalHeader()
+_56_pp_vp = _56_pp.table.viewport().width()
+_56_pp_orig = _56_pp_header.sectionSize(1)
+_56_pp_header.resizeSection(1, _56_pp_orig + 100)
+app.processEvents()
+_56_pp_new = _56_pp_header.sectionSize(1)
+check(_56_pp_new > _56_pp_orig, "56c: preset picker column 1 grew after resize")
+
+# 56d: PresetPicker — resizing to 5000 keeps total within viewport
+_56_pp_header.resizeSection(1, 5000)
+app.processEvents()
+_56_pp_col1 = _56_pp_header.sectionSize(1)
+check(_56_pp_col1 <= _56_pp_vp, "56d: preset picker column 1 clamped within viewport")
+_56_pp_total = sum(_56_pp_header.sectionSize(i) for i in range(_56_pp.table.columnCount()))
+check(_56_pp_total <= _56_pp_vp + 2, "56d: preset picker total columns fit within viewport")
+_56_pp.close()
+_56_pp.deleteLater()
+app.processEvents()
+if _56_pp_path.exists():
+    _56_pp_path.unlink()
+
+# =====================================================================
+# Section 57 — Back Buttons and Menu Restructuring
+# =====================================================================
+
+print("\n--- Section 57: Back Buttons and Menu Restructuring ---")
+
+# 57a: ToolPicker back button exists and is disabled on fresh launch
+_57_win = scaffold.MainWindow()
+_57_win.show()
+app.processEvents()
+check(hasattr(_57_win.picker, 'back_btn'), "57a: ToolPicker has back_btn attribute")
+check(hasattr(_57_win.picker, 'back_requested'), "57a: ToolPicker has back_requested signal")
+check(not _57_win.picker.back_btn.isEnabled(), "57a: ToolPicker back_btn disabled on fresh launch")
+
+# 57b: Load a tool, navigate to picker, back button is enabled
+_57_tool_path = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_57_win._load_tool_path(_57_tool_path)
+app.processEvents()
+check(_57_win.stack.currentIndex() == 1, "57b: tool loaded, form view active")
+_57_win._show_picker()
+app.processEvents()
+check(_57_win.picker.back_btn.isEnabled(), "57b: ToolPicker back_btn enabled after tool loaded")
+
+# 57c: Click back button returns to form view with tool still loaded
+_57_win.picker.back_requested.emit()
+app.processEvents()
+check(_57_win.stack.currentIndex() == 1, "57c: back_requested returns to form view")
+check(_57_win.data is not None, "57c: tool data still loaded after back")
+check(_57_win.act_reload.isEnabled(), "57c: reload action enabled after back")
+check(_57_win.preset_menu.isEnabled(), "57c: preset menu enabled after back")
+check(_57_win.act_history.isEnabled(), "57c: history action enabled after back")
+
+# 57d: PresetPicker has Back button in all modes
+_57_pp_dir = scaffold._presets_dir(_57_win.data["tool"])
+_57_pp_dir.mkdir(parents=True, exist_ok=True)
+_57_pp_load = scaffold.PresetPicker(_57_win.data["tool"], _57_pp_dir, mode="load")
+check(hasattr(_57_pp_load, 'back_btn'), "57d: PresetPicker (load) has back_btn")
+check(_57_pp_load.back_btn.text() == "Back", "57d: PresetPicker (load) back_btn text is 'Back'")
+_57_pp_load.close()
+_57_pp_load.deleteLater()
+
+_57_pp_edit = scaffold.PresetPicker(_57_win.data["tool"], _57_pp_dir, mode="edit")
+check(hasattr(_57_pp_edit, 'back_btn'), "57d: PresetPicker (edit) has back_btn")
+check(_57_pp_edit.back_btn.text() == "Back", "57d: PresetPicker (edit) back_btn text is 'Back'")
+_57_pp_edit.close()
+_57_pp_edit.deleteLater()
+
+_57_pp_del = scaffold.PresetPicker(_57_win.data["tool"], _57_pp_dir, mode="delete")
+check(hasattr(_57_pp_del, 'back_btn'), "57d: PresetPicker (delete) has back_btn")
+check(_57_pp_del.back_btn.text() == "Back", "57d: PresetPicker (delete) back_btn text is 'Back'")
+_57_pp_del.close()
+_57_pp_del.deleteLater()
+app.processEvents()
+
+# 57e: Command History action is in View menu, not Presets menu
+_57_hist_in_preset = False
+for action in _57_win.preset_menu.actions():
+    if "History" in (action.text() or ""):
+        _57_hist_in_preset = True
+        break
+check(not _57_hist_in_preset, "57e: Command History NOT in Presets menu")
+
+_57_view_menu = None
+for menu_action in _57_win.menuBar().actions():
+    if menu_action.text() == "View":
+        _57_view_menu = menu_action.menu()
+        break
+_57_hist_in_view = False
+if _57_view_menu:
+    for action in _57_view_menu.actions():
+        if "History" in (action.text() or ""):
+            _57_hist_in_view = True
+            break
+check(_57_hist_in_view, "57e: Command History IS in View menu")
+
+_57_win.close()
+_57_win.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 58 — Autosave Crash Fix: Snapshot Comparison, closeEvent, Stale Cleanup
+# =====================================================================
+print("\n--- Section 58: Autosave Crash Fix ---")
+
+_s58_tmpdir = tempfile.mkdtemp()
+_s58_schema = {
+    "_format": "scaffold_schema",
+    "tool": "autosave_crash_test",
+    "binary": "echo",
+    "description": "Tool for testing autosave crash fix",
+    "arguments": [
+        {"name": "Name", "flag": "--name", "type": "string"},
+        {"name": "Count", "flag": "--count", "type": "integer"},
+    ],
+}
+_s58_tool_path_p = Path(_s58_tmpdir) / "autosave_crash_test.json"
+_s58_tool_path_p.write_text(json.dumps(_s58_schema))
+_s58_tool_path = str(_s58_tool_path_p)
+
+# Patch QMessageBox.warning to auto-accept for this section's schema
+_s58_orig_warning = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+# 58a: _default_form_snapshot is set after loading a tool
+_s58_w = scaffold.MainWindow()
+_s58_w._load_tool_path(_s58_tool_path)
+app.processEvents()
+check(_s58_w._default_form_snapshot is not None, "58a: _default_form_snapshot is set after loading tool")
+
+# 58b: _autosave_form does NOT write when form is at defaults (snapshot match)
+_s58_rpath = _s58_w._recovery_file_path()
+if _s58_rpath and _s58_rpath.exists():
+    _s58_rpath.unlink()
+_s58_w._autosave_form()
+app.processEvents()
+check(not _s58_rpath.exists(), "58b: _autosave_form() does NOT write when form is at defaults")
+
+# 58c: Change a field — _autosave_form DOES write (differs from snapshot)
+_s58_w.form._set_field_value(("__global__", "--name"), "changed_value")
+app.processEvents()
+if _s58_rpath and _s58_rpath.exists():
+    _s58_rpath.unlink()
+_s58_w._autosave_form()
+app.processEvents()
+check(_s58_rpath.exists(), "58c: _autosave_form() writes when form differs from snapshot")
+if _s58_rpath.exists():
+    _s58_rpath.unlink()
+
+# 58d: Reset to defaults — _autosave_form does NOT write (back to snapshot)
+_s58_w._on_reset_defaults()
+app.processEvents()
+_s58_w._autosave_form()
+app.processEvents()
+check(not _s58_rpath.exists(), "58d: _autosave_form() does NOT write after reset to defaults")
+
+# 58e: _default_form_snapshot updates after reset to defaults
+_s58_snap_after_reset = _s58_w._default_form_snapshot
+check(_s58_snap_after_reset is not None, "58e: snapshot updated after reset to defaults")
+
+# 58f: closeEvent stops a running debounce timer
+_s58_w2 = scaffold.MainWindow()
+_s58_w2._load_tool_path(_s58_tool_path)
+app.processEvents()
+# Trigger the debounce timer by changing a field
+_s58_w2.form._set_field_value(("__global__", "--name"), "close_debounce")
+_s58_w2.form.command_changed.emit()
+app.processEvents()
+check(_s58_w2._autosave_timer.isActive(), "58f-pre: debounce timer active after field change")
+_s58_w2.close()
+app.processEvents()
+check(not _s58_w2._autosave_timer.isActive(), "58f: autosave timer stopped after closeEvent")
+check(not _s58_w2._elapsed_timer.isActive(), "58g: elapsed timer stopped after closeEvent")
+check(not _s58_w2._force_kill_timer.isActive(), "58h: force kill timer stopped after closeEvent")
+_s58_w2.deleteLater()
+app.processEvents()
+
+# 58i: Stale recovery cleanup on startup deletes expired files
+_s58_expired_path = Path(tempfile.gettempdir()) / "scaffold_recovery_stale_cleanup_test.json"
+_s58_expired_data = {
+    "_recovery_tool_path": "/fake/tool.json",
+    "_recovery_timestamp": time.time() - (25 * 3600),
+    "--flag": "old_value",
+}
+_s58_expired_path.write_text(json.dumps(_s58_expired_data), encoding="utf-8")
+_s58_w3 = scaffold.MainWindow()
+app.processEvents()
+check(not _s58_expired_path.exists(), "58i: startup cleanup deletes expired recovery file")
+
+# 58j: Stale recovery cleanup does NOT delete non-expired files
+_s58_fresh_path = Path(tempfile.gettempdir()) / "scaffold_recovery_fresh_cleanup_test.json"
+_s58_fresh_data = {
+    "_recovery_tool_path": "/fake/tool.json",
+    "_recovery_timestamp": time.time(),
+    "--flag": "fresh_value",
+}
+_s58_fresh_path.write_text(json.dumps(_s58_fresh_data), encoding="utf-8")
+_s58_w4 = scaffold.MainWindow()
+app.processEvents()
+check(_s58_fresh_path.exists(), "58j: startup cleanup does NOT delete fresh recovery file")
+# Clean up the fresh file
+if _s58_fresh_path.exists():
+    _s58_fresh_path.unlink()
+_s58_w3.close(); _s58_w3.deleteLater()
+_s58_w4.close(); _s58_w4.deleteLater()
+app.processEvents()
+
+# 58k: _show_picker stops a running debounce timer
+_s58_w5 = scaffold.MainWindow()
+_s58_w5._load_tool_path(_s58_tool_path)
+app.processEvents()
+# Trigger debounce, then go to picker
+_s58_w5.form._set_field_value(("__global__", "--name"), "picker_test")
+_s58_w5.form.command_changed.emit()
+app.processEvents()
+check(_s58_w5._autosave_timer.isActive(), "58k-pre: debounce timer active after field change")
+_s58_w5._show_picker()
+app.processEvents()
+check(not _s58_w5._autosave_timer.isActive(), "58k: timer stopped after _show_picker")
+
+# 58l: _on_picker_back does NOT auto-start timer (event-driven only)
+_s58_w5._on_picker_back()
+app.processEvents()
+check(not _s58_w5._autosave_timer.isActive(), "58l: timer not auto-started by _on_picker_back")
+
+_s58_w.close(); _s58_w.deleteLater()
+_s58_w5.close(); _s58_w5.deleteLater()
+app.processEvents()
+
+# Restore QMessageBox.warning
+QMessageBox.warning = _s58_orig_warning
+shutil.rmtree(_s58_tmpdir, ignore_errors=True)
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
 window.deleteLater()
 app.processEvents()
+_cleanup_recovery_files()
 
 # =====================================================================
 print(f"\n{'='*60}")
