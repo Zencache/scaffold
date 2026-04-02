@@ -106,7 +106,7 @@ def build_form(schema=None):
     data = schema or make_test_schema()
     errors = validate_tool(data)
     assert not errors, f"Schema validation failed: {errors}"
-    normalize_tool(data)
+    data = normalize_tool(data)
     return ToolForm(data)
 
 
@@ -346,7 +346,7 @@ minimal = {
         {"name": "Foo", "flag": "--foo", "type": "string"},
     ],
 }
-normalize_tool(minimal)
+minimal = normalize_tool(minimal)
 check(minimal["arguments"][0].get("examples") is None,
       "missing examples normalizes to None")
 

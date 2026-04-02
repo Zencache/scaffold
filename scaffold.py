@@ -31,6 +31,7 @@ import signal
 import sys
 import tempfile
 import time
+from copy import deepcopy
 from pathlib import Path
 
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
@@ -111,6 +112,8 @@ def load_tool(path: str | Path) -> dict:
         raise RuntimeError(f"Permission denied: {p}")
     except OSError as e:
         raise RuntimeError(f"Cannot read file: {p} — {e}")
+    if text.startswith("\ufeff"):
+        text = text[1:]
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
@@ -276,6 +279,8 @@ def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
         flag = arg.get("flag")
         if flag is None:
             continue
+        if isinstance(flag, str):
+            flag = flag.strip()
         if flag in seen:
             errors.append(f"{scope}: duplicate flag \"{flag}\" (used by \"{seen[flag]}\" and \"{arg.get('name', '?')}\")")
         else:
@@ -314,7 +319,11 @@ def _check_dependencies(args: list, scope: str, errors: list) -> None:
 
 
 def normalize_tool(data: dict) -> dict:
-    """Fill in missing optional fields with safe defaults."""
+    """Fill in missing optional fields with safe defaults.
+
+    Returns a deep copy with defaults filled in; the original is never mutated.
+    """
+    data = deepcopy(data)
     data.setdefault("subcommands", None)
     data.setdefault("description", "")
     data.setdefault("elevated", None)
@@ -539,6 +548,8 @@ def _make_arrow_icons():
     global _arrow_dir
     if _arrow_dir is not None:
         return _arrow_dir
+    if QApplication.instance() is None:
+        return ""
     _arrow_dir = tempfile.mkdtemp(prefix="scaffold_arrows_")
     color = QColor(DARK_COLORS["text"])
     for name, points in [
@@ -827,7 +838,7 @@ class ToolForm(QWidget):
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
-        self.data = data
+        self.data = normalize_tool(data)
         # (scope, flag) -> {arg, widget, label, repeat_spin}
         self.fields = {}
         # (scope, group_name) -> list of (scope, flag) keys
@@ -2389,7 +2400,7 @@ class ToolPicker(QWidget):
                 if errors:
                     self._entries.append((str(json_file), None, "; ".join(errors), False))
                 else:
-                    normalize_tool(data)
+                    data = normalize_tool(data)
                     available = _binary_in_path(data["binary"])
                     self._entries.append((str(json_file), data, None, available))
             except RuntimeError as e:
@@ -3816,7 +3827,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        normalize_tool(data)
+        data = normalize_tool(data)
         self.data = data
         self.tool_path = path
         self._build_form_view()
@@ -4770,7 +4781,7 @@ def main() -> None:
                 print(f"  - {err}")
             sys.exit(1)
         else:
-            normalize_tool(data)
+            data = normalize_tool(data)
             arg_count = len(data.get("arguments", []))
             sub_count = len(data.get("subcommands") or [])
             for sub in data.get("subcommands") or []:

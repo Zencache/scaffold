@@ -8,7 +8,7 @@ This works with **any CLI tool** — not just well-known programs like nmap or f
 
 And then there are **presets**. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
 
-Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview — all from a single schema that describes your tool's arguments. No custom UI code needed. Hand the `--help` output or man page to an LLM with the bundled `PROMPT.txt` and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
+Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview — all from a single schema that describes your tool's arguments. No custom UI code needed. Hand a tool's man page or official documentation to an LLM with the bundled `PROMPT.txt` and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
@@ -66,7 +66,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 
 - **Works with any CLI tool** — if it accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities to tools with hundreds of flags and nested subcommands. Write a JSON schema (or have an LLM generate one from the docs) and you're done
 - **Presets** — save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again
-- **LLM-powered schema generation** — paste the included `PROMPT.txt` into any LLM along with a tool's `--help` output or man page, and get a working schema back. Works with any model that can output JSON
+- **LLM-powered schema generation** — paste the included `PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON
 - **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown
 - **10 widget types** — checkboxes, text fields, spinners, dropdowns, multi-select lists, file/directory browsers, password fields, and more — each CLI argument gets the right input control
@@ -117,6 +117,16 @@ The tool picker appears showing all `.json` schemas in the `tools/` folder. Doub
 
 > **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
 
+## Security
+
+Scaffold never uses `shell=True`. All command execution goes through QProcess with arguments passed as a list, so schemas and user input cannot trigger shell injection — no pipes, semicolons, backticks, or command chaining. The command preview shows exactly what will execute, token by token.
+
+The `binary` field in every schema is validated at load time: shell metacharacters are rejected, relative paths with separators are rejected, and only bare executable names or absolute paths are accepted.
+
+Schemas are static JSON declarations. They don't execute code, import modules, or make network calls. Loading a schema is always safe; only clicking Run executes anything.
+
+Scaffold runs fully offline — no network access, no telemetry, no auto-updates.
+
 ## Creating Tool Schemas
 
 Each CLI tool is described by a JSON file placed in the `tools/` folder. Scaffold scans this folder on startup and displays all valid schemas in the tool picker.
@@ -127,7 +137,7 @@ The included `PROMPT.txt` file contains a detailed prompt that teaches any LLM (
 
 1. Copy the contents of `PROMPT.txt`
 2. Paste it into your LLM of choice
-3. Then say: *"Generate a Scaffold schema for [tool name]"* and paste the tool's `--help` output, man page, or other relevant documentation
+3. Then say: *"Generate a Scaffold schema for [tool name]"* and paste the tool's man page, official documentation, or other detailed reference. `--help` output alone is usually not enough — it provides flag names and brief summaries, but lacks the detail an LLM needs to infer correct types, write meaningful descriptions, populate example values, or identify dependencies between flags. The richer the input documentation, the better the schema. Use `--help` afterward to verify the generated schema covers all available flags
 4. Save the JSON response as `tools/toolname.json`
 5. Restart Scaffold (or use File > Reload) — the new tool appears in the picker
 

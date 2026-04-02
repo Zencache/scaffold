@@ -171,7 +171,7 @@ for tf in ["nmap.json", "curl.json", "git.json", "ping.json", "ffmpegv2.json"]:
     tp = Path(__file__).parent / "tools" / tf
     if tp.exists():
         d = scaffold.load_tool(str(tp))
-        scaffold.normalize_tool(d)
+        d = scaffold.normalize_tool(d)
         for a in d.get("arguments", []):
             all_types_all_tools.add(a["type"])
         for s in d.get("subcommands") or []:
@@ -685,7 +685,7 @@ all_types_in_all_tools = set()
 for tool_file in ["nmap.json", "curl.json", "git.json", "ping.json"]:
     tp = str(Path(__file__).parent / "tools" / tool_file)
     data = scaffold.load_tool(tp)
-    scaffold.normalize_tool(data)
+    data = scaffold.normalize_tool(data)
     for arg in data.get("arguments", []):
         all_types_in_all_tools.add(arg["type"])
     for sub in data.get("subcommands") or []:
@@ -1435,7 +1435,7 @@ _s17_bad = {
 }
 
 # Load directly via normalize + MainWindow internals to bypass file validation
-scaffold.normalize_tool(_s17_bad)
+_s17_bad = scaffold.normalize_tool(_s17_bad)
 _s17_buf2 = _io.StringIO()
 sys.stderr = _s17_buf2
 w17b = scaffold.MainWindow()
@@ -3811,7 +3811,7 @@ _s36_legacy = {
 }
 _s36_errs4 = scaffold.validate_tool(_s36_legacy)
 check(len(_s36_errs4) == 0, f"36g: legacy schema without min/max validates: {_s36_errs4}")
-scaffold.normalize_tool(_s36_legacy)
+_s36_legacy = scaffold.normalize_tool(_s36_legacy)
 check(_s36_legacy["arguments"][0].get("min") is None, "36g: normalize fills min=None")
 check(_s36_legacy["arguments"][0].get("max") is None, "36g: normalize fills max=None")
 
@@ -4059,7 +4059,7 @@ _s37_legacy = {
          "validation": None, "examples": None},
     ],
 }
-scaffold.normalize_tool(_s37_legacy)
+_s37_legacy = scaffold.normalize_tool(_s37_legacy)
 check(_s37_legacy["arguments"][0].get("deprecated") is None, "37l: normalize fills deprecated=None")
 check(_s37_legacy["arguments"][0].get("dangerous") is False, "37l: normalize fills dangerous=False")
 
