@@ -6,8 +6,7 @@ All notable changes to Scaffold are documented here.
 
 ### Changed
 
-- **Renamed "Load Preset..." to "Preset List..."** — the Presets menu item and its corresponding dialog title now read "Preset List" instead of "Load Preset". The Ctrl+L shortcut and all behavior are unchanged.
-- **Renamed "Back to Tool List" to "Tool List"** — the File menu item is now shorter and more consistent. Ctrl+B shortcut unchanged.
+
 - **Moved "Command History..." from Presets menu to View menu** — history is now under View > Command History (Ctrl+H), separated from preset management. The action is explicitly enabled/disabled based on whether a tool is loaded.
 - **Renamed Cancel/Close buttons to "Back" in PresetPicker** — the dismiss button in the preset picker dialog now reads "Back" in all modes (load, edit, delete) for consistency with the tool picker.
 
