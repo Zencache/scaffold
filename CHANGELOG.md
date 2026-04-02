@@ -13,6 +13,10 @@ Hardening pass — four targeted fixes distilled from a full deep code audit wit
 - **`normalize_tool` deep copy** — the function now returns a deep copy of the normalized data, so callers get an independent snapshot and won't see unexpected mutations through shared references. All internal and test call sites updated to use the return value; `ToolForm.__init__` now normalizes its own input defensively.
 - **Flag stripping in `_check_duplicate_flags`** — trailing whitespace in hand-edited schema flag values (e.g., `"--port "` vs `"--port"`) no longer bypasses duplicate detection.
 
+### Added
+
+- **aircrack-ng tool schema (testing)** — added `tools/aircrack-ng.json`. Mostly untested and may not cover every flag or edge case — contributions and bug reports welcome.
+
 #### Full suite results
 
 - **All 5 test suites pass: 1,034/1,034 assertions, 0 failures**

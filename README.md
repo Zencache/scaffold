@@ -87,7 +87,8 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run Scaffold from a USB drive with fully isolated configuration
 - **Copy As shell formats** — right-click the command preview to copy the command formatted for Bash, PowerShell, or Windows CMD with shell-appropriate quoting. The existing Copy Command button remains unchanged
-- **Ansible schemas (testing)** — bundled schemas for `ansible`, `ansible-playbook`, `ansible-vault`, and `ansible-galaxy` in `tools/Ansible/`. These are mostly untested and may not cover every flag — contributions and bug reports welcome
+- **Ansible schemas (testing)** — bundled schemas for `ansible`, `ansible-playbook`, `ansible-vault`, and `ansible-galaxy` in `tools/`. These are mostly untested and may not cover every flag — contributions and bug reports welcome
+- **aircrack-ng schema (testing)** — bundled schema for `aircrack-ng` in `tools/`. Mostly untested and may not cover every flag or edge case — contributions and bug reports welcome
 - **Single Python file** — just `scaffold.py`, one dependency (PySide6), runs entirely offline
 
 ## Quick Start
@@ -475,6 +476,7 @@ To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 
 | File | Tool | Highlights |
 |------|------|------------|
+| `tools/aircrack-ng.json` | aircrack-ng | 42 arguments, 6 display groups, 4 mutual exclusivity groups, dependencies, WEP/WPA attack modes |
 | `tools/example.json` | example | **Reference schema** — every Scaffold feature in one file. Copy and modify for your own tools |
 | `tools/nmap.json` | nmap | All 9 widget types, groups, dependencies, validation, repeatable flags |
 | `tools/ping.json` | ping | Simple tool, mutual exclusivity group (IPv4/IPv6) |
