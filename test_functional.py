@@ -5865,7 +5865,7 @@ _s58_w2.deleteLater()
 app.processEvents()
 
 # 58i: Stale recovery cleanup on startup deletes expired files
-_s58_expired_path = Path(tempfile.gettempdir()) / "scaffold_recovery_stale_cleanup_test.json"
+_s58_expired_path = Path(tempfile.gettempdir()) / f"scaffold_recovery_{scaffold._user_id()}_stale_cleanup_test.json"
 _s58_expired_data = {
     "_recovery_tool_path": "/fake/tool.json",
     "_recovery_timestamp": time.time() - (25 * 3600),
@@ -5877,7 +5877,7 @@ app.processEvents()
 check(not _s58_expired_path.exists(), "58i: startup cleanup deletes expired recovery file")
 
 # 58j: Stale recovery cleanup does NOT delete non-expired files
-_s58_fresh_path = Path(tempfile.gettempdir()) / "scaffold_recovery_fresh_cleanup_test.json"
+_s58_fresh_path = Path(tempfile.gettempdir()) / f"scaffold_recovery_{scaffold._user_id()}_fresh_cleanup_test.json"
 _s58_fresh_data = {
     "_recovery_tool_path": "/fake/tool.json",
     "_recovery_timestamp": time.time(),

@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.4"
 
 import datetime
 import hashlib
@@ -37,6 +37,20 @@ from pathlib import Path
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
 VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
+_SHELL_METACHAR = frozenset("|;&$`(){}< >!~\x00")
+
+
+def _user_id() -> str:
+    """Return a stable user identifier for per-user temp files."""
+    try:
+        return str(os.getuid())
+    except AttributeError:
+        pass
+    try:
+        return os.getlogin()
+    except OSError:
+        return "default"
+
 
 ARG_DEFAULTS = {
     "short_flag": None,
@@ -131,14 +145,16 @@ def validate_tool(data: dict) -> list[str]:
     # Validate binary field — security-sensitive (passed to QProcess.setProgram)
     if "binary" in data:
         binary = data["binary"]
-        _SHELL_METACHAR = set("|;&$`(){}< >!~")
         if not isinstance(binary, str) or not binary.strip():
             errors.append("\"binary\" must be a non-empty string")
         elif len(binary) > 256:
             errors.append(f"\"binary\" too long ({len(binary)} chars, limit 256)")
         else:
+            # Check for null bytes first (dedicated message)
+            if "\x00" in binary:
+                errors.append("\"binary\" contains null bytes")
             # Check for shell metacharacters (never valid in a binary name)
-            bad_chars = sorted(set(binary) & _SHELL_METACHAR)
+            bad_chars = sorted(set(binary) & (_SHELL_METACHAR - {"\x00"}))
             if bad_chars:
                 errors.append(
                     f"\"binary\" contains shell metacharacters: {' '.join(bad_chars)}"
@@ -221,6 +237,9 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
         for key in ("name", "flag", "type"):
             if key not in arg:
                 errors.append(f"{prefix}: missing required key \"{key}\"")
+
+        if "flag" in arg and isinstance(arg["flag"], str) and arg["flag"].startswith("_"):
+            errors.append(f"{prefix}: flag \"{arg['flag']}\" starts with \"_\" which is reserved for internal metadata")
 
         if "type" in arg:
             t = arg["type"]
@@ -3618,7 +3637,7 @@ class MainWindow(QMainWindow):
     def _cleanup_stale_recovery_files(self) -> None:
         """Delete expired recovery files from previous sessions."""
         tmp = Path(tempfile.gettempdir())
-        for f in tmp.glob("scaffold_recovery_*.json"):
+        for f in tmp.glob(f"scaffold_recovery_{_user_id()}_*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 ts = data.get("_recovery_timestamp", 0)
@@ -3635,7 +3654,7 @@ class MainWindow(QMainWindow):
         if self.data is None:
             return None
         safe_name = re.sub(r'[^\w\-. ]', '_', self.data["tool"])
-        return Path(tempfile.gettempdir()) / f"scaffold_recovery_{safe_name}.json"
+        return Path(tempfile.gettempdir()) / f"scaffold_recovery_{_user_id()}_{safe_name}.json"
 
     def _autosave_on_change(self) -> None:
         """Restart the debounce timer on every field change."""

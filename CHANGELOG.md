@@ -2,6 +2,27 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.4] — 2026-04-03
+
+Deep audit bugfixes — five issues found by distilling the full updated codebase back into Claude 4.6 Opus Extended.
+
+### Fixed
+
+- **`__version__` out of sync** — bumped from `"2.7.0"` to `"2.7.4"` to match the changelog.
+- **`_SHELL_METACHAR` recreated on every call** — moved from a local `set()` inside `validate_tool()` to a module-level `frozenset` constant near `VALID_TYPES` and `VALID_SEPARATORS`.
+- **Null bytes pass binary validation** — added `\x00` to `_SHELL_METACHAR` and a dedicated "contains null bytes" error message so QProcess truncation is caught at validation time.
+- **Recovery file collisions on shared systems** — added a per-user identifier (`os.getuid()` on Unix, `os.getlogin()` fallback on Windows) to recovery filenames. `_cleanup_stale_recovery_files()` now only removes the current user's expired files.
+- **Underscore-prefixed flags collide with preset metadata** — `_validate_args()` now rejects flags starting with `_`, which are reserved for internal metadata keys (`_subcommand`, `_schema_hash`, etc.).
+
+#### Full suite results
+
+- **All 5 test suites pass: 1,036/1,036 assertions, 0 failures**
+  - Functional: 837/837
+  - Smoke: 63/63
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.7.3] — 2026-04-03
 
 UI spacing polish and reset-confirmation fix. Security model audited using multi-LLM code review, manual code review, and assessment by a trained penetration tester.
