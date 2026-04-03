@@ -9,18 +9,19 @@ Bugfixes and UI improvements informed by a full deep code audit and hands-on use
 ### Changed
 
 - **"Reset to Defaults" moved to command preview area** — relocated from the Presets menu to a dedicated button stacked vertically above "Copy Command" in the preview bar. Disabled when no tool is loaded.
-- **Minimum window width increased to 500px** — raised from 420px to accommodate the new button layout.
+
 
 ### Fixed
 
 - **Drag-drop case sensitivity** — `dragEnterEvent` and `dropEvent` now use case-insensitive matching for `.json` extensions. Files named `tool.JSON` or `tool.Json` are no longer silently rejected.
 - **Missing `_format` on bundled schemas** — added `"_format": "scaffold_schema"` as the first key in `git.json`, `nmap.json`, `ping.json`, and `curl.json`. These four schemas were missing the marker that identifies them as Scaffold schemas.
 - **Reset status message not auto-clearing** — replaced `statusBar().showMessage()` with a dedicated `reset_status` label that auto-clears after 3 seconds via `QTimer.singleShot`.
+- **Minimum window width increased to 500px** — raised from 420px to accommodate the new button layout.
 
 ### Added
 
 - **aircrack-ng tool schema (testing)** — added `tools/aircrack-ng.json`. Mostly untested and may not cover every flag or edge case — contributions and bug reports welcome.
-- **Shell injection immunity note in README** — documented that Scaffold is immune to shell injection by design (QProcess with list-based arguments, no shell invocation).
+
 
 #### Full suite results
 
