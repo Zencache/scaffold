@@ -3315,6 +3315,9 @@ class MainWindow(QMainWindow):
         for attr in ("preview_label", "output_label"):
             if hasattr(self, attr):
                 self._style_section_label(getattr(self, attr))
+        if hasattr(self, "preview_label"):
+            self.preview_label.setStyleSheet(
+                self.preview_label.styleSheet().replace("2px 0 1px 0;", "0px 0 0px 0;"))
         # Form frame border
         if hasattr(self, "form_frame"):
             self._style_form_frame()
@@ -3910,10 +3913,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.form_frame, 1)
 
         # -- Command Preview section --
+        preview_section = QVBoxLayout()
+        preview_section.setSpacing(5)
+        preview_section.setContentsMargins(0, 0, 0, 0)
         self.preview_label = QLabel("Command Preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._style_section_label(self.preview_label)
-        layout.addWidget(self.preview_label)
+        self.preview_label.setStyleSheet(
+            self.preview_label.styleSheet().replace("2px 0 1px 0;", "0px 0 0px 0;"))
+        self.preview_label.setContentsMargins(0, 0, 0, 0)
+        preview_section.addWidget(self.preview_label)
 
         preview_bar = QHBoxLayout()
         preview_bar.setContentsMargins(8, 0, 8, 0)
@@ -3943,6 +3952,7 @@ class MainWindow(QMainWindow):
         self.reset_btn.setEnabled(False)
         self.reset_btn.clicked.connect(self._on_reset_defaults)
         btn_col.addWidget(self.reset_btn)
+        btn_col.addSpacing(12)
         self.copy_btn = QPushButton("Copy Command")
         self.copy_btn.clicked.connect(self._copy_command)
         btn_col.addWidget(self.copy_btn)
@@ -3950,15 +3960,15 @@ class MainWindow(QMainWindow):
 
         preview_widget = QWidget()
         preview_widget.setLayout(preview_bar)
-        self.reset_status = QLabel("")
-        self.reset_status.setStyleSheet("padding: 0 8px 0 8px;")
-        layout.addWidget(self.reset_status)
-        layout.addWidget(preview_widget)
-
+        preview_section.addWidget(preview_widget)
         # Status label
         self.status = QLabel("")
         self.status.setStyleSheet("padding: 0 8px 0 8px;")
-        layout.addWidget(self.status)
+        preview_section.addWidget(self.status)
+        preview_section_widget = QWidget()
+        preview_section_widget.setLayout(preview_section)
+        layout.addWidget(preview_section_widget)
+
 
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
@@ -4314,11 +4324,11 @@ class MainWindow(QMainWindow):
         if self.data:
             self.form.reset_to_defaults()
             self._default_form_snapshot = self.form.serialize_values()
-            color = DARK_COLORS["success"] if _dark_mode else "green"
-            self.reset_status.setText("Reset to defaults")
-            self.reset_status.setStyleSheet(f"color: {color}; padding: 0 8px 0 8px;")
-            QTimer.singleShot(3000, lambda: self.reset_status.setText(""))
             self._clear_recovery_file()
+            QTimer.singleShot(0, lambda: self._show_status(
+                "Reset to defaults",
+                DARK_COLORS["success"] if _dark_mode else "green",
+            ))
 
     # ------------------------------------------------------------------
     # Preview

@@ -2,6 +2,29 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.3] — 2026-04-03
+
+UI spacing polish and reset-confirmation fix. Security model audited using multi-LLM code review, manual code review, and assessment by a trained penetration tester.
+
+### Changed
+
+- **Command preview section grouped into a single layout** — the "Command Preview" label, preview bar, and status label are now wrapped in a dedicated `QVBoxLayout` with 5px internal spacing and zero margins, tightening all gaps in the preview area.
+- **Preview label padding zeroed** — `preview_label` top/bottom padding overridden to 0px (scoped to preview only, not output label). Theme toggle re-applies the override to prevent resets.
+- **Button spacing in preview bar** — added 12px vertical spacing between "Reset to Defaults" and "Copy Command" buttons to prevent accidental mis-clicks.
+
+### Fixed
+
+- **Reset confirmation used a permanent hidden widget** — replaced the dedicated `reset_status` QLabel (which consumed 16px of dead space even when empty) with a deferred `QTimer.singleShot(0)` call to `_show_status`, reusing the existing status label. The deferred write survives the `_update_preview` signal cascade triggered by `reset_to_defaults()`.
+
+#### Full suite results
+
+- **All 5 test suites pass: 1,036/1,036 assertions, 0 failures**
+  - Functional: 837/837
+  - Smoke: 63/63
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.7.2] — 2026-04-02
 
 Bugfixes and UI improvements informed by a full deep code audit and hands-on user testing with a MiniMax M2.7 OpenClaw agent.

@@ -67,6 +67,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 - **Works with any CLI tool** — if it accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities to tools with hundreds of flags and nested subcommands. Write a JSON schema (or have an LLM generate one from the docs) and you're done
 - **Presets** — save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again
 - **Immune to shell injection** — Scaffold never invokes a shell. All execution uses QProcess with list-based arguments, so shell metacharacters in schemas or user input are treated as literal strings — there is nothing to inject into. Schemas are static JSON that never execute code. The app runs fully offline with zero telemetry. See the [Security](#security) section for details
+- **Typed input constraints** — every argument passes through a typed widget (checkbox, spinbox, dropdown, file picker) that constrains values at entry, not after the fact. The attack surface for malformed input is minimal because the GUI prevents it structurally
 - **LLM-powered schema generation** — paste the included `PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON
 - **Syntax-colored command preview** — watch the exact command build in real time as you change fields, with color-coded tokens (binary, flags, values) in both light and dark modes
 - **Process execution** — run commands directly with colored output (stdout, stderr, exit codes), searchable output panel, copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown
@@ -121,13 +122,25 @@ The tool picker appears showing all `.json` schemas in the `tools/` folder. Doub
 
 ## Security
 
-Scaffold never uses `shell=True`. All command execution goes through QProcess with arguments passed as a list, so schemas and user input cannot trigger shell injection — no pipes, semicolons, backticks, or command chaining. The command preview shows exactly what will execute, token by token.
+### No shell intermediary
+
+Scaffold never uses `shell=True`. All command execution goes through `QProcess` with arguments passed as a Python list. There is no shell parsing, no string interpolation, and no command string assembly. Shell metacharacters in schemas or user input — pipes, semicolons, backticks, `$(...)`, glob patterns — are treated as literal strings because no shell ever interprets them. This eliminates shell injection by design, not by sanitization. The command preview shows exactly what will execute, token by token.
 
 The `binary` field in every schema is validated at load time: shell metacharacters are rejected, relative paths with separators are rejected, and only bare executable names or absolute paths are accepted.
 
-Schemas are static JSON declarations. They don't execute code, import modules, or make network calls. Loading a schema is always safe; only clicking Run executes anything.
+### Typed input constraints
 
-Scaffold runs fully offline — no network access, no telemetry, no auto-updates.
+Every argument passes through a typed widget that constrains values at the point of entry. A port number comes from a `QSpinBox` with defined bounds, not free text. Enum values come from a `QComboBox` with a fixed choice list. Boolean flags are checkboxes. File and directory arguments use native picker dialogs. The attack surface for malformed input is minimal because the GUI prevents it structurally — values are validated by widget type before they ever reach the command builder.
+
+The **Additional Flags** field is the only free-text path to the command line. It uses `shlex.split()` for tokenization with visual feedback on malformed input (unclosed quotes, etc.), and the resulting tokens are passed as discrete list items to `QProcess` — never concatenated into a shell string.
+
+### No dynamic code execution
+
+The codebase contains no `eval()`, no `exec()`, and no dynamic imports. Schema files are parsed as JSON data and treated as static declarations. Loading a schema reads structured data; it never executes code.
+
+### No runtime network access
+
+Scaffold makes zero network calls. No telemetry, no update checks, no analytics, no external API dependencies. The application runs entirely offline.
 
 ## Creating Tool Schemas
 
