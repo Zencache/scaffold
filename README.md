@@ -62,6 +62,58 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 
 ---
 
+## Features
+
+- **Works with any CLI tool** — JSON schema in, native GUI out
+- **Presets** — save, name, reload, and share form configurations
+- **Immune to shell injection** — QProcess with list args, no shell
+- **Typed input constraints** — widgets validate values at entry
+- **LLM-powered schema generation** — paste PROMPT.txt + docs, get a schema
+- **Syntax-colored command preview** — live preview with color-coded tokens
+- **Process execution** — run, stop, search output, copy or save results
+- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
+- **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
+- **Command history** — browse and restore past runs per tool (Ctrl+H)
+- **Auto-save & crash recovery** — form state saved automatically, restored on next launch
+- **Collapsible display groups** — organize large forms into sections
+- **Field search** — find any field by name or flag (Ctrl+F)
+- **Process timeout** — optional auto-kill after N seconds, per tool
+- **Mutual exclusivity & dependencies** — radio groups and conditional fields
+- **Validation** — regex patterns and required field checking
+- **Drag and drop** — drop a .json schema to load it
+- **Portable mode** — run from USB with local settings
+- **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
+- **Single Python file** — one file, one dependency (PySide6), fully offline
+
+See [Detailed Features](#detailed-features) below for full descriptions.
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install PySide6
+```
+
+### 2. Run
+
+```bash
+python scaffold.py
+```
+
+The tool picker appears showing all `.json` schemas in the `tools/` folder. Double-click one to open its form.
+
+### 3. Use
+
+- Fill in the form fields
+- Watch the live command preview update
+- Click **Run** to execute (or **Ctrl+Enter**)
+- Click **Stop** to kill a running process (or **Escape**)
+- Click **Copy Command** to copy to clipboard (or right-click the preview for Bash/PowerShell/CMD formats)
+- Click **Copy Output** or **Save Output...** to capture command output
+
+> **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
+
 ## Creating Tool Schemas
 
 Each CLI tool is described by a JSON file placed in the `tools/` folder. Scaffold scans this folder on startup and displays all valid schemas in the tool picker.
@@ -343,58 +395,6 @@ Use `password` type for flags that accept sensitive values like passwords, API k
 ```
 
 The input is masked by default with a "Show" toggle to reveal the value. Works identically to `string` for command assembly and presets. The `examples` field should not be used with password type.
-
-## Features
-
-- **Works with any CLI tool** — JSON schema in, native GUI out
-- **Presets** — save, name, reload, and share form configurations
-- **Immune to shell injection** — QProcess with list args, no shell
-- **Typed input constraints** — widgets validate values at entry
-- **LLM-powered schema generation** — paste PROMPT.txt + docs, get a schema
-- **Syntax-colored command preview** — live preview with color-coded tokens
-- **Process execution** — run, stop, search output, copy or save results
-- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
-- **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
-- **Command history** — browse and restore past runs per tool (Ctrl+H)
-- **Auto-save & crash recovery** — form state saved automatically, restored on next launch
-- **Collapsible display groups** — organize large forms into sections
-- **Field search** — find any field by name or flag (Ctrl+F)
-- **Process timeout** — optional auto-kill after N seconds, per tool
-- **Mutual exclusivity & dependencies** — radio groups and conditional fields
-- **Validation** — regex patterns and required field checking
-- **Drag and drop** — drop a .json schema to load it
-- **Portable mode** — run from USB with local settings
-- **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
-- **Single Python file** — one file, one dependency (PySide6), fully offline
-
-See [Detailed Features](#detailed-features) below for full descriptions.
-
-## Quick Start
-
-### 1. Install
-
-```bash
-pip install PySide6
-```
-
-### 2. Run
-
-```bash
-python scaffold.py
-```
-
-The tool picker appears showing all `.json` schemas in the `tools/` folder. Double-click one to open its form.
-
-### 3. Use
-
-- Fill in the form fields
-- Watch the live command preview update
-- Click **Run** to execute (or **Ctrl+Enter**)
-- Click **Stop** to kill a running process (or **Escape**)
-- Click **Copy Command** to copy to clipboard (or right-click the preview for Bash/PowerShell/CMD formats)
-- Click **Copy Output** or **Save Output...** to capture command output
-
-> **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
 
 ## Security
 
