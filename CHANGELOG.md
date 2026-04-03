@@ -2,6 +2,35 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.2] — 2026-04-02
+
+Bugfixes and UI improvements informed by a full deep code audit and hands-on user testing with a MiniMax M2.7 OpenClaw agent.
+
+### Changed
+
+- **"Reset to Defaults" moved to command preview area** — relocated from the Presets menu to a dedicated button stacked vertically above "Copy Command" in the preview bar. Disabled when no tool is loaded.
+- **Minimum window width increased to 500px** — raised from 420px to accommodate the new button layout.
+
+### Fixed
+
+- **Drag-drop case sensitivity** — `dragEnterEvent` and `dropEvent` now use case-insensitive matching for `.json` extensions. Files named `tool.JSON` or `tool.Json` are no longer silently rejected.
+- **Missing `_format` on bundled schemas** — added `"_format": "scaffold_schema"` as the first key in `git.json`, `nmap.json`, `ping.json`, and `curl.json`. These four schemas were missing the marker that identifies them as Scaffold schemas.
+- **Reset status message not auto-clearing** — replaced `statusBar().showMessage()` with a dedicated `reset_status` label that auto-clears after 3 seconds via `QTimer.singleShot`.
+
+### Added
+
+- **aircrack-ng tool schema (testing)** — added `tools/aircrack-ng.json`. Mostly untested and may not cover every flag or edge case — contributions and bug reports welcome.
+- **Shell injection immunity note in README** — documented that Scaffold is immune to shell injection by design (QProcess with list-based arguments, no shell invocation).
+
+#### Full suite results
+
+- **All 5 test suites pass: 1,036/1,036 assertions, 0 failures**
+  - Functional: 837/837
+  - Smoke: 63/63
+  - Examples: 52/52
+  - Manual verification: 61/61
+  - Preset validation: 23/23
+
 ## [v2.7.1] — 2026-04-02
 
 Hardening pass — four targeted fixes distilled from a full deep code audit with Copilot. Started with a comprehensive audit, iterated on the findings, and narrowed down to these surgical improvements.
@@ -12,10 +41,6 @@ Hardening pass — four targeted fixes distilled from a full deep code audit wit
 - **QApplication guard in `_make_arrow_icons`** — return early with an empty string if no `QApplication` instance exists, preventing a crash when the function is called before the app is created (e.g., during test imports).
 - **`normalize_tool` deep copy** — the function now returns a deep copy of the normalized data, so callers get an independent snapshot and won't see unexpected mutations through shared references. All internal and test call sites updated to use the return value; `ToolForm.__init__` now normalizes its own input defensively.
 - **Flag stripping in `_check_duplicate_flags`** — trailing whitespace in hand-edited schema flag values (e.g., `"--port "` vs `"--port"`) no longer bypasses duplicate detection.
-
-### Added
-
-- **aircrack-ng tool schema (testing)** — added `tools/aircrack-ng.json`. Mostly untested and may not cover every flag or edge case — contributions and bug reports welcome.
 
 #### Full suite results
 

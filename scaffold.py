@@ -68,7 +68,7 @@ MULTI_ENUM_HEIGHT = 120
 # Default window dimensions
 DEFAULT_WINDOW_WIDTH = 700
 DEFAULT_WINDOW_HEIGHT = 750
-MIN_WINDOW_WIDTH = 420
+MIN_WINDOW_WIDTH = 500
 MIN_WINDOW_HEIGHT = 400
 
 # Output panel limits
@@ -3200,9 +3200,6 @@ class MainWindow(QMainWindow):
         self.act_export_preset = self.preset_menu.addAction("Export Preset...")
         self.act_export_preset.triggered.connect(self._on_export_preset)
 
-        self.act_reset = self.preset_menu.addAction("Reset to Defaults")
-        self.act_reset.triggered.connect(self._on_reset_defaults)
-
         # View menu — theme selector
         view_menu = self.menuBar().addMenu("View")
         theme_menu = view_menu.addMenu("Theme")
@@ -3748,7 +3745,7 @@ class MainWindow(QMainWindow):
         """Accept drag events that contain at least one .json file URL."""
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().endswith(".json"):
+                if url.toLocalFile().lower().endswith(".json"):
                     event.acceptProposedAction()
                     return
 
@@ -3756,7 +3753,7 @@ class MainWindow(QMainWindow):
         """Load the first .json file dropped onto the window."""
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if path.endswith(".json"):
+            if path.lower().endswith(".json"):
                 self._load_tool_path(path)
                 return
 
@@ -3774,6 +3771,8 @@ class MainWindow(QMainWindow):
         self.act_back.setEnabled(False)
         self.preset_menu.setEnabled(False)
         self.act_history.setEnabled(False)
+        if hasattr(self, "reset_btn"):
+            self.reset_btn.setEnabled(False)
         self.picker.back_btn.setEnabled(self.data is not None)
         self.statusBar().showMessage("Ready")
 
@@ -3786,6 +3785,7 @@ class MainWindow(QMainWindow):
             self.act_back.setEnabled(True)
             self.preset_menu.setEnabled(True)
             self.act_history.setEnabled(True)
+            self.reset_btn.setEnabled(True)
 
     def _load_tool_path(self, path: str) -> None:
         """Load, validate, and display the tool at path; show an error dialog on failure."""
@@ -3841,6 +3841,7 @@ class MainWindow(QMainWindow):
         self.act_back.setEnabled(True)
         self.preset_menu.setEnabled(True)
         self.act_history.setEnabled(True)
+        self.reset_btn.setEnabled(True)
         self.settings.setValue("session/last_tool", path)
         # Count fields and required fields for status message
         total_fields = len(data.get("arguments") or [])
@@ -3936,12 +3937,22 @@ class MainWindow(QMainWindow):
         self.preview.customContextMenuRequested.connect(self._on_preview_context_menu)
         preview_bar.addWidget(self.preview, 1)
 
+        btn_col = QVBoxLayout()
+        btn_col.setContentsMargins(0, 0, 0, 0)
+        self.reset_btn = QPushButton("Reset to Defaults")
+        self.reset_btn.setEnabled(False)
+        self.reset_btn.clicked.connect(self._on_reset_defaults)
+        btn_col.addWidget(self.reset_btn)
         self.copy_btn = QPushButton("Copy Command")
         self.copy_btn.clicked.connect(self._copy_command)
-        preview_bar.addWidget(self.copy_btn)
+        btn_col.addWidget(self.copy_btn)
+        preview_bar.addLayout(btn_col)
 
         preview_widget = QWidget()
         preview_widget.setLayout(preview_bar)
+        self.reset_status = QLabel("")
+        self.reset_status.setStyleSheet("padding: 0 8px 0 8px;")
+        layout.addWidget(self.reset_status)
         layout.addWidget(preview_widget)
 
         # Status label
@@ -4303,7 +4314,10 @@ class MainWindow(QMainWindow):
         if self.data:
             self.form.reset_to_defaults()
             self._default_form_snapshot = self.form.serialize_values()
-            self.statusBar().showMessage("Reset to defaults")
+            color = DARK_COLORS["success"] if _dark_mode else "green"
+            self.reset_status.setText("Reset to defaults")
+            self.reset_status.setStyleSheet(f"color: {color}; padding: 0 8px 0 8px;")
+            QTimer.singleShot(3000, lambda: self.reset_status.setText(""))
             self._clear_recovery_file()
 
     # ------------------------------------------------------------------

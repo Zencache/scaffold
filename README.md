@@ -417,7 +417,7 @@ Presets save and restore the complete state of a form:
 - **Save**: Presets > Save Preset (Ctrl+S) — enter a name and optional description
 - **Load**: Presets > Preset List (Ctrl+L) — opens a table-based picker with preset name, description, and last modified date
 - **Edit**: Presets > Edit Preset — manage presets: edit descriptions, delete presets, and toggle favorites from a single dialog
-- **Reset**: Presets > Reset to Defaults — clears everything back to schema defaults
+- **Reset**: Click "Reset to Defaults" in the command preview bar — clears everything back to schema defaults
 
 The preset picker supports **favorites** — click the star column to pin frequently-used presets to the top of the list. Favorites are stored locally (not in preset files) and persist across sessions. You can also **edit a preset's description** after saving it via the "Edit Description..." button in the picker.
 
