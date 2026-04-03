@@ -4,23 +4,34 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.7.4] — 2026-04-03
 
-Deep audit bugfixes — five issues found by distilling the full updated codebase back into Claude 4.6 Opus Extended.
+Security audit, dedicated security test suite, deep audit bugfixes, button clipping fix, and README rewrite.
+
+### Added
+
+- **Security audit test suite (`test_security.py`)** — 131 focused security assertions across 8 sections: static analysis for forbidden patterns, shell metacharacter passthrough verification for all widget types, binary validation hardening, preset injection resistance, extra flags injection resistance, preset name path traversal, recovery file safety, and QProcess contract verification.
+- **README rewrite** — condensed features list with a new Detailed Features section, added bundled schema table for all 15 tools, documented `elevated` schema field and `--version` CLI flag.
 
 ### Fixed
 
-- **`__version__` out of sync** — bumped from `"2.7.0"` to `"2.7.4"` to match the changelog.
-- **`_SHELL_METACHAR` recreated on every call** — moved from a local `set()` inside `validate_tool()` to a module-level `frozenset` constant near `VALID_TYPES` and `VALID_SEPARATORS`.
-- **Null bytes pass binary validation** — added `\x00` to `_SHELL_METACHAR` and a dedicated "contains null bytes" error message so QProcess truncation is caught at validation time.
-- **Recovery file collisions on shared systems** — added a per-user identifier (`os.getuid()` on Unix, `os.getlogin()` fallback on Windows) to recovery filenames. `_cleanup_stale_recovery_files()` now only removes the current user's expired files.
-- **Underscore-prefixed flags collide with preset metadata** — `_validate_args()` now rejects flags starting with `_`, which are reserved for internal metadata keys (`_subcommand`, `_schema_hash`, etc.).
+- **Recovery file crash on non-dict JSON** — `_check_for_recovery()` now validates that parsed recovery data is a dict before calling `.get()`, preventing an `AttributeError` when the file contains valid JSON that isn't a dict (e.g., a list).
+- **Button text clipping during process execution** — the Run button now has a font-metrics-based minimum width calculated from its widest state ("Stopping..."), preventing layout reflow when cycling through Run/Stop/Stopping. All action bar and preview bar buttons use `QSizePolicy.Minimum` so they never shrink below their text content.
+- **`_SHELL_METACHAR` recreated on every call** — moved from a local `set()` inside `validate_tool()` to a module-level `frozenset` constant.
+- **Null bytes pass binary validation** — added `\x00` to `_SHELL_METACHAR` and a dedicated "contains null bytes" error message.
+- **Recovery file collisions on shared systems** — added a per-user identifier to recovery filenames.
+- **Underscore-prefixed flags collide with preset metadata** — `_validate_args()` now rejects flags starting with `_`.
+
+### Security
+
+The security model (no shell, no eval/exec, no network, typed constraints) was audited by a penetration tester and validated across multiple LLM-assisted review stages — including multi-model code review, targeted fuzzing of the command builder, and the new automated security test suite.
 
 #### Full suite results
 
-- **All 5 test suites pass: 1,036/1,036 assertions, 0 failures**
+- **All 6 test suites pass: 1,167/1,167 assertions, 0 failures**
   - Functional: 837/837
+  - Security: 131/131
   - Smoke: 63/63
-  - Examples: 52/52
   - Manual verification: 61/61
+  - Examples: 52/52
   - Preset validation: 23/23
 
 ## [v2.7.3] — 2026-04-03

@@ -3712,6 +3712,12 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
             return
+        if not isinstance(recovery_data, dict):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
         ts = recovery_data.get("_recovery_timestamp", 0)
         if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
             try:
@@ -3969,10 +3975,12 @@ class MainWindow(QMainWindow):
         btn_col.setContentsMargins(0, 0, 0, 0)
         self.reset_btn = QPushButton("Reset to Defaults")
         self.reset_btn.setEnabled(False)
+        self.reset_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.reset_btn.clicked.connect(self._on_reset_defaults)
         btn_col.addWidget(self.reset_btn)
         btn_col.addSpacing(12)
         self.copy_btn = QPushButton("Copy Command")
+        self.copy_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.copy_btn.clicked.connect(self._copy_command)
         btn_col.addWidget(self.copy_btn)
         preview_bar.addLayout(btn_col)
@@ -4001,17 +4009,22 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self._on_run_stop)
         self._style_run_btn()
+        fm = self.run_btn.fontMetrics()
+        self.run_btn.setMinimumWidth(fm.horizontalAdvance("Stopping...") + 24)
         action_bar.addWidget(self.run_btn)
 
         self.clear_btn = QPushButton("Clear Output")
+        self.clear_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.clear_btn.clicked.connect(self._clear_output)
         action_bar.addWidget(self.clear_btn)
 
         self.copy_output_btn = QPushButton("Copy Output")
+        self.copy_output_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.copy_output_btn.clicked.connect(self._copy_output)
         action_bar.addWidget(self.copy_output_btn)
 
         self.save_output_btn = QPushButton("Save Output...")
+        self.save_output_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.save_output_btn.clicked.connect(self._save_output)
         action_bar.addWidget(self.save_output_btn)
 
