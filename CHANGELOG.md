@@ -4,12 +4,11 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.7.4] — 2026-04-03
 
-Security audit, dedicated security test suite, deep audit bugfixes, button clipping fix, and README rewrite. The full updated codebase — after code audits by MiniMax M2.7, GitHub Copilot, and ChatGPT — was distilled back into Claude 4.6 Opus Extended Thinking, which found all of the bugs fixed in this release.
+Security audit, dedicated security test suite, deep audit bugfixes, and button clipping fix. The full updated codebase — after code audits by MiniMax M2.7, GitHub Copilot, and ChatGPT — was distilled back into Claude 4.6 Opus Extended Thinking, which found all of the bugs fixed in this release.
 
 ### Added
 
 - **Security audit test suite (`test_security.py`)** — 131 focused security assertions across 8 sections: static analysis for forbidden patterns, shell metacharacter passthrough verification for all widget types, binary validation hardening, preset injection resistance, extra flags injection resistance, preset name path traversal, recovery file safety, and QProcess contract verification.
-- **README rewrite** — condensed features list with a new Detailed Features section, added bundled schema table for all 15 tools, documented `elevated` schema field and `--version` CLI flag.
 
 ### Fixed
 
