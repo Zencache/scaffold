@@ -4,7 +4,7 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.7.4] — 2026-04-03
 
-Security audit, dedicated security test suite, deep audit bugfixes, button clipping fix, and README rewrite.
+Security audit, dedicated security test suite, deep audit bugfixes, button clipping fix, and README rewrite. The full updated codebase — after code audits by MiniMax M2.7, GitHub Copilot, and ChatGPT — was distilled back into Claude 4.6 Opus Extended Thinking, which found all of the bugs fixed in this release.
 
 ### Added
 

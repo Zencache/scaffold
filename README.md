@@ -13,14 +13,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-4%2C856%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-4%2C888%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (1,036 assertions across 5 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** This is an early-stage hobby project. All code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (1,167 assertions across 6 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 
 ---
 
@@ -61,161 +61,6 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder. A 
 > Without it, PySide6 will crash on launch with `Could not load the Qt platform plugin "xcb"`.
 
 ---
-
-## Features
-
-- **Works with any CLI tool** — JSON schema in, native GUI out
-- **Presets** — save, name, reload, and share form configurations
-- **Immune to shell injection** — QProcess with list args, no shell
-- **Typed input constraints** — widgets validate values at entry
-- **LLM-powered schema generation** — paste PROMPT.txt + docs, get a schema
-- **Syntax-colored command preview** — live preview with color-coded tokens
-- **Process execution** — run, stop, search output, copy or save results
-- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
-- **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
-- **Command history** — browse and restore past runs per tool (Ctrl+H)
-- **Auto-save & crash recovery** — form state saved automatically, restored on next launch
-- **Collapsible display groups** — organize large forms into sections
-- **Field search** — find any field by name or flag (Ctrl+F)
-- **Process timeout** — optional auto-kill after N seconds, per tool
-- **Mutual exclusivity & dependencies** — radio groups and conditional fields
-- **Validation** — regex patterns and required field checking
-- **Drag and drop** — drop a .json schema to load it
-- **Portable mode** — run from USB with local settings
-- **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
-- **Single Python file** — one file, one dependency (PySide6), fully offline
-
-See [Detailed Features](#detailed-features) below for full descriptions.
-
-## Quick Start
-
-### 1. Install
-
-```bash
-pip install PySide6
-```
-
-### 2. Run
-
-```bash
-python scaffold.py
-```
-
-The tool picker appears showing all `.json` schemas in the `tools/` folder. Double-click one to open its form.
-
-### 3. Use
-
-- Fill in the form fields
-- Watch the live command preview update
-- Click **Run** to execute (or **Ctrl+Enter**)
-- Click **Stop** to kill a running process (or **Escape**)
-- Click **Copy Command** to copy to clipboard (or right-click the preview for Bash/PowerShell/CMD formats)
-- Click **Copy Output** or **Save Output...** to capture command output
-
-> **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
-
-## Security
-
-### No shell intermediary
-
-Scaffold never uses `shell=True`. All command execution goes through `QProcess` with arguments passed as a Python list. There is no shell parsing, no string interpolation, and no command string assembly. Shell metacharacters in schemas or user input — pipes, semicolons, backticks, `$(...)`, glob patterns — are treated as literal strings because no shell ever interprets them. This eliminates shell injection by design, not by sanitization. The command preview shows exactly what will execute, token by token.
-
-The `binary` field in every schema is validated at load time: shell metacharacters are rejected, relative paths with separators are rejected, and only bare executable names or absolute paths are accepted.
-
-### Typed input constraints
-
-Every argument passes through a typed widget that constrains values at the point of entry. A port number comes from a `QSpinBox` with defined bounds, not free text. Enum values come from a `QComboBox` with a fixed choice list. Boolean flags are checkboxes. File and directory arguments use native picker dialogs. The attack surface for malformed input is minimal because the GUI prevents it structurally — values are validated by widget type before they ever reach the command builder.
-
-The **Additional Flags** field is the only free-text path to the command line. It uses `shlex.split()` for tokenization with visual feedback on malformed input (unclosed quotes, etc.), and the resulting tokens are passed as discrete list items to `QProcess` — never concatenated into a shell string.
-
-### No dynamic code execution
-
-The codebase contains no `eval()`, no `exec()`, and no dynamic imports. Schema files are parsed as JSON data and treated as static declarations. Loading a schema reads structured data; it never executes code.
-
-### No runtime network access
-
-Scaffold makes zero network calls. No telemetry, no update checks, no analytics, no external API dependencies. The application runs entirely offline.
-
-## Detailed Features
-
-### Works with any CLI tool
-
-If a tool accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities like `ping` to tools with hundreds of flags and nested subcommands like `curl` (271 arguments) or `ffmpeg` (123 arguments). Write a JSON schema — or have an LLM generate one from the tool's documentation — and Scaffold renders a native desktop form. No custom UI code needed.
-
-### Presets
-
-Save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again.
-
-- **Save**: Presets > Save Preset (Ctrl+S) — enter a name and optional description
-- **Load**: Presets > Preset List (Ctrl+L) — table-based picker with name, description, and last modified date
-- **Edit**: Presets > Edit Preset — manage presets: edit descriptions, delete presets, toggle favorites
-- **Reset**: Click "Reset to Defaults" in the command preview bar — clears everything back to schema defaults
-
-The preset picker supports **favorites** — click the star column to pin frequently-used presets to the top. Presets are stored as JSON in `presets/{tool_name}/` and are portable. Schema changes are handled gracefully: removed fields are silently skipped, new fields get defaults.
-
-### Immune to shell injection
-
-Scaffold never invokes a shell. All execution uses `QProcess` with list-based arguments, so shell metacharacters in schemas or user input are treated as literal strings — there is nothing to inject into. See the [Security](#security) section for full details.
-
-### Typed input constraints
-
-Every argument passes through a typed widget (checkbox, spinbox, dropdown, file picker) that constrains values at entry, not after the fact. The attack surface for malformed input is minimal because the GUI prevents it structurally.
-
-### LLM-powered schema generation
-
-Paste the included `PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON. Complex tools with many flags work best with frontier-level models (Claude Opus, GPT-4, Gemini Pro).
-
-### Syntax-colored command preview
-
-Watch the exact command build in real time as you change fields. Tokens are color-coded by type (binary, flags, values) in both light and dark modes. Right-click the preview to copy formatted for Bash, PowerShell, or Windows CMD with shell-appropriate quoting.
-
-### Process execution
-
-Run commands directly from the GUI with colored output (stdout in one color, stderr in another), exit codes, and timestamps. The output panel is searchable (Ctrl+Shift+F). Copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown. Optional auto-kill timeout per tool.
-
-### 10 widget types
-
-Each CLI argument gets the right input control: checkboxes for booleans, text fields for strings, spin boxes for integers and floats, dropdowns for enums, checkable lists for multi-enums, file and directory browsers, password fields with show/hide toggle, and multi-line text areas.
-
-### Subcommand support
-
-Tools like `git` with multiple subcommands work seamlessly. Multi-word subcommand chains like `ansible-galaxy role install` or `docker compose up` are supported — each word becomes a separate token in the assembled command. Selecting a subcommand swaps the visible form fields while global flags remain.
-
-### Command history
-
-Every executed command is automatically recorded. Browse recent runs per tool via View > Command History (Ctrl+H), see exit codes and timestamps, and restore any past form state with one click.
-
-### Auto-save and crash recovery
-
-Form state is automatically saved 2 seconds after each change. If the app crashes, the next launch offers to restore your work. Unchanged forms are not saved.
-
-### Collapsible display groups
-
-Visually group related arguments into collapsible sections to tame tools with hundreds of flags. Arguments sharing the same `display_group` value are rendered together inside a titled, clickable group box.
-
-### Field search
-
-Ctrl+F to instantly find any field by name or flag in large forms. The search bar highlights matching fields and scrolls them into view.
-
-### Mutual exclusivity and dependencies
-
-Radio-button groups for conflicting flags (only one can be active at a time). Dependency fields activate only when their parent field is set.
-
-### Validation
-
-Regex patterns on string fields give immediate visual feedback (red border) for invalid input. Required fields are bold with a red asterisk, and Run is disabled until all required fields are filled.
-
-### Additional features
-
-- **Deprecated and dangerous indicators** — schema flags can be marked `deprecated` (strikethrough + warning) or `dangerous` (red caution symbol) for visual heads-up without disabling them
-- **Min/max constraints** — optional `min` and `max` on integer/float arguments constrain the spinner range in the GUI
-- **Drag and drop** — drop a `.json` schema file onto the window to load it
-- **Help menu** — About dialog with version info and GitHub link, keyboard shortcuts reference
-- **Session persistence** — remembers window size, position, theme, and last opened tool
-- **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
-- **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
-- **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
-- **Bundled tool schemas (testing)** — schemas for aircrack-ng, ansible (4 tools), curl, git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, and ping. Some are mostly untested — contributions and bug reports welcome
 
 ## Creating Tool Schemas
 
@@ -499,6 +344,161 @@ Use `password` type for flags that accept sensitive values like passwords, API k
 
 The input is masked by default with a "Show" toggle to reveal the value. Works identically to `string` for command assembly and presets. The `examples` field should not be used with password type.
 
+## Features
+
+- **Works with any CLI tool** — JSON schema in, native GUI out
+- **Presets** — save, name, reload, and share form configurations
+- **Immune to shell injection** — QProcess with list args, no shell
+- **Typed input constraints** — widgets validate values at entry
+- **LLM-powered schema generation** — paste PROMPT.txt + docs, get a schema
+- **Syntax-colored command preview** — live preview with color-coded tokens
+- **Process execution** — run, stop, search output, copy or save results
+- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
+- **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
+- **Command history** — browse and restore past runs per tool (Ctrl+H)
+- **Auto-save & crash recovery** — form state saved automatically, restored on next launch
+- **Collapsible display groups** — organize large forms into sections
+- **Field search** — find any field by name or flag (Ctrl+F)
+- **Process timeout** — optional auto-kill after N seconds, per tool
+- **Mutual exclusivity & dependencies** — radio groups and conditional fields
+- **Validation** — regex patterns and required field checking
+- **Drag and drop** — drop a .json schema to load it
+- **Portable mode** — run from USB with local settings
+- **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
+- **Single Python file** — one file, one dependency (PySide6), fully offline
+
+See [Detailed Features](#detailed-features) below for full descriptions.
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install PySide6
+```
+
+### 2. Run
+
+```bash
+python scaffold.py
+```
+
+The tool picker appears showing all `.json` schemas in the `tools/` folder. Double-click one to open its form.
+
+### 3. Use
+
+- Fill in the form fields
+- Watch the live command preview update
+- Click **Run** to execute (or **Ctrl+Enter**)
+- Click **Stop** to kill a running process (or **Escape**)
+- Click **Copy Command** to copy to clipboard (or right-click the preview for Bash/PowerShell/CMD formats)
+- Click **Copy Output** or **Save Output...** to capture command output
+
+> **Important:** Always review the command preview before clicking Run. Scaffold assembles commands from your input and executes them directly on your system.
+
+## Security
+
+### No shell intermediary
+
+Scaffold never uses `shell=True`. All command execution goes through `QProcess` with arguments passed as a Python list. There is no shell parsing, no string interpolation, and no command string assembly. Shell metacharacters in schemas or user input — pipes, semicolons, backticks, `$(...)`, glob patterns — are treated as literal strings because no shell ever interprets them. This eliminates shell injection by design, not by sanitization. The command preview shows exactly what will execute, token by token.
+
+The `binary` field in every schema is validated at load time: shell metacharacters are rejected, relative paths with separators are rejected, and only bare executable names or absolute paths are accepted.
+
+### Typed input constraints
+
+Every argument passes through a typed widget that constrains values at the point of entry. A port number comes from a `QSpinBox` with defined bounds, not free text. Enum values come from a `QComboBox` with a fixed choice list. Boolean flags are checkboxes. File and directory arguments use native picker dialogs. The attack surface for malformed input is minimal because the GUI prevents it structurally — values are validated by widget type before they ever reach the command builder.
+
+The **Additional Flags** field is the only free-text path to the command line. It uses `shlex.split()` for tokenization with visual feedback on malformed input (unclosed quotes, etc.), and the resulting tokens are passed as discrete list items to `QProcess` — never concatenated into a shell string.
+
+### No dynamic code execution
+
+The codebase contains no `eval()`, no `exec()`, and no dynamic imports. Schema files are parsed as JSON data and treated as static declarations. Loading a schema reads structured data; it never executes code.
+
+### No runtime network access
+
+Scaffold makes zero network calls. No telemetry, no update checks, no analytics, no external API dependencies. The application runs entirely offline.
+
+## Detailed Features
+
+### Works with any CLI tool
+
+If a tool accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities like `ping` to tools with hundreds of flags and nested subcommands like `curl` (271 arguments) or `ffmpeg` (123 arguments). Write a JSON schema — or have an LLM generate one from the tool's documentation — and Scaffold renders a native desktop form. No custom UI code needed.
+
+### Presets
+
+Save, name, and reload entire form configurations. Build a library of ready-to-run commands per tool. Share preset files with your team. Never reconstruct a complex command from memory again.
+
+- **Save**: Presets > Save Preset (Ctrl+S) — enter a name and optional description
+- **Load**: Presets > Preset List (Ctrl+L) — table-based picker with name, description, and last modified date
+- **Edit**: Presets > Edit Preset — manage presets: edit descriptions, delete presets, toggle favorites
+- **Reset**: Click "Reset to Defaults" in the command preview bar — clears everything back to schema defaults
+
+The preset picker supports **favorites** — click the star column to pin frequently-used presets to the top. Presets are stored as JSON in `presets/{tool_name}/` and are portable. Schema changes are handled gracefully: removed fields are silently skipped, new fields get defaults.
+
+### Immune to shell injection
+
+Scaffold never invokes a shell. All execution uses `QProcess` with list-based arguments, so shell metacharacters in schemas or user input are treated as literal strings — there is nothing to inject into. See the [Security](#security) section for full details.
+
+### Typed input constraints
+
+Every argument passes through a typed widget (checkbox, spinbox, dropdown, file picker) that constrains values at entry, not after the fact. The attack surface for malformed input is minimal because the GUI prevents it structurally.
+
+### LLM-powered schema generation
+
+Paste the included `PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON. Complex tools with many flags work best with frontier-level models (Claude Opus, GPT-4, Gemini Pro).
+
+### Syntax-colored command preview
+
+Watch the exact command build in real time as you change fields. Tokens are color-coded by type (binary, flags, values) in both light and dark modes. Right-click the preview to copy formatted for Bash, PowerShell, or Windows CMD with shell-appropriate quoting.
+
+### Process execution
+
+Run commands directly from the GUI with colored output (stdout in one color, stderr in another), exit codes, and timestamps. The output panel is searchable (Ctrl+Shift+F). Copy or save output to file. ANSI escape codes are automatically stripped. Process stop uses SIGTERM first with SIGKILL fallback for clean shutdown. Optional auto-kill timeout per tool.
+
+### 10 widget types
+
+Each CLI argument gets the right input control: checkboxes for booleans, text fields for strings, spin boxes for integers and floats, dropdowns for enums, checkable lists for multi-enums, file and directory browsers, password fields with show/hide toggle, and multi-line text areas.
+
+### Subcommand support
+
+Tools like `git` with multiple subcommands work seamlessly. Multi-word subcommand chains like `ansible-galaxy role install` or `docker compose up` are supported — each word becomes a separate token in the assembled command. Selecting a subcommand swaps the visible form fields while global flags remain.
+
+### Command history
+
+Every executed command is automatically recorded. Browse recent runs per tool via View > Command History (Ctrl+H), see exit codes and timestamps, and restore any past form state with one click.
+
+### Auto-save and crash recovery
+
+Form state is automatically saved 2 seconds after each change. If the app crashes, the next launch offers to restore your work. Unchanged forms are not saved.
+
+### Collapsible display groups
+
+Visually group related arguments into collapsible sections to tame tools with hundreds of flags. Arguments sharing the same `display_group` value are rendered together inside a titled, clickable group box.
+
+### Field search
+
+Ctrl+F to instantly find any field by name or flag in large forms. The search bar highlights matching fields and scrolls them into view.
+
+### Mutual exclusivity and dependencies
+
+Radio-button groups for conflicting flags (only one can be active at a time). Dependency fields activate only when their parent field is set.
+
+### Validation
+
+Regex patterns on string fields give immediate visual feedback (red border) for invalid input. Required fields are bold with a red asterisk, and Run is disabled until all required fields are filled.
+
+### Additional features
+
+- **Deprecated and dangerous indicators** — schema flags can be marked `deprecated` (strikethrough + warning) or `dangerous` (red caution symbol) for visual heads-up without disabling them
+- **Min/max constraints** — optional `min` and `max` on integer/float arguments constrain the spinner range in the GUI
+- **Drag and drop** — drop a `.json` schema file onto the window to load it
+- **Help menu** — About dialog with version info and GitHub link, keyboard shortcuts reference
+- **Session persistence** — remembers window size, position, theme, and last opened tool
+- **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
+- **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
+- **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
+- **Bundled tool schemas (testing)** — schemas for aircrack-ng, ansible (4 tools), curl, git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, and ping. Some are mostly untested — contributions and bug reports welcome
+
 ## Presets
 
 Presets save and restore the complete state of a form:
@@ -599,14 +599,14 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,036 assertions across 5 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,167 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-The project has 1,026 passing test assertions across 5 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 1,167 passing test assertions across 6 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 
