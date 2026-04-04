@@ -2,7 +2,7 @@
 
 **Stop memorizing flags. Start clicking them.**
 
-Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done.
+Scaffold turns command-line tools into native desktop GUIs. Any tool - public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done. It is written in 100% Python 3 and has a strict NO SHELL policy with a security suite verifying this. Scaffold strictly uses PySide6's QProcess to pass arugments as literal strings, making it immune to shell injection, and leaves no shell history!
 
 This works with **any CLI tool** — not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags that nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
