@@ -2219,7 +2219,7 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
             else:
                 parts.append(_span(display_token, colors["flag"]))
                 # Next token is the value if it doesn't start with - and exists
-                if i + 1 < core_len and not cmd[i + 1].startswith("-"):
+                if i + 1 < core_len and not cmd[i + 1].startswith("-") and not (sub_idx < len(sub_parts) and cmd[i + 1] == sub_parts[sub_idx]):
                     i += 1
                     val_display = _quote_token(cmd[i])
                     parts.append(_span(val_display, colors["value"]))
