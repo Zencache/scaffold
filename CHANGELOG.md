@@ -31,10 +31,11 @@ Dark mode visual consistency, display group UX improvements, subcommand preview 
 
 #### Full suite results
 
-- **All 6 test suites pass: 1,110/1,110 assertions, 0 failures**
+- **All 6 test suites pass: 1,171/1,171 assertions, 0 failures**
   - Functional: 841/841
   - Security: 131/131
   - Smoke: 63/63
+  - Manual verification: 61/61
   - Examples: 52/52
   - Preset validation: 23/23
 

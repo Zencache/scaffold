@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.4"
+__version__ = "2.7.5"
 
 import datetime
 import hashlib
