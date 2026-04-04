@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.5"
+__version__ = "2.7.6"
 
 import datetime
 import hashlib
@@ -1498,6 +1498,8 @@ class ToolForm(QWidget):
             type_info += f", separator: {sep}"
         header = f"{' '.join(parts)} ({type_info})"
         lines = warning_lines + [""] + [header] if warning_lines else [header]
+        if arg.get("description") or arg.get("validation"):
+            lines.append("")
         if arg.get("description"):
             lines.append(arg["description"])
         if arg.get("validation"):

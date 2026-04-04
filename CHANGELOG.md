@@ -2,6 +2,14 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.6] — 2026-04-04
+
+Minor UI polish for field tooltips.
+
+### Changed
+
+- **Tooltip spacing improved** — added a blank line between the flag/type header (e.g., `--branch -b (string)`) and the description text in field tooltips, making the two sections visually distinct. The same separation applies between the header and a validation pattern when no description is present. Warning lines (deprecated/dangerous) are unaffected.
+
 ## [v2.7.5] — 2026-04-04
 
 Dark mode visual consistency, display group UX improvements, subcommand preview fix, and password serialization security hardening.
