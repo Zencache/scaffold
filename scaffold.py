@@ -82,7 +82,7 @@ MULTI_ENUM_HEIGHT = 120
 # Default window dimensions
 DEFAULT_WINDOW_WIDTH = 700
 DEFAULT_WINDOW_HEIGHT = 750
-MIN_WINDOW_WIDTH = 500
+MIN_WINDOW_WIDTH = 530
 MIN_WINDOW_HEIGHT = 400
 
 # Output panel limits
@@ -553,7 +553,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 
@@ -2183,6 +2183,14 @@ def _format_cmd(cmd: list[str]) -> str:
     return " ".join(parts)
 
 
+_COPY_FORMATS = {
+    "bash": (_format_bash, "Bash"),
+    "powershell": (_format_powershell, "PowerShell"),
+    "cmd": (_format_cmd, "CMD"),
+    "generic": (_format_display, "Command"),
+}
+
+
 def _quote_token(token: str) -> str:
     """Shell-quote a token for display if it contains whitespace."""
     if " " in token or "\t" in token:
@@ -3532,10 +3540,19 @@ class MainWindow(QMainWindow):
                 return True
         return super().eventFilter(obj, event)
 
+    def _update_output_search_visibility(self) -> None:
+        """Show the output search bar when output has content, hide when empty."""
+        has_content = bool(self.output.toPlainText().strip())
+        self._output_search_widget.setVisible(has_content)
+        if not has_content:
+            self._close_output_search()
+
     def _close_output_search(self) -> None:
-        """Hide output search bar and clear all highlights."""
+        """Clear search state/highlights. Only hide the widget if output is empty."""
         self._output_search_bar.clear()
-        self._output_search_widget.setVisible(False)
+        has_content = bool(self.output.toPlainText().strip())
+        if not has_content:
+            self._output_search_widget.setVisible(False)
         self._output_search_matches = []
         self._output_search_index = -1
         self._output_search_count_label.setText("")
@@ -3853,7 +3870,7 @@ class MainWindow(QMainWindow):
             self._show_load_error(str(e))
             return
 
-        # Three-tier _format check: correct → silent, missing → warn, wrong → reject
+        # Three-tier _format check: correct -> silent, missing -> warn, wrong -> reject
         fmt = data.get("_format")
         if fmt is not None and fmt != "scaffold_schema":
             QMessageBox.critical(
@@ -4008,9 +4025,33 @@ class MainWindow(QMainWindow):
         self.reset_btn.clicked.connect(self._on_reset_defaults)
         btn_col.addWidget(self.reset_btn)
         btn_col.addSpacing(12)
-        self.copy_btn = QPushButton("Copy Command")
+        # Determine default copy format from platform, then override from settings
+        _default_fmt = "cmd" if sys.platform == "win32" else "bash"
+        self._copy_format = self.settings.value("copy_format", _default_fmt)
+        if self._copy_format not in _COPY_FORMATS:
+            self._copy_format = _default_fmt
+
+        self.copy_btn = QToolButton()
+        self.copy_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.copy_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.copy_btn.clicked.connect(self._copy_command)
+        self._copy_format_menu = QMenu(self.copy_btn)
+        self._copy_format_menu.addAction("Copy as Bash", lambda: self._set_copy_format("bash"))
+        self._copy_format_menu.addAction("Copy as PowerShell", lambda: self._set_copy_format("powershell"))
+        self._copy_format_menu.addAction("Copy as CMD", lambda: self._set_copy_format("cmd"))
+        self._copy_format_menu.addSeparator()
+        self._copy_format_menu.addAction("Copy (Generic)", lambda: self._set_copy_format("generic"))
+        self.copy_btn.setMenu(self._copy_format_menu)
+        self._update_copy_label()
+        fm = self.copy_btn.fontMetrics()
+        widest = max(
+            fm.horizontalAdvance("Copy (PowerShell)"),
+            fm.horizontalAdvance("Copy (Bash)"),
+            fm.horizontalAdvance("Copy (CMD)"),
+            fm.horizontalAdvance("Copy Command"),
+        )
+        self.copy_btn.setFixedWidth(widest + 44)
+        self.copy_btn.setFixedHeight(26)
         btn_col.addWidget(self.copy_btn)
         preview_bar.addLayout(btn_col)
 
@@ -4056,6 +4097,15 @@ class MainWindow(QMainWindow):
         self.save_output_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.save_output_btn.clicked.connect(self._save_output)
         action_bar.addWidget(self.save_output_btn)
+
+        _small_font = self.clear_btn.font()
+        _small_font.setPointSize(8)
+        self.clear_btn.setFont(_small_font)
+        self.copy_output_btn.setFont(_small_font)
+        self.save_output_btn.setFont(_small_font)
+        for btn in (self.clear_btn, self.copy_output_btn, self.save_output_btn):
+            fm = btn.fontMetrics()
+            btn.setMinimumWidth(fm.horizontalAdvance(btn.text()) + 24)
 
         action_bar.addStretch()
 
@@ -4232,7 +4282,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error loading preset: {e}")
             return
 
-        # Three-tier _format check: correct/missing → silent, wrong → reject
+        # Three-tier _format check: correct/missing -> silent, wrong -> reject
         fmt = preset.get("_format")
         if fmt is not None and fmt != "scaffold_preset":
             QMessageBox.critical(
@@ -4431,14 +4481,30 @@ class MainWindow(QMainWindow):
             self.run_btn.setEnabled(True)
 
     def _copy_command(self) -> None:
-        """Copy the current command (including elevation prefix if active) to the clipboard."""
-        cmd, display = self.form.build_command()
+        """Copy the current command using the selected shell format to the clipboard."""
+        cmd, _ = self.form.build_command()
         if self.form.is_elevation_checked():
-            elev_cmd, _ = get_elevation_command(cmd)
-            display = _format_display(elev_cmd)
-        QApplication.clipboard().setText(display)
+            cmd, _ = get_elevation_command(cmd)
+        formatter, _ = _COPY_FORMATS.get(self._copy_format, (_format_display, "Command"))
+        text = formatter(cmd)
+        QApplication.clipboard().setText(text)
         color = DARK_COLORS["success"] if _dark_mode else "green"
         self._show_status("Copied to clipboard.", color)
+
+    def _set_copy_format(self, fmt: str) -> None:
+        """Set the copy format, update the button label, persist, and immediately copy."""
+        self._copy_format = fmt
+        self.settings.setValue("copy_format", fmt)
+        self._update_copy_label()
+        self._copy_command()
+
+    def _update_copy_label(self) -> None:
+        """Update the copy button label to reflect the current format."""
+        if self._copy_format == "generic":
+            self.copy_btn.setText("Copy Command")
+        else:
+            _, label = _COPY_FORMATS.get(self._copy_format, (_format_display, "Command"))
+            self.copy_btn.setText(f"Copy ({label})")
 
     def _on_preview_context_menu(self, pos) -> None:
         """Show context menu with shell-specific copy options."""
@@ -4578,6 +4644,7 @@ class MainWindow(QMainWindow):
 
         # Show what we're running
         self._append_output(f"$ {display}\n", COLOR_CMD)
+        self._update_output_search_visibility()
 
         # Capture history data at run start (before user can change the form)
         self._history_display = display
@@ -4627,6 +4694,7 @@ class MainWindow(QMainWindow):
         self._output_buffer.clear()
         self.output.setTextCursor(cursor)
         self.output.ensureCursorVisible()
+        self._update_output_search_visibility()
 
     def _update_elapsed(self) -> None:
         """Tick the status bar with elapsed seconds while a process is running."""
@@ -4768,6 +4836,7 @@ class MainWindow(QMainWindow):
     def _clear_output(self) -> None:
         """Clear all text from the output panel."""
         self.output.clear()
+        self._update_output_search_visibility()
 
     def _save_output(self, path: str | None = None) -> None:
         """Save the output panel contents to a text file."""

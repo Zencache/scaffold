@@ -4,11 +4,34 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.7.6] — 2026-04-04
 
-Minor UI polish for field tooltips.
+Copy format dropdown, output search bar auto-visibility, and tooltip spacing polish.
+
+### Added
+
+- **Copy format dropdown** — the Copy button now has a dropdown menu letting you choose between Bash, PowerShell, CMD, and Generic output formats. Your selection is remembered across sessions. The button label updates to show the active format (e.g., "Copy (Bash)").
+- **Output search bar auto-visibility** — the search bar above the output panel now appears automatically when output is present and hides when the output is cleared, so it's always available when you need it.
 
 ### Changed
 
-- **Tooltip spacing improved** — added a blank line between the flag/type header (e.g., `--branch -b (string)`) and the description text in field tooltips, making the two sections visually distinct. The same separation applies between the header and a validation pattern when no description is present. Warning lines (deprecated/dangerous) are unaffected.
+- **Tooltip spacing improved** — added a blank line between the flag/type header (e.g., `--branch -b (string)`) and the description text in field tooltips, making the two sections visually distinct.
+- **Output action buttons use smaller font** — the Clear, Copy Output, and Save Output buttons now use 8pt text to reduce visual weight in the output toolbar.
+- **Minimum window width increased** — raised from 500px to 530px to prevent the copy button dropdown from clipping.
+
+### Tests
+
+- Updated Section 27m to match new search bar visibility behavior (bar stays visible when output has content).
+- Added Section 59 (23 assertions) covering copy format dropdown mechanics, QSettings persistence, button label updates, menu structure, and output search bar visibility lifecycle.
+- Updated Section 5a minimum width assertion to match new 530px minimum.
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,194/1,194 assertions, 0 failures**
+  - Functional: 864/864
+  - Security: 131/131
+  - Smoke: 63/63
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
 
 ## [v2.7.5] — 2026-04-04
 

@@ -2434,10 +2434,10 @@ for i, sel in enumerate(sels):
     else:
         check(bg == "#fff176", f"27l: non-current match (index {i}) has yellow bg (got {bg})")
 
-# 27m: Escape closes search bar and clears highlights
+# 27m: Escape clears search highlights but keeps bar visible (output has content)
 window._close_output_search()
 app.processEvents()
-check(window._output_search_widget.isHidden(), "27m: search bar hidden after Escape")
+check(not window._output_search_widget.isHidden(), "27m: search bar stays visible after Escape (output has content)")
 check(len(window.output.extraSelections()) == 0, "27m: extra selections cleared after Escape")
 check(window._output_search_count_label.text() == "", "27m: count label cleared after Escape")
 
@@ -6003,6 +6003,155 @@ app.processEvents()
 # Restore QMessageBox.warning
 QMessageBox.warning = _s58_orig_warning
 shutil.rmtree(_s58_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 59 — Copy As Dropdown & Output Search Visibility
+# =====================================================================
+print("\n--- Section 59: Copy As Dropdown & Output Search Visibility ---")
+
+# Create a fresh window for this section
+_s59_win = scaffold.MainWindow()
+_s59_win._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+
+# --- Feature 1: Copy As Dropdown ---
+
+from PySide6.QtWidgets import QToolButton
+
+# 59a: copy_btn is a QToolButton (not QPushButton)
+check(isinstance(_s59_win.copy_btn, QToolButton),
+      f"59a: copy_btn is QToolButton (got {type(_s59_win.copy_btn).__name__})")
+
+# 59b: copy_btn has a QMenu attached
+check(_s59_win.copy_btn.menu() is not None, "59b: copy_btn has a QMenu attached")
+
+# 59c: _copy_format attribute exists and is a valid format key
+check(hasattr(_s59_win, '_copy_format'), "59c: _copy_format attribute exists")
+check(_s59_win._copy_format in ("bash", "powershell", "cmd", "generic"),
+      f"59c: _copy_format is valid (got '{_s59_win._copy_format}')")
+
+# 59d: default format matches platform
+import sys as _sys59
+_expected_default = "cmd" if _sys59.platform == "win32" else "bash"
+# Read from a fresh settings to check the default logic
+_s59_settings = scaffold._create_settings()
+_s59_stored = _s59_settings.value("copy_format", "")
+# If no stored value, default should match platform
+if not _s59_stored or _s59_stored not in ("bash", "powershell", "cmd", "generic"):
+    check(_s59_win._copy_format == _expected_default,
+          f"59d: default format matches platform (expected '{_expected_default}', got '{_s59_win._copy_format}')")
+else:
+    check(True, "59d: copy_format has stored value, skip default check")
+
+# 59e: QSettings persistence round-trip
+_s59_orig_format = _s59_win._copy_format
+_s59_win._set_copy_format("powershell")
+app.processEvents()
+check(_s59_win._copy_format == "powershell", "59e: _copy_format updated to powershell")
+_s59_read_back = scaffold._create_settings().value("copy_format", "")
+check(_s59_read_back == "powershell", f"59e: QSettings persisted 'powershell' (got '{_s59_read_back}')")
+
+# 59f: button label updates for specific formats
+check("PowerShell" in _s59_win.copy_btn.text(),
+      f"59f: button label contains 'PowerShell' (got '{_s59_win.copy_btn.text()}')")
+
+# 59g: button label for generic format shows "Copy Command"
+_s59_win._set_copy_format("generic")
+app.processEvents()
+check(_s59_win.copy_btn.text() == "Copy Command",
+      f"59g: generic format label is 'Copy Command' (got '{_s59_win.copy_btn.text()}')")
+
+# 59h: button label for bash format
+_s59_win._set_copy_format("bash")
+app.processEvents()
+check("Bash" in _s59_win.copy_btn.text(),
+      f"59h: bash format label contains 'Bash' (got '{_s59_win.copy_btn.text()}')")
+
+# 59i: button label for cmd format
+_s59_win._set_copy_format("cmd")
+app.processEvents()
+check("CMD" in _s59_win.copy_btn.text(),
+      f"59i: cmd format label contains 'CMD' (got '{_s59_win.copy_btn.text()}')")
+
+# 59j: _copy_command uses selected format (bash)
+_s59_win._set_copy_format("bash")
+app.processEvents()
+# Clear clipboard first
+QApplication.clipboard().setText("")
+_s59_win._copy_command()
+app.processEvents()
+_s59_clip = QApplication.clipboard().text()
+check(len(_s59_clip) > 0, "59j: _copy_command puts text on clipboard using selected format")
+
+# 59k: copy menu has 4 actions + 1 separator
+_s59_menu = _s59_win.copy_btn.menu()
+_s59_actions = _s59_menu.actions()
+_s59_non_sep = [a for a in _s59_actions if not a.isSeparator()]
+_s59_seps = [a for a in _s59_actions if a.isSeparator()]
+check(len(_s59_non_sep) == 4, f"59k: menu has 4 non-separator actions (got {len(_s59_non_sep)})")
+check(len(_s59_seps) == 1, f"59k: menu has 1 separator (got {len(_s59_seps)})")
+
+# Restore original format
+_s59_win._set_copy_format(_s59_orig_format)
+app.processEvents()
+
+# --- Feature 2: Output Search Visibility ---
+
+# 59l: search bar hidden when output is empty (clean state)
+_s59_win.output.clear()
+_s59_win._update_output_search_visibility()
+app.processEvents()
+check(_s59_win._output_search_widget.isHidden(),
+      "59l: search bar hidden when output is empty")
+
+# 59m: search bar visible after _append_output + visibility update
+_s59_win._append_output("Test output line\n", "#ffffff")
+_s59_win._update_output_search_visibility()
+app.processEvents()
+check(not _s59_win._output_search_widget.isHidden(),
+      "59m: search bar visible after output is added")
+
+# 59n: search bar hidden after _clear_output (which calls visibility update)
+_s59_win._clear_output()
+app.processEvents()
+check(_s59_win._output_search_widget.isHidden(),
+      "59n: search bar hidden after _clear_output")
+
+# 59o: _close_output_search keeps bar visible when output has content
+_s59_win._append_output("More output\n", "#ffffff")
+_s59_win._update_output_search_visibility()
+app.processEvents()
+_s59_win._output_search_bar.setText("More")
+app.processEvents()
+_s59_win._close_output_search()
+app.processEvents()
+check(not _s59_win._output_search_widget.isHidden(),
+      "59o: _close_output_search keeps bar visible when output has content")
+
+# 59p: _close_output_search hides bar when output is empty
+_s59_win.output.clear()
+_s59_win._close_output_search()
+app.processEvents()
+check(_s59_win._output_search_widget.isHidden(),
+      "59p: _close_output_search hides bar when output is empty")
+
+# 59q: _close_output_search still clears search state regardless of visibility
+_s59_win._append_output("Final test\n", "#ffffff")
+_s59_win._update_output_search_visibility()
+_s59_win._output_search_bar.setText("Final")
+app.processEvents()
+check(len(_s59_win._output_search_matches) > 0, "59q-pre: matches found before close")
+_s59_win._close_output_search()
+app.processEvents()
+check(_s59_win._output_search_bar.text() == "", "59q: search text cleared after close")
+check(len(_s59_win._output_search_matches) == 0, "59q: matches cleared after close")
+check(len(_s59_win.output.extraSelections()) == 0, "59q: extra selections cleared after close")
+
+# Clean up
+_s59_win._clear_output()
+_s59_win.close()
+_s59_win.deleteLater()
+app.processEvents()
 
 # =====================================================================
 # Final cleanup
