@@ -701,27 +701,30 @@ def apply_theme(dark: bool) -> None:
             f"QMenuBar {{ background-color: {C['widget']}; color: {C['text']}; }}"
             f"QMenuBar::item:selected {{ background-color: {C['selection']}; }}"
             f"QMenu {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
             f"QMenu::item:selected {{ background-color: {C['selection']}; }}"
-            # Checkboxes
-            f"QCheckBox {{ color: {C['text']}; }}"
+            # Checkboxes — padding restores Fusion's native sizeHint height
+            f"QCheckBox {{ color: {C['text']}; padding: 4px 0; }}"
             f"QCheckBox::indicator {{ background-color: {C['selection']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 2px; }}"
             f"QCheckBox::indicator:checked {{ background-color: {C['accent']};"
-            f"  border: 1px solid {C['accent']}; }}"
-            # Comboboxes (dropdowns)
+            f"  border: 1px solid {C['accent']}; border-radius: 2px; }}"
+            # Comboboxes (dropdowns) — padding: 3px 4px restores 26px height
             f"QComboBox {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; padding: 2px 4px; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px;"
+            f"  padding: 3px 4px; }}"
             f"QComboBox QAbstractItemView {{ background-color: {C['widget']};"
             f"  color: {C['text']}; selection-background-color: {C['selection']};"
-            f"  selection-color: {C['text']}; border: 1px solid {C['border']}; }}"
+            f"  selection-color: {C['text']}; border: 1px solid {C['border']};"
+            f"  border-radius: 3px; }}"
             f"QComboBox::drop-down {{ border-left: 1px solid {C['border']};"
             f"  background-color: {C['selection']}; }}"
             f"QComboBox::down-arrow {{ image: url({C['arrow_dir']}/down.png);"
             f"  width: 10px; height: 8px; }}"
-            # Spinboxes
+            # Spinboxes — padding: 1px 2px restores 26px height
             f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']};"
-            f"  color: {C['text']}; border: 1px solid {C['border']}; }}"
+            f"  color: {C['text']}; border: 1px solid {C['border']};"
+            f"  border-radius: 3px; padding: 1px 2px; }}"
             f"QSpinBox::up-button, QSpinBox::down-button,"
             f"  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
             f"  {{ background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
@@ -729,18 +732,20 @@ def apply_theme(dark: bool) -> None:
             f"  {{ image: url({C['arrow_dir']}/up.png); width: 10px; height: 8px; }}"
             f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
             f"  {{ image: url({C['arrow_dir']}/down.png); width: 10px; height: 8px; }}"
-            # Line edits
+            # Line edits — padding: 3px restores 26px height
             f"QLineEdit {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px;"
+            f"  padding: 3px; }}"
             # List widgets (multi_enum)
             f"QListWidget {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
             f"QListWidget::item:selected {{ background-color: {C['selection']};"
             f"  color: {C['text']}; }}"
             # Group boxes
             f"QGroupBox {{ color: {C['text']}; border: 1px solid {C['border']};"
-            f"  margin-top: 6px; padding-top: 6px; }}"
-            f"QGroupBox::title {{ color: {C['text']}; }}"
+            f"  border-radius: 4px; margin-top: 14px; padding-top: 4px; }}"
+            f"QGroupBox::title {{ color: {C['text']};"
+            f"  subcontrol-origin: margin; padding: 0 4px; left: 8px; }}"
             # Table (tool picker)
             f"QTableWidget {{ background-color: {C['input']}; color: {C['text']};"
             f"  gridline-color: {C['border']}; }}"
@@ -754,15 +759,17 @@ def apply_theme(dark: bool) -> None:
             # to render native controls (including scrollbars) in dark mode.
             # Buttons
             f"QPushButton {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; padding: 4px 12px; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px;"
+            f"  padding: 4px 12px; }}"
             f"QPushButton:hover {{ background-color: {C['selection']}; }}"
             f"QPushButton:pressed {{ background-color: {C['input']}; }}"
             # Plain text edits (extra flags, text-type fields)
             f"QPlainTextEdit {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px;"
+            f"  padding: 1px; }}"
             # Tooltips
             f"QToolTip {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; }}"
+            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
             # Status bar
             f"QStatusBar {{ color: {C['text']}; }}"
         )
@@ -872,7 +879,16 @@ class ToolForm(QWidget):
         self._apply_dependencies()
 
     def eventFilter(self, obj, event) -> bool:
-        """Handle key events on the search bar for Enter/Shift+Enter/Escape."""
+        """Handle key events on the search bar and clicks on display_group titles."""
+        # Display group collapse/expand via title click
+        if (
+            isinstance(obj, QGroupBox)
+            and obj.property("_dg_content") is not None
+            and event.type() == event.Type.MouseButtonPress
+            and event.position().y() < 20
+        ):
+            self._toggle_display_group(obj)
+            return True
         if obj is self._search_bar and event.type() == event.Type.KeyPress:
             key = event.key()
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -1082,7 +1098,7 @@ class ToolForm(QWidget):
         # Add each display_group as a collapsible section
         for dg_name in display_group_order:
             dg_args = display_groups[dg_name]
-            box = QGroupBox(dg_name)
+            box = QGroupBox(f"\u25be {dg_name}")
             box_inner = QWidget()
             box_form = QFormLayout(box_inner)
             box_form.setContentsMargins(0, 0, 0, 0)
@@ -1097,7 +1113,8 @@ class ToolForm(QWidget):
             # Make the group box collapsible via title click
             box.setProperty("_dg_content", box_inner)
             box.setProperty("_dg_collapsed", False)
-            box.mousePressEvent = lambda event, b=box: self._toggle_display_group(b)
+            box.setProperty("_dg_name", dg_name)
+            box.installEventFilter(self)
             box.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
             # Store in parent layout — form_layout is a QFormLayout,
@@ -1114,6 +1131,10 @@ class ToolForm(QWidget):
             collapsed = not collapsed
             box.setProperty("_dg_collapsed", collapsed)
             content.setVisible(not collapsed)
+            # Update collapse/expand indicator in title
+            name = box.property("_dg_name")
+            if name:
+                box.setTitle(f"\u25b8 {name}" if collapsed else f"\u25be {name}")
 
     # ------------------------------------------------------------------
     # Field search (Ctrl+F)
@@ -1816,6 +1837,8 @@ class ToolForm(QWidget):
             preset["_extra_flags"] = extra_text
 
         for key, field in self.fields.items():
+            if field["arg"]["type"] == "password":
+                continue
             value = self._raw_field_value(key)
             if value is not None:
                 # Use scope:flag as key to avoid collisions across subcommands
@@ -3686,6 +3709,10 @@ class MainWindow(QMainWindow):
                 json.dumps(values, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
         except OSError:
             pass
 

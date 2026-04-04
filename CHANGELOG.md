@@ -2,6 +2,42 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.5] — 2026-04-04
+
+Dark mode visual consistency, display group UX improvements, subcommand preview fix, and password serialization security hardening.
+
+### Security
+
+- **Password fields excluded from all serialization** — `serialize_values()` now skips fields with `type: "password"`, preventing secrets from being written to presets, crash recovery files, or command history. *(Suggested by Dan — thank you!)*
+- **Recovery file permissions hardened** — `_autosave_form()` now calls `os.chmod(path, 0o600)` after writing recovery files, restricting access to the file owner on Linux/macOS. Wrapped in try/except for Windows compatibility.
+
+### Fixed
+
+- **Subcommand tokens swallowed in command preview** — `_colored_preview_html()` greedy flag-value lookahead was consuming subcommand tokens (e.g., `deploy` after `--flag`), making them invisible in the preview. Added a guard to skip pending subcommand parts.
+- **Dark mode visual inconsistency** — added `border-radius: 3px` to all 9 QSS selectors that set `border` (QMenu, QCheckBox::indicator, QComboBox, QComboBox dropdown, QSpinBox/QDoubleSpinBox, QLineEdit, QListWidget, QPushButton, QPlainTextEdit, QToolTip). Added padding compensation to prevent height shrinkage: `3px` for QLineEdit, `3px 4px` for QComboBox, `1px 2px` for spinboxes, `4px 0` for QCheckBox, `1px` for QPlainTextEdit.
+- **QGroupBox title position in dark mode** — added `subcontrol-origin: margin`, `padding: 0 4px`, `left: 8px` to `QGroupBox::title`, and `border-radius: 4px`, `margin-top: 14px`, `padding-top: 4px` to `QGroupBox` so titles render identically in both themes.
+- **Display group collapse indicator missing** — group box titles now show ▾ (expanded) and ▸ (collapsed) indicators that update on toggle.
+- **Display group clicks not reaching nested widgets** — replaced `mousePressEvent` lambda override with `installEventFilter()` pattern, which correctly dispatches events to child widgets inside collapsed/expanded groups.
+
+### Changed
+
+- **Gobuster schema restructured** — moved 12 global flags into all 7 subcommands to match gobuster v3.8.2's urfave/cli requirement that flags follow the subcommand token.
+
+### Tests
+
+- Updated Section 23 display group lookups to use `property("_dg_name")` instead of `title()` (title now includes ▾/▸ prefix).
+- Updated Section 38f: password fields now verified as *excluded* from serialization (was *included*). Added 38f2 (mixed form serialization) and 38f3 (apply_values with missing password key).
+- Added Section 46y (recovery file excludes password fields) and 46z (recovery file permissions on Linux).
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,110/1,110 assertions, 0 failures**
+  - Functional: 841/841
+  - Security: 131/131
+  - Smoke: 63/63
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.7.4] — 2026-04-03
 
 Security audit, dedicated security test suite, deep audit bugfixes, and button clipping fix. The full updated codebase — after code audits by MiniMax M2.7, GitHub Copilot, and ChatGPT — was distilled back into Claude 4.6 Opus Extended Thinking, which found all of the bugs fixed in this release.

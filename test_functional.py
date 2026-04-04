@@ -1990,7 +1990,7 @@ _s23_G = _s23_f.GLOBAL
 
 # 23b: Assert a QGroupBox titled "Network" exists within the form
 _s23_group_boxes = _s23_f.findChildren(QGroupBox, "")
-_s23_network_boxes = [b for b in _s23_group_boxes if b.title() == "Network"]
+_s23_network_boxes = [b for b in _s23_group_boxes if b.property("_dg_name") == "Network"]
 check(len(_s23_network_boxes) == 1, "exactly one QGroupBox titled 'Network' exists")
 _s23_net_box = _s23_network_boxes[0]
 
@@ -2058,7 +2058,7 @@ _s23_w2._load_tool_path(str(Path(_s23_tmpdir) / "test_display_groups_subcmd.json
 app.processEvents()
 
 _s23_f2 = _s23_w2.form
-_s23_scan_boxes = [b for b in _s23_f2.findChildren(QGroupBox) if b.title() == "Scan Options"]
+_s23_scan_boxes = [b for b in _s23_f2.findChildren(QGroupBox) if b.property("_dg_name") == "Scan Options"]
 check(len(_s23_scan_boxes) == 1, "subcommand schema has QGroupBox titled 'Scan Options'")
 _s23_scan_box = _s23_scan_boxes[0]
 
@@ -4129,15 +4129,47 @@ _s38_bad_examples = {
 _s38_errs = scaffold.validate_tool(_s38_bad_examples)
 check(any("should not be used with password" in e for e in _s38_errs), f"38e: examples on password produces warning: {_s38_errs}")
 
-# --- 38f: password fields saved/loaded from presets correctly ---
+# --- 38f: serialize_values() excludes password fields ---
 _s38_f._set_field_value(_s38_k, "my-secret-value")
 _s38_preset = _s38_f.serialize_values()
-check(_s38_preset.get("--api-key") == "my-secret-value", f"38f: preset serializes password value")
-# Reset and re-apply
-_s38_f.reset_to_defaults()
-check(_s38_f.get_field_value(_s38_k) is None, "38f: reset clears password field")
-_s38_f.apply_values(_s38_preset)
-check(_s38_f.get_field_value(_s38_k) == "my-secret-value", "38f: preset restores password value")
+check("--api-key" not in _s38_preset, "38f: serialize_values excludes password field")
+# Non-password meta keys should still be present
+check("_format" in _s38_preset, "38f: serialize_values includes non-password meta keys")
+
+# --- 38f2: non-password fields in same form are still serialized ---
+_s38_mixed_tool = {
+    "tool": "pw_mixed", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "API Key", "flag": "--api-key", "type": "password",
+         "description": "Secret", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+        {"name": "Host", "flag": "--host", "type": "string",
+         "description": "Hostname", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+_s38_mp = Path(_s38_tmpdir) / "pw_mixed.json"
+_s38_mp.write_text(json.dumps(_s38_mixed_tool))
+_s38_mw = scaffold.MainWindow(tool_path=str(_s38_mp))
+_s38_mf = _s38_mw.form
+_s38_mf._set_field_value((_s38_mf.GLOBAL, "--api-key"), "s3cret")
+_s38_mf._set_field_value((_s38_mf.GLOBAL, "--host"), "example.com")
+_s38_mpreset = _s38_mf.serialize_values()
+check("--api-key" not in _s38_mpreset, "38f2: password field excluded from preset")
+check(_s38_mpreset.get("--host") == "example.com", "38f2: non-password field still in preset")
+_s38_mw.close(); _s38_mw.deleteLater(); app.processEvents()
+
+# --- 38f3: apply_values with missing password key leaves field empty ---
+_s38_f._set_field_value(_s38_k, "original-secret")
+_s38_preset_no_pw = _s38_f.serialize_values()  # excludes password
+_s38_f.apply_values(_s38_preset_no_pw)
+app.processEvents()
+check(_s38_f.get_field_value(_s38_k) is None, "38f3: apply_values with missing password leaves field empty")
 
 # --- 38g: password with validation regex works ---
 _s38_val_tool = {
@@ -4850,6 +4882,58 @@ if _s46_nmap_rpath and _s46_nmap_rpath.exists():
     _s46_nmap_rpath.unlink()
 _s46_nmap_w.close(); _s46_nmap_w.deleteLater()
 app.processEvents()
+
+# 46y: recovery file excludes password fields
+_s46_pw_tmpdir = tempfile.mkdtemp()
+_s46_pw_schema = {
+    "_format": "scaffold_schema",
+    "tool": "autosave_pw_test",
+    "binary": "echo",
+    "description": "Tool for testing password exclusion from recovery",
+    "arguments": [
+        {"name": "Host", "flag": "--host", "type": "string"},
+        {"name": "API Key", "flag": "--api-key", "type": "password"},
+    ],
+}
+_s46_pw_path = Path(_s46_pw_tmpdir) / "autosave_pw_test.json"
+_s46_pw_path.write_text(json.dumps(_s46_pw_schema))
+_s46_pw_w = scaffold.MainWindow()
+_s46_pw_w._load_tool_path(str(_s46_pw_path))
+app.processEvents()
+_s46_pw_w.form._set_field_value((_s46_pw_w.form.GLOBAL, "--host"), "example.com")
+_s46_pw_w.form._set_field_value((_s46_pw_w.form.GLOBAL, "--api-key"), "super-secret-123")
+_s46_pw_w._autosave_form()
+app.processEvents()
+_s46_pw_rpath = _s46_pw_w._recovery_file_path()
+if _s46_pw_rpath and _s46_pw_rpath.exists():
+    _s46_pw_data = json.loads(_s46_pw_rpath.read_text(encoding="utf-8"))
+    check("--api-key" not in _s46_pw_data,
+          "46y: recovery file does not contain password field")
+    check(_s46_pw_data.get("--host") == "example.com",
+          "46y: recovery file contains non-password string field")
+    _s46_pw_rpath.unlink()
+else:
+    check(False, "46y: recovery file was not created (cannot verify password exclusion)")
+
+# 46z: recovery file has restricted permissions (non-Windows only)
+if sys.platform != "win32":
+    _s46_pw_w.form._set_field_value((_s46_pw_w.form.GLOBAL, "--host"), "perms-test")
+    _s46_pw_w._autosave_form()
+    app.processEvents()
+    _s46_pw_rpath2 = _s46_pw_w._recovery_file_path()
+    if _s46_pw_rpath2 and _s46_pw_rpath2.exists():
+        _s46_perm = os.stat(_s46_pw_rpath2).st_mode & 0o777
+        check(_s46_perm == 0o600,
+              f"46z: recovery file permissions are 0o600 (got 0o{_s46_perm:03o})")
+        _s46_pw_rpath2.unlink()
+    else:
+        check(False, "46z: recovery file was not created (cannot verify permissions)")
+else:
+    print("  SKIP: 46z: recovery file permissions (Windows)")
+
+_s46_pw_w.close(); _s46_pw_w.deleteLater()
+app.processEvents()
+shutil.rmtree(_s46_pw_tmpdir, ignore_errors=True)
 
 # =====================================================================
 # Section 47 — Repeat Spinner Width + Required Field Status Persistence
