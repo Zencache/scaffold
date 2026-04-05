@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.7"
+__version__ = "2.7.8"
 
 import datetime
 import hashlib
@@ -546,7 +546,7 @@ def _elevation_label():
 # ---------------------------------------------------------------------------
 
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
-from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
+from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -2436,16 +2436,19 @@ class ToolPicker(QWidget):
         layout.addLayout(btn_bar)
 
         self._entries = []  # list of (path, data_or_none, error_or_none, binary_available)
+        self._row_map = []  # parallel to table rows: int (index into _entries) or None (header)
+        self._collapsed_folders: set[str] = set()
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
+        self.table.cellClicked.connect(self._on_cell_clicked)
         QWidget.setTabOrder(self.search_bar, self.table)
         self.scan()
 
     def scan(self):
-        """Scan tools/ directory and populate the table."""
+        """Scan tools/ directory (including subdirectories) and populate the table."""
         self._entries.clear()
         tools_path = _tools_dir()
 
-        for json_file in sorted(tools_path.glob("*.json")):
+        for json_file in sorted(tools_path.rglob("*.json")):
             try:
                 data = load_tool(str(json_file))
                 errors = validate_tool(data)
@@ -2458,9 +2461,12 @@ class ToolPicker(QWidget):
             except RuntimeError as e:
                 self._entries.append((str(json_file), None, str(e), False))
 
-        # Sort: available tools first, then unavailable, then invalid — alphabetical within each group
+        # Sort: folder groups first (alphabetically), then root tools.
+        # Within each group: available first, then unavailable, then invalid — alphabetical within each.
         def _sort_key(entry):
             _, data, error, available = entry
+            folder = Path(entry[0]).parent.relative_to(tools_path).as_posix()
+            folder = "" if folder == "." else folder
             if error:
                 priority = 2  # invalid last
             elif available:
@@ -2468,58 +2474,106 @@ class ToolPicker(QWidget):
             else:
                 priority = 1  # unavailable middle
             name = data["tool"].lower() if data else Path(entry[0]).name.lower()
-            return (priority, name)
+            return (0 if folder else 1, folder, priority, name)
 
         self._entries.sort(key=_sort_key)
         self._populate_table()
 
     def _populate_table(self) -> None:
         """Render self._entries into the tool-picker table."""
-        self.table.setRowCount(len(self._entries))
+        tools_path = _tools_dir()
+        self._row_map = []  # parallel to table rows: int (index into _entries) or None (header)
 
-        for row, (path, data, error, available) in enumerate(self._entries):
-            fname = Path(path).name
+        # Group entries by folder for header insertion
+        folder_groups: list[tuple[str, list[int]]] = []  # (folder, [entry indices])
+        current_folder: str | None = None
+        for idx, (path, _d, _e, _a) in enumerate(self._entries):
+            folder = Path(path).parent.relative_to(tools_path).as_posix()
+            folder = "" if folder == "." else folder
+            if folder != current_folder:
+                folder_groups.append((folder, []))
+                current_folder = folder
+            folder_groups[-1][1].append(idx)
 
-            # Status column
-            if error:
-                status_item = QTableWidgetItem("")
-            elif available:
-                status_item = QTableWidgetItem("\u2714")  # checkmark
-                status_item.setForeground(QColor(COLOR_OK))
-                status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
-            else:
-                status_item = QTableWidgetItem("\u2716")  # X mark
-                status_item.setForeground(QColor(COLOR_ERR))
-                status_item.setToolTip(
-                    f"'{data['binary']}' not found in PATH. "
-                    "Install it or add its location to your PATH."
-                )
-            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Count total rows: tool rows + header rows (one per non-root folder group)
+        total_rows = len(self._entries)
+        for folder, _indices in folder_groups:
+            if folder:  # non-root folders get a header row
+                total_rows += 1
 
-            if data:
-                name_item = QTableWidgetItem(data["tool"])
-                desc_text = data.get("description", "")
-                desc_item = QTableWidgetItem(desc_text)
-                if desc_text:
-                    desc_item.setToolTip(f"<p style='max-width:400px;'>{desc_text}</p>")
-            else:
-                name_item = QTableWidgetItem(fname)
-                desc_item = QTableWidgetItem(f"[invalid] {error}")
-            path_item = QTableWidgetItem(fname)
+        self.table.setRowCount(total_rows)
+        table_row = 0
 
-            if error:
-                for item in (status_item, name_item, desc_item, path_item):
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                    item.setToolTip(error)
-            elif not available:
-                # Dim unavailable tools slightly but keep them selectable
-                for item in (name_item, desc_item, path_item):
-                    item.setForeground(QColor(COLOR_DIM))
+        header_bg = QColor(DARK_COLORS["widget"]) if _dark_mode else QColor("#e8e8e8")
+        header_fg = QColor(DARK_COLORS["text"]) if _dark_mode else QColor("#333333")
+        bold_font = QFont()
+        bold_font.setBold(True)
 
-            self.table.setItem(row, 0, status_item)
-            self.table.setItem(row, 1, name_item)
-            self.table.setItem(row, 2, desc_item)
-            self.table.setItem(row, 3, path_item)
+        for folder, indices in folder_groups:
+            # Insert header row for non-root folders
+            if folder:
+                for col in range(4):
+                    if col == 1:
+                        arrow = "\u25b6" if folder in self._collapsed_folders else "\u25bc"
+                        h_item = QTableWidgetItem(f"{arrow} {folder}")
+                    else:
+                        h_item = QTableWidgetItem("")
+                    h_item.setFlags(Qt.ItemFlag(0))  # non-selectable
+                    h_item.setBackground(header_bg)
+                    if col == 1:
+                        h_item.setFont(bold_font)
+                        h_item.setForeground(header_fg)
+                    self.table.setItem(table_row, col, h_item)
+                self._row_map.append(None)
+                table_row += 1
+
+            for entry_idx in indices:
+                path, data, error, available = self._entries[entry_idx]
+                fname = Path(path).name
+                rel_path = Path(path).relative_to(tools_path).as_posix()
+
+                # Status column
+                if error:
+                    status_item = QTableWidgetItem("")
+                elif available:
+                    status_item = QTableWidgetItem("\u2714")  # checkmark
+                    status_item.setForeground(QColor(COLOR_OK))
+                    status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
+                else:
+                    status_item = QTableWidgetItem("\u2716")  # X mark
+                    status_item.setForeground(QColor(COLOR_ERR))
+                    status_item.setToolTip(
+                        f"'{data['binary']}' not found in PATH. "
+                        "Install it or add its location to your PATH."
+                    )
+                status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                if data:
+                    name_item = QTableWidgetItem(data["tool"])
+                    desc_text = data.get("description", "")
+                    desc_item = QTableWidgetItem(desc_text)
+                    if desc_text:
+                        desc_item.setToolTip(f"<p style='max-width:400px;'>{desc_text}</p>")
+                else:
+                    name_item = QTableWidgetItem(fname)
+                    desc_item = QTableWidgetItem(f"[invalid] {error}")
+                path_item = QTableWidgetItem(rel_path)
+
+                if error:
+                    for item in (status_item, name_item, desc_item, path_item):
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                        item.setToolTip(error)
+                elif not available:
+                    # Dim unavailable tools slightly but keep them selectable
+                    for item in (name_item, desc_item, path_item):
+                        item.setForeground(QColor(COLOR_DIM))
+
+                self.table.setItem(table_row, 0, status_item)
+                self.table.setItem(table_row, 1, name_item)
+                self.table.setItem(table_row, 2, desc_item)
+                self.table.setItem(table_row, 3, path_item)
+                self._row_map.append(entry_idx)
+                table_row += 1
 
         has_items = len(self._entries) > 0
         self.table.setVisible(has_items)
@@ -2535,19 +2589,76 @@ class ToolPicker(QWidget):
         _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_filter(self, text: str) -> None:
-        """Hide table rows that don't match the search text."""
+        """Hide table rows that don't match the search text or are in collapsed folders."""
         query = text.strip().lower()
+        tools_path = _tools_dir()
+        # First pass: determine visibility for tool rows; track header rows
+        header_rows: list[int] = []  # table rows that are headers
+        header_has_visible: dict[int, bool] = {}  # header_row -> any tool visible
+        current_header: int | None = None
         for row in range(self.table.rowCount()):
-            if not query:
-                self.table.setRowHidden(row, False)
+            entry_idx = self._row_map[row] if row < len(self._row_map) else None
+            if entry_idx is None:
+                # Header row — track it, decide visibility after scanning its tools
+                header_rows.append(row)
+                header_has_visible[row] = False
+                current_header = row
                 continue
-            match = False
-            for col in (1, 2, 3):  # tool name, description, path
-                item = self.table.item(row, col)
-                if item and query in item.text().lower():
-                    match = True
+            # Check search match
+            matches_search = True
+            if query:
+                matches_search = False
+                for col in (1, 2, 3):  # tool name, description, path
+                    item = self.table.item(row, col)
+                    if item and query in item.text().lower():
+                        matches_search = True
+                        break
+            # Check collapse state
+            path = self._entries[entry_idx][0]
+            folder = Path(path).parent.relative_to(tools_path).as_posix()
+            folder = "" if folder == "." else folder
+            is_collapsed = folder in self._collapsed_folders
+            self.table.setRowHidden(row, not matches_search or is_collapsed)
+            if matches_search and current_header is not None and folder:
+                header_has_visible[current_header] = True
+        # Second pass: show/hide header rows based on whether any child tool matches search
+        for h_row in header_rows:
+            self.table.setRowHidden(h_row, not header_has_visible[h_row])
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        """Toggle folder collapse when a header row is clicked."""
+        if row >= len(self._row_map) or self._row_map[row] is not None:
+            return  # tool row or out of range
+        item = self.table.item(row, 1)
+        if not item:
+            return
+        text = item.text()
+        for prefix in ("\u25bc ", "\u25b6 "):
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+                break
+        if text in self._collapsed_folders:
+            self._collapsed_folders.discard(text)
+        else:
+            self._collapsed_folders.add(text)
+        self._apply_collapse()
+
+    def _apply_collapse(self) -> None:
+        """Update arrow indicators on header rows and reapply visibility."""
+        for row in range(self.table.rowCount()):
+            if row >= len(self._row_map) or self._row_map[row] is not None:
+                continue
+            item = self.table.item(row, 1)
+            if not item:
+                continue
+            text = item.text()
+            for prefix in ("\u25bc ", "\u25b6 "):
+                if text.startswith(prefix):
+                    text = text[len(prefix):]
                     break
-            self.table.setRowHidden(row, not match)
+            arrow = "\u25b6" if text in self._collapsed_folders else "\u25bc"
+            item.setText(f"{arrow} {text}")
+        self._on_filter(self.search_bar.text())
 
     def keyPressEvent(self, event) -> None:
         """Handle Enter key to open the selected tool."""
@@ -2564,7 +2675,12 @@ class ToolPicker(QWidget):
             self.delete_btn.setEnabled(False)
             return
         row = rows[0].row()
-        _, data, _, _ = self._entries[row]
+        entry_idx = self._row_map[row] if row < len(self._row_map) else None
+        if entry_idx is None:
+            self.open_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
+            return
+        _, data, _, _ = self._entries[entry_idx]
         valid = data is not None
         self.open_btn.setEnabled(valid)
         self.delete_btn.setEnabled(valid)
@@ -2572,7 +2688,10 @@ class ToolPicker(QWidget):
     def _on_double_click(self, index) -> None:
         """Emit tool_selected for the double-clicked row if the tool is valid."""
         row = index.row()
-        path, data, _, _ = self._entries[row]
+        entry_idx = self._row_map[row] if row < len(self._row_map) else None
+        if entry_idx is None:
+            return
+        path, data, _, _ = self._entries[entry_idx]
         if data is not None:
             self.tool_selected.emit(path)
 
@@ -2582,7 +2701,10 @@ class ToolPicker(QWidget):
         if not rows:
             return
         row = rows[0].row()
-        path, data, _, _ = self._entries[row]
+        entry_idx = self._row_map[row] if row < len(self._row_map) else None
+        if entry_idx is None:
+            return
+        path, data, _, _ = self._entries[entry_idx]
         if data is not None:
             self.tool_selected.emit(path)
 
@@ -2592,9 +2714,10 @@ class ToolPicker(QWidget):
         if not rows:
             return
         row = rows[0].row()
-        if row < 0 or row >= len(self._entries):
+        entry_idx = self._row_map[row] if row < len(self._row_map) else None
+        if entry_idx is None:
             return
-        path_str, data, _, _ = self._entries[row]
+        path_str, data, _, _ = self._entries[entry_idx]
         if data is None:
             return
 
@@ -4079,8 +4202,11 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self._on_run_stop)
         self._style_run_btn()
-        fm = self.run_btn.fontMetrics()
-        self.run_btn.setMinimumWidth(fm.horizontalAdvance("Stopping...") + 40)
+        _run_font = self.run_btn.font()
+        _run_font.setBold(True)
+        self.run_btn.setFont(_run_font)
+        self.run_btn.setMinimumWidth(QFontMetrics(_run_font).horizontalAdvance("Stopping...") + 40)
+        self.run_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         action_bar.addWidget(self.run_btn)
 
         self.clear_btn = QPushButton("Clear Output")

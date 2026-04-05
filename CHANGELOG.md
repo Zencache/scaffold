@@ -2,6 +2,23 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.8] — 2026-04-04
+
+Collapsible folder groups in the tool picker and run button sizing fix.
+
+### Added
+
+- **Collapsible folder groups** — tools in subfolders now appear at the top of the tool picker in collapsible groups. Click the folder header to expand or collapse its tools. Arrow indicators show the current state.
+
+### Changed
+
+- **Folder sort order** — subfolder groups are now pinned above root-level tools in the tool picker, sorted alphabetically.
+- **Ansible schemas moved to subfolder** — the four ansible tool schemas now live in `tools/ansible/` to demonstrate the subfolder grouping feature.
+
+### Fixed
+
+- **Run button overlapping Clear Output** — the minimum width calculation now measures with a bold font to match the stylesheet, preventing the button text from clipping into adjacent buttons.
+
 ## [v2.7.7] — 2026-04-04
 
 Dark mode clipping fixes and output toolbar spacing improvements.

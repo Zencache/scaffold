@@ -21,7 +21,7 @@ from pathlib import Path
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QColor, QKeyEvent
 
@@ -1775,15 +1775,22 @@ _s20_emitted = []
 picker.tool_selected.connect(lambda path: _s20_emitted.append(path))
 
 # 20a: Select a valid tool row, press Enter -> signal emitted
-# Find a valid row (data is not None)
+# Find a valid row (data is not None), using _row_map to skip header rows
 _s20_valid_row = None
 _s20_invalid_row = None
+_s20_valid_entry = None
+_s20_invalid_entry = None
 for r in range(picker.table.rowCount()):
-    _, data, error, _ = picker._entries[r]
+    entry_idx = picker._row_map[r] if r < len(picker._row_map) else None
+    if entry_idx is None:
+        continue  # skip header rows
+    _, data, error, _ = picker._entries[entry_idx]
     if data is not None and _s20_valid_row is None:
         _s20_valid_row = r
+        _s20_valid_entry = entry_idx
     if error is not None and _s20_invalid_row is None:
         _s20_invalid_row = r
+        _s20_invalid_entry = entry_idx
 
 if _s20_valid_row is not None:
     picker.table.selectRow(_s20_valid_row)
@@ -1794,7 +1801,7 @@ if _s20_valid_row is not None:
     picker.keyPressEvent(_enter_event)
     app.processEvents()
     check(len(_s20_emitted) == 1, f"Enter on valid row emits tool_selected: {len(_s20_emitted)} emission(s)")
-    check(_s20_emitted[0] == picker._entries[_s20_valid_row][0],
+    check(_s20_emitted[0] == picker._entries[_s20_valid_entry][0],
           f"emitted correct path: {Path(_s20_emitted[0]).name}")
 else:
     check(False, "no valid tool row found for Enter test")
@@ -2897,11 +2904,11 @@ check(not window.picker.delete_btn.isEnabled(), "30b: Delete button disabled wit
 # 30c: Delete button enables when a valid tool row is selected
 window.picker.scan()
 app.processEvents()
-# Select the first valid tool row
+# Select the first valid tool row (use _row_map to get correct table row)
 _valid_row = None
-for _i, (_, _d, _, _) in enumerate(window.picker._entries):
-    if _d is not None:
-        _valid_row = _i
+for _tr, _ei in enumerate(window.picker._row_map):
+    if _ei is not None and window.picker._entries[_ei][1] is not None:
+        _valid_row = _tr
         break
 if _valid_row is not None:
     window.picker.table.selectRow(_valid_row)
@@ -2926,10 +2933,12 @@ check(_found_del1, "30f: test tool 'delete_me' found in picker after scan")
 check(_delete_test_tool.exists(), "30g: test tool file exists before delete")
 check(_preset_dir_del.is_dir(), "30g: preset dir exists before delete")
 
-for _i, (_, _d, _, _) in enumerate(window.picker._entries):
-    if _d and _d["tool"] == "delete_me":
-        window.picker.table.selectRow(_i)
-        break
+for _tr, _ei in enumerate(window.picker._row_map):
+    if _ei is not None:
+        _, _d, _, _ = window.picker._entries[_ei]
+        if _d and _d["tool"] == "delete_me":
+            window.picker.table.selectRow(_tr)
+            break
 app.processEvents()
 
 # Mock custom QMessageBox to auto-click "Delete All"
@@ -2969,10 +2978,12 @@ check(_preset_dir_del2.is_dir(), "30h: preset dir 2 exists before delete")
 
 window.picker.scan()
 app.processEvents()
-for _i, (_, _d, _, _) in enumerate(window.picker._entries):
-    if _d and _d["tool"] == "delete_me2":
-        window.picker.table.selectRow(_i)
-        break
+for _tr, _ei in enumerate(window.picker._row_map):
+    if _ei is not None:
+        _, _d, _, _ = window.picker._entries[_ei]
+        if _d and _d["tool"] == "delete_me2":
+            window.picker.table.selectRow(_tr)
+            break
 app.processEvents()
 
 # Mock custom QMessageBox to auto-click "Schema Only"
@@ -3027,10 +3038,12 @@ _found_del3 = any(
 check(_found_del3, "30i: test tool 3 appears in picker")
 
 # Select the tool
-for _i, (_, _d, _, _) in enumerate(window.picker._entries):
-    if _d and _d["tool"] == "delete_me3":
-        window.picker.table.selectRow(_i)
-        break
+for _tr, _ei in enumerate(window.picker._row_map):
+    if _ei is not None:
+        _, _d, _, _ = window.picker._entries[_ei]
+        if _d and _d["tool"] == "delete_me3":
+            window.picker.table.selectRow(_tr)
+            break
 app.processEvents()
 
 # Mock QMessageBox.question to auto-return Yes
@@ -3102,10 +3115,10 @@ app.processEvents()
 # 30k: Delete button works after navigating back from form view
 window._show_picker()
 app.processEvents()
-# Select a valid tool
-for _i, (_, _d, _, _) in enumerate(window.picker._entries):
-    if _d is not None:
-        window.picker.table.selectRow(_i)
+# Select a valid tool (use _row_map for correct table row)
+for _tr, _ei in enumerate(window.picker._row_map):
+    if _ei is not None and window.picker._entries[_ei][1] is not None:
+        window.picker.table.selectRow(_tr)
         break
 app.processEvents()
 check(window.picker.delete_btn.isEnabled(), "30k: Delete button works after returning to picker")
@@ -6152,6 +6165,239 @@ _s59_win._clear_output()
 _s59_win.close()
 _s59_win.deleteLater()
 app.processEvents()
+
+# =====================================================================
+# Section 60 — Tool Picker Subfolder Support
+# =====================================================================
+print("\n--- Section 60: Tool Picker Subfolder Support ---")
+
+_s60_tmpdir = tempfile.mkdtemp()
+
+# Create root-level tool
+_s60_root_schema = {"tool": "root_tool", "binary": "echo", "description": "A root tool", "arguments": []}
+Path(_s60_tmpdir, "root_tool.json").write_text(json.dumps(_s60_root_schema))
+
+# Create subfolder tools
+Path(_s60_tmpdir, "recon").mkdir()
+_s60_recon_schema = {"tool": "scan_tool", "binary": "echo", "description": "A recon scanner", "arguments": []}
+Path(_s60_tmpdir, "recon", "scan_tool.json").write_text(json.dumps(_s60_recon_schema))
+
+Path(_s60_tmpdir, "exploit").mkdir()
+_s60_exploit_schema = {"tool": "pwn_tool", "binary": "echo", "description": "An exploit tool", "arguments": []}
+Path(_s60_tmpdir, "exploit", "pwn_tool.json").write_text(json.dumps(_s60_exploit_schema))
+
+# Patch _tools_dir to point at our temp directory
+_s60_orig_tools_dir = scaffold._tools_dir
+scaffold._tools_dir = lambda: Path(_s60_tmpdir)
+
+_s60_win = scaffold.MainWindow()
+_s60_win._show_picker()
+app.processEvents()
+_s60_picker = _s60_win.picker
+_s60_picker.scan()
+app.processEvents()
+
+# 60a: All 3 tools discovered
+check(len(_s60_picker._entries) == 3, f"60a: 3 tools discovered (got {len(_s60_picker._entries)})")
+
+# 60b: Row count = 3 tools + 2 folder headers = 5
+check(_s60_picker.table.rowCount() == 5, f"60b: 5 table rows (got {_s60_picker.table.rowCount()})")
+
+# 60c: _row_map has correct length and None/int pattern
+check(len(_s60_picker._row_map) == 5, f"60c: _row_map length 5 (got {len(_s60_picker._row_map)})")
+# Expected: root_tool(int), exploit-header(None), pwn_tool(int), recon-header(None), scan_tool(int)
+_s60_header_count = sum(1 for x in _s60_picker._row_map if x is None)
+_s60_tool_count = sum(1 for x in _s60_picker._row_map if x is not None)
+check(_s60_header_count == 2, f"60c: 2 header rows in _row_map (got {_s60_header_count})")
+check(_s60_tool_count == 3, f"60c: 3 tool rows in _row_map (got {_s60_tool_count})")
+
+# 60d: Sort order — folder groups first (alphabetically), then root tools
+_s60_names = []
+for r in range(5):
+    item = _s60_picker.table.item(r, 1)
+    _s60_names.append(item.text() if item else "")
+check(_s60_names[0] == "\u25bc exploit", f"60d: row 0 is exploit header (got '{_s60_names[0]}')")
+check(_s60_names[1] == "pwn_tool", f"60d: row 1 is pwn_tool (got '{_s60_names[1]}')")
+check(_s60_names[2] == "\u25bc recon", f"60d: row 2 is recon header (got '{_s60_names[2]}')")
+check(_s60_names[3] == "scan_tool", f"60d: row 3 is scan_tool (got '{_s60_names[3]}')")
+check(_s60_names[4] == "root_tool", f"60d: row 4 is root_tool (got '{_s60_names[4]}')")
+
+# 60e: Header rows are non-selectable — selecting header row keeps Open button disabled
+_s60_picker.table.selectRow(0)  # exploit header
+app.processEvents()
+check(not _s60_picker.open_btn.isEnabled(), "60e: Open button disabled when header row selected")
+check(not _s60_picker.delete_btn.isEnabled(), "60e: Delete button disabled when header row selected")
+
+# 60f: Header rows ignored by Enter key — no signal emitted
+_s60_emitted = []
+_s60_picker.tool_selected.connect(lambda path: _s60_emitted.append(path))
+_s60_picker.table.selectRow(0)  # exploit header
+app.processEvents()
+_s60_emitted.clear()
+_s60_enter = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+_s60_picker.keyPressEvent(_s60_enter)
+app.processEvents()
+check(len(_s60_emitted) == 0, "60f: Enter on header row emits no signal")
+
+# 60g: Double-click on header row — no signal emitted
+_s60_emitted.clear()
+_s60_picker._on_double_click(_s60_picker.table.model().index(0, 0))
+app.processEvents()
+check(len(_s60_emitted) == 0, "60g: double-click on header row emits no signal")
+
+# 60h: Filter — search for "scan" — only recon header + scan_tool visible
+_s60_picker.search_bar.setText("scan")
+app.processEvents()
+_s60_visible_h = []
+for r in range(5):
+    if not _s60_picker.table.isRowHidden(r):
+        _s60_visible_h.append(_s60_picker.table.item(r, 1).text())
+check("scan_tool" in _s60_visible_h, "60h: scan_tool visible when filtering 'scan'")
+check("\u25bc recon" in _s60_visible_h, "60h: recon header visible when filtering 'scan'")
+check("pwn_tool" not in _s60_visible_h, "60h: pwn_tool hidden when filtering 'scan'")
+check("\u25bc exploit" not in _s60_visible_h, "60h: exploit header hidden when filtering 'scan'")
+check("root_tool" not in _s60_visible_h, "60h: root_tool hidden when filtering 'scan'")
+
+# 60i: Filter — search for "pwn" — only exploit header + pwn_tool visible
+_s60_picker.search_bar.setText("pwn")
+app.processEvents()
+_s60_visible_i = []
+for r in range(5):
+    if not _s60_picker.table.isRowHidden(r):
+        _s60_visible_i.append(_s60_picker.table.item(r, 1).text())
+check("pwn_tool" in _s60_visible_i, "60i: pwn_tool visible when filtering 'pwn'")
+check("\u25bc exploit" in _s60_visible_i, "60i: exploit header visible when filtering 'pwn'")
+check("scan_tool" not in _s60_visible_i, "60i: scan_tool hidden when filtering 'pwn'")
+
+# 60j: Clear filter — all visible
+_s60_picker.search_bar.clear()
+app.processEvents()
+_s60_all_visible = all(not _s60_picker.table.isRowHidden(r) for r in range(5))
+check(_s60_all_visible, "60j: all rows visible after clearing filter")
+
+# 60k: Filter matching nothing — all rows hidden including headers
+_s60_picker.search_bar.setText("zzz_no_match_zzz")
+app.processEvents()
+_s60_all_hidden = all(_s60_picker.table.isRowHidden(r) for r in range(5))
+check(_s60_all_hidden, "60k: all rows hidden for non-matching filter")
+_s60_picker.search_bar.clear()
+app.processEvents()
+
+# 60l: Path column — relative paths
+_s60_root_path_item = _s60_picker.table.item(4, 3)  # root_tool (now row 4)
+check(_s60_root_path_item.text() == "root_tool.json", f"60l: root tool path is relative (got '{_s60_root_path_item.text()}')")
+_s60_pwn_path_item = _s60_picker.table.item(1, 3)  # pwn_tool (row 1, after exploit header)
+check(_s60_pwn_path_item.text() == "exploit/pwn_tool.json", f"60l: subfolder tool path is relative (got '{_s60_pwn_path_item.text()}')")
+_s60_scan_path_item = _s60_picker.table.item(3, 3)  # scan_tool (row 3, after recon header)
+check(_s60_scan_path_item.text() == "recon/scan_tool.json", f"60l: subfolder tool path is relative (got '{_s60_scan_path_item.text()}')")
+
+# Cleanup
+_s60_picker.tool_selected.disconnect()
+scaffold._tools_dir = _s60_orig_tools_dir
+shutil.rmtree(_s60_tmpdir, ignore_errors=True)
+_s60_win.close()
+_s60_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 61 — Folder Collapse & Run Button Fix
+# =====================================================================
+print("\n--- Section 61: Folder Collapse & Run Button Fix ---")
+
+# --- 61a-e: Folder collapse ---
+_s61_tmpdir = tempfile.mkdtemp()
+_s61_root_schema = {"tool": "root_tool", "binary": "echo", "description": "A root tool", "arguments": []}
+Path(_s61_tmpdir, "root_tool.json").write_text(json.dumps(_s61_root_schema))
+Path(_s61_tmpdir, "recon").mkdir()
+_s61_recon_schema = {"tool": "scan_tool", "binary": "echo", "description": "A recon scanner", "arguments": []}
+Path(_s61_tmpdir, "recon", "scan_tool.json").write_text(json.dumps(_s61_recon_schema))
+Path(_s61_tmpdir, "exploit").mkdir()
+_s61_exploit_schema = {"tool": "pwn_tool", "binary": "echo", "description": "An exploit tool", "arguments": []}
+Path(_s61_tmpdir, "exploit", "pwn_tool.json").write_text(json.dumps(_s61_exploit_schema))
+
+_s61_orig_tools_dir = scaffold._tools_dir
+scaffold._tools_dir = lambda: Path(_s61_tmpdir)
+_s61_win = scaffold.MainWindow()
+_s61_win._show_picker()
+app.processEvents()
+_s61_picker = _s61_win.picker
+_s61_picker.scan()
+app.processEvents()
+
+# 61a: _collapsed_folders starts empty
+check(len(_s61_picker._collapsed_folders) == 0, "61a: _collapsed_folders starts empty")
+
+# 61b: Arrow indicators — expanded by default
+_s61_header0 = _s61_picker.table.item(0, 1).text()
+_s61_header2 = _s61_picker.table.item(2, 1).text()
+check(_s61_header0.startswith("\u25bc "), f"61b: expanded arrow on exploit header (got '{_s61_header0}')")
+check(_s61_header2.startswith("\u25bc "), f"61b: expanded arrow on recon header (got '{_s61_header2}')")
+
+# 61c: Collapse exploit folder — click header row 0
+_s61_picker._on_cell_clicked(0, 1)
+app.processEvents()
+check("exploit" in _s61_picker._collapsed_folders, "61c: exploit in _collapsed_folders after click")
+check(_s61_picker.table.item(0, 1).text().startswith("\u25b6 "), "61c: collapsed arrow on exploit header")
+check(_s61_picker.table.isRowHidden(1), "61c: pwn_tool hidden when exploit collapsed")
+check(not _s61_picker.table.isRowHidden(0), "61c: exploit header stays visible when collapsed")
+check(not _s61_picker.table.isRowHidden(2), "61c: recon header unaffected")
+check(not _s61_picker.table.isRowHidden(3), "61c: scan_tool unaffected")
+check(not _s61_picker.table.isRowHidden(4), "61c: root_tool unaffected")
+
+# 61d: Expand exploit folder — click header row 0 again
+_s61_picker._on_cell_clicked(0, 1)
+app.processEvents()
+check("exploit" not in _s61_picker._collapsed_folders, "61d: exploit removed from _collapsed_folders")
+check(_s61_picker.table.item(0, 1).text().startswith("\u25bc "), "61d: expanded arrow restored")
+check(not _s61_picker.table.isRowHidden(1), "61d: pwn_tool visible after expand")
+
+# 61e: Collapse + filter interaction
+_s61_picker._on_cell_clicked(0, 1)  # collapse exploit
+app.processEvents()
+_s61_picker.search_bar.setText("pwn")
+app.processEvents()
+# pwn_tool matches search but is collapsed — should remain hidden
+check(_s61_picker.table.isRowHidden(1), "61e: pwn_tool hidden (collapsed overrides search match)")
+# exploit header should be visible (has matching children)
+check(not _s61_picker.table.isRowHidden(0), "61e: exploit header visible (has matching children)")
+# Clear search — tool still hidden because collapsed
+_s61_picker.search_bar.clear()
+app.processEvents()
+check(_s61_picker.table.isRowHidden(1), "61e: pwn_tool still hidden after clearing search (still collapsed)")
+# Expand — tool becomes visible
+_s61_picker._on_cell_clicked(0, 1)
+app.processEvents()
+check(not _s61_picker.table.isRowHidden(1), "61e: pwn_tool visible after expanding")
+
+# Cleanup
+scaffold._tools_dir = _s61_orig_tools_dir
+shutil.rmtree(_s61_tmpdir, ignore_errors=True)
+_s61_win.close()
+_s61_win.deleteLater()
+app.processEvents()
+
+# --- 61f-h: Run button fix ---
+_s61_form_win = scaffold.MainWindow()
+_s61_schema = {"tool": "test_tool", "binary": "echo", "description": "Test", "arguments": []}
+_s61_form_win.data = scaffold.normalize_tool(_s61_schema)
+_s61_form_win._build_form_view()
+app.processEvents()
+
+# 61f: Run button font is bold
+check(_s61_form_win.run_btn.font().bold(), "61f: run_btn font is bold")
+
+# 61g: Run button minimum width is reasonable
+check(_s61_form_win.run_btn.minimumWidth() > 80, f"61g: run_btn minimumWidth > 80 (got {_s61_form_win.run_btn.minimumWidth()})")
+
+# 61h: Run button has Minimum size policy
+check(_s61_form_win.run_btn.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Minimum,
+      "61h: run_btn horizontal size policy is Minimum")
+
+_s61_form_win.close()
+_s61_form_win.deleteLater()
+app.processEvents()
+
 
 # =====================================================================
 # Final cleanup
