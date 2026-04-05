@@ -2,6 +2,18 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.7.7] — 2026-04-04
+
+Dark mode clipping fixes and output toolbar spacing improvements.
+
+### Fixed
+
+- **Checkable group box title clipped in dark mode** — the checkbox and label text were rendered 1px above the widget boundary, cutting off the top row of pixels. Added top padding to the title sub-control to push it fully inside the visible area.
+- **Run button text clipped when showing "Stopping..."** — the minimum width calculation now accounts for button padding, so the full label is always visible.
+- **Timeout controls crowding into action buttons** — replaced the collapsible stretch with an expanding spacer that enforces a minimum 16px gap between the output buttons and the timeout controls.
+- **Save Output button label** — removed the trailing ellipsis for consistency with the other action buttons.
+- **Dark mode spinbox height** — reduced internal padding so spinboxes more closely match their native light mode height.
+
 ## [v2.7.6] — 2026-04-04
 
 Copy format dropdown, output search bar auto-visibility, and tooltip spacing polish.

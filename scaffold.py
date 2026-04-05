@@ -18,7 +18,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.6"
+__version__ = "2.7.7"
 
 import datetime
 import hashlib
@@ -552,7 +552,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
-    QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
+    QSizePolicy, QSpacerItem, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -721,10 +721,10 @@ def apply_theme(dark: bool) -> None:
             f"  background-color: {C['selection']}; }}"
             f"QComboBox::down-arrow {{ image: url({C['arrow_dir']}/down.png);"
             f"  width: 10px; height: 8px; }}"
-            # Spinboxes — padding: 1px 2px restores 26px height
+            # Spinboxes — padding: 0px 2px yields ~24px, within 2px of native 22px
             f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']};"
             f"  color: {C['text']}; border: 1px solid {C['border']};"
-            f"  border-radius: 3px; padding: 1px 2px; }}"
+            f"  border-radius: 3px; padding: 0px 2px; }}"
             f"QSpinBox::up-button, QSpinBox::down-button,"
             f"  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
             f"  {{ background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
@@ -743,9 +743,9 @@ def apply_theme(dark: bool) -> None:
             f"  color: {C['text']}; }}"
             # Group boxes
             f"QGroupBox {{ color: {C['text']}; border: 1px solid {C['border']};"
-            f"  border-radius: 4px; margin-top: 14px; padding-top: 4px; }}"
+            f"  border-radius: 4px; margin-top: 18px; padding-top: 4px; }}"
             f"QGroupBox::title {{ color: {C['text']};"
-            f"  subcontrol-origin: margin; padding: 0 4px; left: 8px; }}"
+            f"  subcontrol-origin: margin; padding: 2px 4px 0 4px; left: 8px; }}"
             # Table (tool picker)
             f"QTableWidget {{ background-color: {C['input']}; color: {C['text']};"
             f"  gridline-color: {C['border']}; }}"
@@ -4080,7 +4080,7 @@ class MainWindow(QMainWindow):
         self.run_btn.clicked.connect(self._on_run_stop)
         self._style_run_btn()
         fm = self.run_btn.fontMetrics()
-        self.run_btn.setMinimumWidth(fm.horizontalAdvance("Stopping...") + 24)
+        self.run_btn.setMinimumWidth(fm.horizontalAdvance("Stopping...") + 40)
         action_bar.addWidget(self.run_btn)
 
         self.clear_btn = QPushButton("Clear Output")
@@ -4093,7 +4093,7 @@ class MainWindow(QMainWindow):
         self.copy_output_btn.clicked.connect(self._copy_output)
         action_bar.addWidget(self.copy_output_btn)
 
-        self.save_output_btn = QPushButton("Save Output...")
+        self.save_output_btn = QPushButton("Save Output")
         self.save_output_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.save_output_btn.clicked.connect(self._save_output)
         action_bar.addWidget(self.save_output_btn)
@@ -4107,7 +4107,7 @@ class MainWindow(QMainWindow):
             fm = btn.fontMetrics()
             btn.setMinimumWidth(fm.horizontalAdvance(btn.text()) + 24)
 
-        action_bar.addStretch()
+        action_bar.addSpacerItem(QSpacerItem(16, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         timeout_label = QLabel("Timeout (s):")
         action_bar.addWidget(timeout_label)
