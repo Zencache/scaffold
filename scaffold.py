@@ -239,8 +239,14 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
             if key not in arg:
                 errors.append(f"{prefix}: missing required key \"{key}\"")
 
-        if "flag" in arg and isinstance(arg["flag"], str) and arg["flag"].startswith("_"):
-            errors.append(f"{prefix}: flag \"{arg['flag']}\" starts with \"_\" which is reserved for internal metadata")
+        if "flag" in arg:
+            if not isinstance(arg["flag"], str):
+                errors.append(f"{prefix}: \"flag\" must be a string, got {type(arg['flag']).__name__}")
+            else:
+                if arg["flag"] != arg["flag"].strip():
+                    errors.append(f"{prefix}: flag \"{arg['flag']}\" has leading/trailing whitespace")
+                if arg["flag"].startswith("_"):
+                    errors.append(f"{prefix}: flag \"{arg['flag']}\" starts with \"_\" which is reserved for internal metadata")
 
         if "type" in arg:
             t = arg["type"]
@@ -352,6 +358,8 @@ def normalize_tool(data: dict) -> dict:
         for arg in args:
             for key, default in ARG_DEFAULTS.items():
                 arg.setdefault(key, default)
+            if isinstance(arg.get("flag"), str):
+                arg["flag"] = arg["flag"].strip()
 
     _normalize_args(data.get("arguments", []))
 
@@ -573,9 +581,14 @@ def _make_arrow_icons():
     global _arrow_dir
     if _arrow_dir is not None:
         return _arrow_dir
-    if QApplication.instance() is None:
-        return ""
+    app = QApplication.instance()
+    if app is None:
+        return None
     _arrow_dir = tempfile.mkdtemp(prefix="scaffold_arrows_")
+    try:
+        app.aboutToQuit.connect(lambda: shutil.rmtree(_arrow_dir, ignore_errors=True))
+    except Exception:
+        pass
     color = QColor(DARK_COLORS["text"])
     for name, points in [
         ("down", [(1, 2), (5, 6), (9, 2)]),
@@ -700,7 +713,7 @@ def apply_theme(dark: bool) -> None:
         palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(DARK_COLORS["disabled"]))
         palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["disabled"]))
         app.setPalette(palette)
-        arrow_dir = _make_arrow_icons().replace("\\", "/")
+        arrow_dir = (_make_arrow_icons() or "").replace("\\", "/")
         C = {**DARK_COLORS, "arrow_dir": arrow_dir}
         app.setStyleSheet(
             # Menu bar and menus

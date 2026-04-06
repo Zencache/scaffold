@@ -8062,6 +8062,34 @@ _s71_h5 = scaffold.schema_hash(_s71_bad_sub)
 check(isinstance(_s71_h5, str) and len(_s71_h5) == 8, "71e: non-dict subcommands → 8-char hash, no exception")
 
 # =====================================================================
+print("\n=== SECTION 72: _validate_args Flag Checks and _make_arrow_icons Singleton ===")
+# =====================================================================
+
+# 72a: _validate_args with non-string flag — error contains "must be a string"
+_s72_errs = []
+scaffold._validate_args([{"name": "bad", "flag": 123, "type": "string"}], "test", _s72_errs)
+check(any("must be a string" in e for e in _s72_errs),
+      f"72a: non-string flag error contains 'must be a string': {_s72_errs}")
+
+# 72b: _validate_args with whitespace flag — error contains "whitespace"
+_s72_errs2 = []
+scaffold._validate_args([{"name": "bad", "flag": "  --bad  ", "type": "string"}], "test", _s72_errs2)
+check(any("whitespace" in e for e in _s72_errs2),
+      f"72b: whitespace flag error contains 'whitespace': {_s72_errs2}")
+
+# 72c: _validate_args with valid flag — no flag-related errors
+_s72_errs3 = []
+scaffold._validate_args([{"name": "good", "flag": "--good", "type": "string"}], "test", _s72_errs3)
+check(len(_s72_errs3) == 0,
+      f"72c: valid flag produces no errors: {_s72_errs3}")
+
+# 72d: _make_arrow_icons returns same dir on repeated calls
+_s72_dir1 = scaffold._make_arrow_icons()
+_s72_dir2 = scaffold._make_arrow_icons()
+check(_s72_dir1 is not None and _s72_dir1 == _s72_dir2,
+      f"72d: _make_arrow_icons returns same dir on repeated calls: {_s72_dir1} == {_s72_dir2}")
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
