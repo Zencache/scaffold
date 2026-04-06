@@ -11,6 +11,7 @@ Usage:
     python scaffold.py tools/nmap.json        Open a specific tool directly
     python scaffold.py --validate FILE        Validate a schema (no GUI)
     python scaffold.py --prompt               Print the LLM schema-generation prompt
+    python scaffold.py --preset-prompt            Print the LLM preset-generation prompt
     python scaffold.py --version              Show version and exit
     python scaffold.py --help                 Show this help and exit
 
@@ -364,12 +365,17 @@ def normalize_tool(data: dict) -> dict:
 
 def schema_hash(data: dict) -> str:
     """Compute a short hash of a tool's argument flags for preset versioning."""
-    flags = sorted(arg["flag"] for arg in data.get("arguments", []) if isinstance(arg, dict))
+    flags = sorted(
+        arg.get("flag") for arg in data.get("arguments", [])
+        if isinstance(arg, dict) and isinstance(arg.get("flag"), str)
+    )
     if data.get("subcommands"):
         for sub in data["subcommands"]:
+            if not isinstance(sub, dict) or not isinstance(sub.get("name"), str):
+                continue
             for arg in sub.get("arguments", []):
-                if isinstance(arg, dict):
-                    flags.append(f"{sub['name']}:{arg['flag']}")
+                if isinstance(arg, dict) and isinstance(arg.get("flag"), str):
+                    flags.append(f"{sub.get('name')}:{arg.get('flag')}")
         flags.sort()
     return hashlib.md5(json.dumps(flags).encode()).hexdigest()[:8]
 
@@ -548,12 +554,12 @@ def _elevation_label():
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QSizePolicy, QSpacerItem, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QToolButton, QVBoxLayout, QWidget,
+    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 
@@ -725,9 +731,12 @@ def apply_theme(dark: bool) -> None:
             f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']};"
             f"  color: {C['text']}; border: 1px solid {C['border']};"
             f"  border-radius: 3px; padding: 0px 2px; }}"
-            f"QSpinBox::up-button, QSpinBox::down-button,"
-            f"  QDoubleSpinBox::up-button, QDoubleSpinBox::down-button"
-            f"  {{ background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
+            f"QSpinBox::up-button, QDoubleSpinBox::up-button"
+            f"  {{ subcontrol-origin: border; subcontrol-position: top right;"
+            f"  background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
+            f"QSpinBox::down-button, QDoubleSpinBox::down-button"
+            f"  {{ subcontrol-origin: border; subcontrol-position: bottom right;"
+            f"  background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
             f"QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
             f"  {{ image: url({C['arrow_dir']}/up.png); width: 10px; height: 8px; }}"
             f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
@@ -1177,7 +1186,8 @@ class ToolForm(QWidget):
             arg = field["arg"]
             name_lower = arg["name"].lower()
             flag_lower = flag.lower()
-            if query in name_lower or query in flag_lower:
+            desc_lower = arg.get("description", "").lower()
+            if query in name_lower or query in flag_lower or query in desc_lower:
                 self._search_matches.append(key)
 
         if self._search_matches:
@@ -1637,6 +1647,7 @@ class ToolForm(QWidget):
         active = self._is_field_active(parent_key)
         child_field["widget"].setEnabled(active)
         child_field["label"].setEnabled(active)
+        self.command_changed.emit()
 
     def _is_field_active(self, key: tuple) -> bool:
         """Return True if the given field's widget has a meaningful value."""
@@ -1698,13 +1709,18 @@ class ToolForm(QWidget):
         except ValueError:
             return text.split()
 
-    def get_field_value(self, key: tuple) -> int | str | list | None:
-        """Return the current widget value for a field key, or None if empty/unchecked."""
+    def _read_field_value(self, key: tuple, *, respect_enabled: bool = True) -> int | str | list | None:
+        """Core field-value reader used by both get_field_value and _raw_field_value.
+
+        Args:
+            key: (scope, flag) tuple identifying the field.
+            respect_enabled: If True, return None for disabled widgets.
+        """
         field = self.fields.get(key)
         if not field:
             return None
         w = field["widget"]
-        if not w.isEnabled():
+        if respect_enabled and not w.isEnabled():
             return None
         arg = field["arg"]
         t = arg["type"]
@@ -1716,10 +1732,11 @@ class ToolForm(QWidget):
 
         if t == "boolean":
             if isinstance(w, QCheckBox) and w.isChecked():
-                count = 1
                 if field["repeat_spin"]:
-                    count = field["repeat_spin"].value()
-                return count
+                    return field["repeat_spin"].value()
+                if respect_enabled:
+                    return 1
+                return True
             return None
 
         elif t == "string":
@@ -1762,69 +1779,17 @@ class ToolForm(QWidget):
 
         return None
 
+    def get_field_value(self, key: tuple) -> int | str | list | None:
+        """Return the current widget value for a field key, or None if empty/unchecked/disabled."""
+        return self._read_field_value(key, respect_enabled=True)
+
     # ------------------------------------------------------------------
     # Preset serialization
     # ------------------------------------------------------------------
 
     def _raw_field_value(self, key: tuple) -> int | str | list | None:
         """Like get_field_value but ignores enabled state (reads widget regardless)."""
-        field = self.fields.get(key)
-        if not field:
-            return None
-        w = field["widget"]
-        arg = field["arg"]
-        t = arg["type"]
-
-        # Fallback widget — treat as plain string regardless of declared type
-        if getattr(w, "_is_fallback", False):
-            v = w.text().strip()
-            return v if v else None
-
-        if t == "boolean":
-            if isinstance(w, QCheckBox) and w.isChecked():
-                if field["repeat_spin"]:
-                    return field["repeat_spin"].value()
-                return True
-            return None
-
-        elif t == "string":
-            v = w.currentText().strip() if isinstance(w, QComboBox) else w.text().strip()
-            return v if v else None
-
-        elif t == "password":
-            v = w._line_edit.text().strip()
-            return v if v else None
-
-        elif t == "text":
-            v = w.toPlainText().strip()
-            return v if v else None
-
-        elif t == "integer":
-            if w.specialValueText() and w.value() == w.minimum():
-                return None
-            return w.value()
-
-        elif t == "float":
-            if w.specialValueText() and w.value() == w.minimum():
-                return None
-            return w.value()
-
-        elif t == "enum":
-            v = w.currentData()
-            return v if v else None
-
-        elif t == "multi_enum":
-            selected = []
-            for i in range(w.count()):
-                if w.item(i).checkState() == Qt.CheckState.Checked:
-                    selected.append(w.item(i).text())
-            return selected if selected else None
-
-        elif t in ("file", "directory"):
-            v = w._line_edit.text().strip()
-            return v if v else None
-
-        return None
+        return self._read_field_value(key, respect_enabled=False)
 
     def serialize_values(self) -> dict:
         """Serialize all current field values to a flat dict for preset storage."""
@@ -2021,6 +1986,54 @@ class ToolForm(QWidget):
 
         return cmd, display
 
+    def _mask_passwords_for_display(self, cmd: list[str]) -> list[str]:
+        """Return a copy of cmd with password-type values replaced by ********."""
+        # Collect password flags and their separators for active scopes
+        pw_flags = {}
+        sub = self.get_current_subcommand()
+        scopes = {self.GLOBAL}
+        if sub:
+            scopes.add(sub)
+        for key, field in self.fields.items():
+            scope, flag = key
+            if scope not in scopes:
+                continue
+            if field["arg"]["type"] != "password":
+                continue
+            if self.get_field_value(key) is None:
+                continue
+            pw_flags[flag] = field["arg"].get("separator", "space")
+
+        if not pw_flags:
+            return list(cmd)
+
+        masked = []
+        i = 0
+        while i < len(cmd):
+            token = cmd[i]
+            matched = False
+            if token in pw_flags and pw_flags[token] == "space":
+                # Space separator: flag is one token, value is the next
+                masked.append(token)
+                if i + 1 < len(cmd):
+                    i += 1
+                    masked.append("********")
+                matched = True
+            if not matched:
+                for flag, sep in pw_flags.items():
+                    if sep == "equals" and token.startswith(f"{flag}="):
+                        masked.append(f"{flag}=********")
+                        matched = True
+                        break
+                    if sep == "none" and token.startswith(flag) and len(token) > len(flag):
+                        masked.append(f"{flag}********")
+                        matched = True
+                        break
+            if not matched:
+                masked.append(token)
+            i += 1
+        return masked
+
     def _assemble_args(self, args: list, scope: str, cmd: list, positional: list) -> None:
         """Append active flag tokens to cmd and active positional tokens to positional."""
         for arg in args:
@@ -2065,13 +2078,25 @@ class ToolForm(QWidget):
 
     def update_theme(self) -> None:
         """Update theme-sensitive widget styles (required labels, validation borders)."""
-        color = _required_color()
+        req_color = _required_color()
+        warn_color = DARK_COLORS["required"] if _dark_mode else "red"
+        dep_color = DARK_COLORS["warning_text"] if _dark_mode else "#856404"
+
         for key, field in self.fields.items():
             arg = field["arg"]
             label = field["label"]
-            if arg["required"]:
-                name = arg["name"]
-                label.setText(f"<b>{name} <span style='color:{color};'>*</span></b>")
+
+            # Rebuild label text only if it has any theme-sensitive decoration
+            if arg["required"] or arg.get("dangerous") or arg.get("deprecated"):
+                label_text = arg["name"]
+                if arg["required"]:
+                    label_text = f"<b>{label_text} <span style='color:{req_color};'>*</span></b>"
+                if arg.get("dangerous"):
+                    label_text = f"<span style='color:{warn_color};'>⚠</span> {label_text}"
+                if arg.get("deprecated"):
+                    label_text = f"<s>{label_text}</s> <span style='color:{dep_color};'>(deprecated)</span>"
+                label.setText(label_text)
+
             w = field["widget"]
             if w.styleSheet() and "border" in w.styleSheet():
                 w.setStyleSheet(_invalid_style())
@@ -2126,19 +2151,18 @@ class ToolForm(QWidget):
         return missing
 
 
+def _quote_token(token: str) -> str:
+    """Shell-quote a token for display if it contains whitespace."""
+    if " " in token or "\t" in token:
+        if "'" not in token:
+            return f"'{token}'"
+        return f'"{token}"'
+    return token
+
+
 def _format_display(cmd: list[str]) -> str:
     """Format a command list as a human-readable display string."""
-    parts = []
-    for token in cmd:
-        if " " in token or "\t" in token:
-            # Quote tokens with spaces for readability
-            if "'" not in token:
-                parts.append(f"'{token}'")
-            else:
-                parts.append(f'"{token}"')
-        else:
-            parts.append(token)
-    return " ".join(parts)
+    return " ".join(_quote_token(token) for token in cmd)
 
 
 def _format_bash(cmd: list[str]) -> str:
@@ -2189,15 +2213,6 @@ _COPY_FORMATS = {
     "cmd": (_format_cmd, "CMD"),
     "generic": (_format_display, "Command"),
 }
-
-
-def _quote_token(token: str) -> str:
-    """Shell-quote a token for display if it contains whitespace."""
-    if " " in token or "\t" in token:
-        if "'" not in token:
-            return f"'{token}'"
-        return f'"{token}"'
-    return token
 
 
 def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | None = None) -> str:
@@ -2251,11 +2266,16 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
                 )
             else:
                 parts.append(_span(display_token, colors["flag"]))
-                # Next token is the value if it doesn't start with - and exists
-                if i + 1 < core_len and not cmd[i + 1].startswith("-") and not (sub_idx < len(sub_parts) and cmd[i + 1] == sub_parts[sub_idx]):
-                    i += 1
-                    val_display = _quote_token(cmd[i])
-                    parts.append(_span(val_display, colors["value"]))
+                # Next token is the value if it doesn't start with - (or is a negative number) and exists
+                if i + 1 < core_len and not (sub_idx < len(sub_parts) and cmd[i + 1] == sub_parts[sub_idx]):
+                    next_tok = cmd[i + 1]
+                    is_value = not next_tok.startswith("-") or (
+                        len(next_tok) > 1 and next_tok[1:].replace(".", "", 1).isdigit()
+                    )
+                    if is_value:
+                        i += 1
+                        val_display = _quote_token(cmd[i])
+                        parts.append(_span(val_display, colors["value"]))
         else:
             # Positional or unrecognized value
             parts.append(_span(display_token, colors["value"]))
@@ -2311,6 +2331,15 @@ def _presets_dir(tool_name: str) -> Path:
             dest = d / src.name
             if not dest.exists():
                 shutil.copy2(src, dest)
+    return d
+
+
+def _cascades_dir() -> Path:
+    """Return the cascades/ directory next to this script, creating it if needed."""
+    d = Path(__file__).parent / "cascades"
+    if d.exists() and not d.is_dir():
+        raise RuntimeError(f"Expected a directory but found a file at: {d}")
+    d.mkdir(exist_ok=True)
     return d
 
 
@@ -2377,6 +2406,8 @@ class ToolPicker(QWidget):
         self.search_bar.setPlaceholderText("Filter tools...")
         self.search_bar.setClearButtonEnabled(True)
         self.search_bar.textChanged.connect(self._on_filter)
+        self.search_bar.installEventFilter(self)
+        self._filter_cycle_index = -1
         layout.addWidget(self.search_bar)
 
         self.table = QTableWidget()
@@ -2624,6 +2655,50 @@ class ToolPicker(QWidget):
         # Second pass: show/hide header rows based on whether any child tool matches search
         for h_row in header_rows:
             self.table.setRowHidden(h_row, not header_has_visible[h_row])
+        self._filter_cycle_index = -1
+
+    def _visible_tool_rows(self) -> list[int]:
+        """Return table row indices of visible, selectable tool rows."""
+        rows = []
+        for row in range(self.table.rowCount()):
+            if self.table.isRowHidden(row):
+                continue
+            if row < len(self._row_map) and self._row_map[row] is None:
+                continue  # header row
+            rows.append(row)
+        return rows
+
+    def _filter_next(self) -> None:
+        """Select the next visible tool row (Enter in filter bar)."""
+        visible = self._visible_tool_rows()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index + 1) % len(visible)
+        row = visible[self._filter_cycle_index]
+        self.table.selectRow(row)
+        self.table.scrollToItem(self.table.item(row, 0))
+
+    def _filter_prev(self) -> None:
+        """Select the previous visible tool row (Shift+Enter in filter bar)."""
+        visible = self._visible_tool_rows()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index - 1) % len(visible)
+        row = visible[self._filter_cycle_index]
+        self.table.selectRow(row)
+        self.table.scrollToItem(self.table.item(row, 0))
+
+    def eventFilter(self, obj, event) -> bool:
+        """Catch Enter/Shift+Enter on filter bar for match cycling."""
+        if obj is self.search_bar and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._filter_prev()
+                else:
+                    self._filter_next()
+                return True
+        return super().eventFilter(obj, event)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle folder collapse when a header row is clicked."""
@@ -2823,6 +2898,15 @@ class PresetPicker(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
 
+        # Filter bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter presets...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        self.search_bar.installEventFilter(self)
+        self._filter_cycle_index = -1
+        layout.addWidget(self.search_bar)
+
         # Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
@@ -2889,6 +2973,7 @@ class PresetPicker(QDialog):
         # Load favorites and populate
         self._favorites = self._load_favorites()
         self._populate()
+        QWidget.setTabOrder(self.search_bar, self.table)
 
     def _load_favorites(self) -> set[str]:
         """Read the favorites list for this tool from QSettings."""
@@ -3005,6 +3090,58 @@ class PresetPicker(QDialog):
         self.edit_desc_btn.setEnabled(has_selection)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(has_selection)
+
+    def _on_filter(self, text: str) -> None:
+        """Hide rows that don't match the filter text (name or description)."""
+        query = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            if not query:
+                self.table.setRowHidden(row, False)
+                continue
+            matches = False
+            for col in (1, 2):  # name, description
+                item = self.table.item(row, col)
+                if item and query in item.text().lower():
+                    matches = True
+                    break
+            self.table.setRowHidden(row, not matches)
+        self._filter_cycle_index = -1
+
+    def _visible_preset_rows(self) -> list[int]:
+        """Return row indices of visible preset rows."""
+        return [r for r in range(self.table.rowCount()) if not self.table.isRowHidden(r)]
+
+    def _filter_next(self) -> None:
+        """Select the next visible row (Enter in filter bar)."""
+        visible = self._visible_preset_rows()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index + 1) % len(visible)
+        row = visible[self._filter_cycle_index]
+        self.table.selectRow(row)
+        self.table.scrollToItem(self.table.item(row, 0))
+
+    def _filter_prev(self) -> None:
+        """Select the previous visible row (Shift+Enter in filter bar)."""
+        visible = self._visible_preset_rows()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index - 1) % len(visible)
+        row = visible[self._filter_cycle_index]
+        self.table.selectRow(row)
+        self.table.scrollToItem(self.table.item(row, 0))
+
+    def eventFilter(self, obj, event) -> bool:
+        """Catch Enter/Shift+Enter on filter bar for match cycling."""
+        if obj is self.search_bar and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._filter_prev()
+                else:
+                    self._filter_next()
+                return True
+        return super().eventFilter(obj, event)
 
     def _on_double_click(self, index) -> None:
         """Accept the dialog on double-click (load/delete modes only)."""
@@ -3252,6 +3389,1351 @@ class HistoryDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Cascade picker dialog
+# ---------------------------------------------------------------------------
+
+class CascadePickerDialog(QDialog):
+    """Modal dialog showing a tree of tools and their presets for cascade slot assignment."""
+
+    def __init__(self, slot_index: int, main_window, parent=None):
+        super().__init__(parent or main_window)
+        self.setWindowTitle(f"Select Cascade Step \u2014 Slot {slot_index + 1}")
+        self.resize(500, 450)
+        self.selected_tool: str | None = None
+        self.selected_preset: str | None = None
+
+        layout = QVBoxLayout(self)
+
+        # Search bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter tools and presets...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        self.search_bar.installEventFilter(self)
+        self._filter_cycle_index = -1
+        layout.addWidget(self.search_bar)
+
+        # Tree widget
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.itemDoubleClicked.connect(self._on_double_click)
+        layout.addWidget(self.tree)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(self._on_clear)
+        btn_row.addWidget(clear_btn)
+        self.select_btn = QPushButton("Select")
+        self.select_btn.setEnabled(False)
+        self.select_btn.clicked.connect(self._on_select)
+        btn_row.addWidget(self.select_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+        self.tree.currentItemChanged.connect(self._on_tree_selection_changed)
+        self._populate_tree()
+
+    def _populate_tree(self) -> None:
+        """Scan tools and presets, build the tree."""
+        self.tree.clear()
+        tools_path = _tools_dir()
+        entries = []
+        for json_file in sorted(tools_path.rglob("*.json")):
+            try:
+                data = load_tool(str(json_file))
+                errors = validate_tool(data)
+                if errors:
+                    continue
+                data = normalize_tool(data)
+                available = _binary_in_path(data["binary"])
+                entries.append((str(json_file), data, available))
+            except RuntimeError:
+                continue
+
+        # Sort: available first, then alphabetically
+        entries.sort(key=lambda e: (0 if e[2] else 1, e[1]["tool"].lower()))
+
+        for tool_path, data, available in entries:
+            tool_name = data["tool"]
+            presets_path = _presets_dir(tool_name)
+            preset_files = sorted(presets_path.glob("*.json"))
+
+            # Build parent node
+            suffix = f" ({len(preset_files)} preset{'s' if len(preset_files) != 1 else ''})"
+            if not available:
+                suffix += " (not installed)"
+            item = QTreeWidgetItem([f"{tool_name}{suffix}"])
+            item.setData(0, Qt.ItemDataRole.UserRole, tool_path)
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "tool")
+            if not available:
+                item.setForeground(0, QColor(COLOR_DIM))
+            self.tree.addTopLevelItem(item)
+
+            # Build preset children
+            for pf in preset_files:
+                child = QTreeWidgetItem([pf.stem])
+                child.setData(0, Qt.ItemDataRole.UserRole, str(pf))
+                child.setData(0, Qt.ItemDataRole.UserRole + 1, "preset")
+                # Store parent tool path on the child for convenience
+                child.setData(0, Qt.ItemDataRole.UserRole + 2, tool_path)
+                item.addChild(child)
+
+            if not preset_files:
+                placeholder = QTreeWidgetItem(["(no presets)"])
+                placeholder.setData(0, Qt.ItemDataRole.UserRole + 1, "placeholder")
+                placeholder.setForeground(0, QColor(COLOR_DIM))
+                item.addChild(placeholder)
+
+    def _on_double_click(self, item: QTreeWidgetItem, column: int) -> None:
+        """Double-click handler: accept on preset nodes, toggle expand on tool nodes."""
+        node_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if node_type == "preset":
+            self.selected_tool = item.data(0, Qt.ItemDataRole.UserRole + 2)
+            self.selected_preset = item.data(0, Qt.ItemDataRole.UserRole)
+            self.accept()
+        # tool or placeholder: do nothing (tree handles expand/collapse)
+
+    def _on_select(self) -> None:
+        """Select button: accept with current tree item (tool or preset)."""
+        item = self.tree.currentItem()
+        if not item:
+            return
+        node_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if node_type == "preset":
+            self.selected_tool = item.data(0, Qt.ItemDataRole.UserRole + 2)
+            self.selected_preset = item.data(0, Qt.ItemDataRole.UserRole)
+            self.accept()
+        elif node_type == "tool":
+            self.selected_tool = item.data(0, Qt.ItemDataRole.UserRole)
+            self.selected_preset = None
+            self.accept()
+
+    def _on_tree_selection_changed(self, current, previous) -> None:
+        """Enable Select button when a valid item (tool or preset) is selected."""
+        if not current:
+            self.select_btn.setEnabled(False)
+            return
+        node_type = current.data(0, Qt.ItemDataRole.UserRole + 1)
+        self.select_btn.setEnabled(node_type in ("tool", "preset"))
+
+    def _on_clear(self) -> None:
+        """Clear the slot assignment."""
+        self.selected_tool = None
+        self.selected_preset = None
+        self.accept()
+
+    def _on_filter(self, text: str) -> None:
+        """Filter tree items by search text."""
+        query = text.strip().lower()
+        for i in range(self.tree.topLevelItemCount()):
+            tool_item = self.tree.topLevelItem(i)
+            tool_name = tool_item.text(0).lower()
+            tool_matches = query in tool_name
+
+            any_child_visible = False
+            for j in range(tool_item.childCount()):
+                child = tool_item.child(j)
+                child_matches = query in child.text(0).lower()
+                child.setHidden(bool(query) and not child_matches and not tool_matches)
+                if not child.isHidden():
+                    any_child_visible = True
+
+            tool_item.setHidden(bool(query) and not tool_matches and not any_child_visible)
+            if any_child_visible and query:
+                tool_item.setExpanded(True)
+        self._filter_cycle_index = -1
+
+    def _visible_tree_items(self) -> list[QTreeWidgetItem]:
+        """Return a flat list of visible, selectable tree items (tools and presets)."""
+        items = []
+        for i in range(self.tree.topLevelItemCount()):
+            tool_item = self.tree.topLevelItem(i)
+            if tool_item.isHidden():
+                continue
+            items.append(tool_item)
+            if tool_item.isExpanded():
+                for j in range(tool_item.childCount()):
+                    child = tool_item.child(j)
+                    if not child.isHidden():
+                        node_type = child.data(0, Qt.ItemDataRole.UserRole + 1)
+                        if node_type != "placeholder":
+                            items.append(child)
+        return items
+
+    def _filter_next(self) -> None:
+        """Select the next visible tree item (Enter in filter bar)."""
+        visible = self._visible_tree_items()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index + 1) % len(visible)
+        self.tree.setCurrentItem(visible[self._filter_cycle_index])
+        self.tree.scrollToItem(visible[self._filter_cycle_index])
+
+    def _filter_prev(self) -> None:
+        """Select the previous visible tree item (Shift+Enter in filter bar)."""
+        visible = self._visible_tree_items()
+        if not visible:
+            return
+        self._filter_cycle_index = (self._filter_cycle_index - 1) % len(visible)
+        self.tree.setCurrentItem(visible[self._filter_cycle_index])
+        self.tree.scrollToItem(visible[self._filter_cycle_index])
+
+    def eventFilter(self, obj, event) -> bool:
+        """Catch Enter/Shift+Enter on filter bar for match cycling."""
+        if obj is self.search_bar and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._filter_prev()
+                else:
+                    self._filter_next()
+                return True
+        return super().eventFilter(obj, event)
+
+
+# ---------------------------------------------------------------------------
+# Cascade list picker dialog
+# ---------------------------------------------------------------------------
+
+class CascadeListDialog(QDialog):
+    """Modal dialog for selecting a saved cascade file, with optional export mode."""
+
+    def __init__(self, mode: str = "load", parent=None):
+        super().__init__(parent)
+        self.mode = mode  # "load" or "export"
+        self.selected_path: str | None = None
+
+        title = "Export Cascade" if mode == "export" else "Cascade List"
+        self.setWindowTitle(title)
+        self.resize(550, 400)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # Search bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter cascades...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        layout.addWidget(self.search_bar)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Name", "Description", "Steps", "Modified"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Interactive
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSortingEnabled(True)
+        self.table.doubleClicked.connect(self._on_double_click)
+        self.table.selectionModel().selectionChanged.connect(self._on_selection)
+        layout.addWidget(self.table, 1)
+
+        # Buttons
+        btn_bar = QHBoxLayout()
+        if mode == "load":
+            self.delete_btn = QPushButton("Delete")
+            self.delete_btn.setEnabled(False)
+            self.delete_btn.clicked.connect(self._on_delete)
+            btn_bar.addWidget(self.delete_btn)
+        else:
+            self.delete_btn = None
+        btn_bar.addStretch()
+        action_label = "Export" if mode == "export" else "Load"
+        self.action_btn = QPushButton(action_label)
+        self.action_btn.setEnabled(False)
+        self.action_btn.clicked.connect(self._on_action)
+        btn_bar.addWidget(self.action_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_bar.addWidget(cancel_btn)
+        layout.addLayout(btn_bar)
+
+        self._cascades: list[Path] = []
+        self._populate()
+
+    def _populate(self) -> None:
+        """Scan cascades dir and fill the table with valid cascade files."""
+        cascade_dir = _cascades_dir()
+        cascade_files = sorted(cascade_dir.glob("*.json"))
+
+        valid = []
+        for f in cascade_files:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    continue
+                if data.get("_format") != "scaffold_cascade":
+                    continue
+                valid.append((f, data))
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        self._cascades = [f for f, _ in valid]
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(valid))
+        for row, (f, data) in enumerate(valid):
+            # Name
+            self.table.setItem(row, 0, QTableWidgetItem(data.get("name", f.stem)))
+            # Description
+            self.table.setItem(row, 1, QTableWidgetItem(data.get("description", "")))
+            # Steps count
+            steps = data.get("steps", [])
+            count_item = QTableWidgetItem()
+            count_item.setData(Qt.ItemDataRole.DisplayRole, len(steps))
+            self.table.setItem(row, 2, count_item)
+            # Modified date
+            try:
+                mtime = f.stat().st_mtime
+                dt = datetime.datetime.fromtimestamp(mtime)
+                date_str = dt.strftime("%b %d, %Y %I:%M %p")
+            except OSError:
+                date_str = "Unknown"
+            self.table.setItem(row, 3, QTableWidgetItem(date_str))
+        self.table.setSortingEnabled(True)
+        self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.table.resizeColumnToContents(0)
+
+        self.action_btn.setEnabled(False)
+        if self.delete_btn:
+            self.delete_btn.setEnabled(False)
+
+    def _on_selection(self) -> None:
+        """Enable/disable buttons based on selection."""
+        has_sel = len(self.table.selectionModel().selectedRows()) > 0
+        self.action_btn.setEnabled(has_sel)
+        if self.delete_btn:
+            self.delete_btn.setEnabled(has_sel)
+
+    def _on_double_click(self, index) -> None:
+        """Accept on double-click."""
+        row = index.row()
+        if 0 <= row < len(self._cascades):
+            self.selected_path = str(self._cascades[row])
+            self.accept()
+
+    def _on_action(self) -> None:
+        """Accept with the selected cascade path."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        row = rows[0].row()
+        if 0 <= row < len(self._cascades):
+            self.selected_path = str(self._cascades[row])
+            self.accept()
+
+    def _on_delete(self) -> None:
+        """Delete the selected cascade file."""
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        row = rows[0].row()
+        if row < 0 or row >= len(self._cascades):
+            return
+        cascade_path = self._cascades[row]
+        name = cascade_path.stem
+
+        confirm = QMessageBox.question(
+            self, "Confirm Delete",
+            f"Delete cascade '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            cascade_path.unlink()
+        except OSError as e:
+            QMessageBox.warning(self, "Error", f"Cannot delete cascade:\n{e}")
+            return
+
+        self._cascades.pop(row)
+        self.table.removeRow(row)
+        if self.table.rowCount() == 0:
+            self.reject()
+
+    def _on_filter(self, text: str) -> None:
+        """Filter table rows by search text (name + description)."""
+        query = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            name_item = self.table.item(row, 0)
+            desc_item = self.table.item(row, 1)
+            name_text = name_item.text().lower() if name_item else ""
+            desc_text = desc_item.text().lower() if desc_item else ""
+            self.table.setRowHidden(row, bool(query) and query not in name_text and query not in desc_text)
+
+
+# ---------------------------------------------------------------------------
+# Cascade sidebar dock widget
+# ---------------------------------------------------------------------------
+
+CASCADE_MAX_SLOTS = 20
+CASCADE_INITIAL_SLOTS = 2
+
+# Chain runner states
+CHAIN_IDLE = "idle"
+CHAIN_LOADING = "loading"       # Loading tool + preset into form
+CHAIN_RUNNING = "running"       # QProcess is executing
+CHAIN_FINISHED = "finished"     # Chain completed all steps
+
+
+class CascadeSidebar(QDockWidget):
+    """Collapsible right-side dock with dynamic cascade step slots."""
+
+    def __init__(self, main_window, parent=None):
+        super().__init__("Cascade", parent or main_window)
+        self._main_window = main_window
+        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+
+        # Data model starts empty; _load_cascade populates it
+        self._slots: list[dict] = []
+        self._slot_widgets: list[dict] = []
+        self._slot_buttons: list[QPushButton] = []
+        self._arrow_buttons: list[QPushButton] = []
+
+        # Content widget
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(6, 6, 6, 6)
+        content_layout.setSpacing(4)
+
+        # Menu button row (right-aligned)
+        menu_row = QHBoxLayout()
+        menu_row.addStretch()
+
+        self._menu_btn = QToolButton()
+        self._menu_btn.setText("\u2630")
+        self._menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._menu_btn.setAutoRaise(True)
+        self._menu_btn.setFixedSize(24, 24)
+        panel_menu = QMenu(self._menu_btn)
+        panel_menu.addAction("Save Cascade...", self._on_save_cascade_file)
+        panel_menu.addAction("Cascade List...", self._on_load_cascade_list)
+        panel_menu.addSeparator()
+        panel_menu.addAction("Import Cascade...", self._on_import_cascade)
+        panel_menu.addAction("Export Cascade...", self._on_export_cascade)
+        self._menu_btn.setMenu(panel_menu)
+        menu_row.addWidget(self._menu_btn)
+
+        content_layout.addLayout(menu_row)
+
+        # Scroll area for slots
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_widget = QWidget()
+        self._slots_container = QVBoxLayout(scroll_widget)
+        self._slots_container.setContentsMargins(0, 0, 0, 0)
+        self._slots_container.setSpacing(2)
+
+        # + Add Step button
+        self.add_step_btn = QPushButton("+ Add Step")
+        self.add_step_btn.clicked.connect(self._on_add_slot)
+        self._slots_container.addWidget(self.add_step_btn)
+
+        self._slots_container.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        content_layout.addWidget(scroll_area)
+
+        # Chain controls — two rows to fit within 208px width
+        chain_row1 = QHBoxLayout()
+        chain_row1.setSpacing(4)
+        chain_row2 = QHBoxLayout()
+        chain_row2.setSpacing(4)
+
+        self._loop_enabled = False
+        self.loop_btn = QPushButton("Loop")
+        self.loop_btn.setFixedWidth(65)
+        self.loop_btn.setToolTip("Click to toggle. Loop: repeat chain until stopped.")
+        self.loop_btn.clicked.connect(self._toggle_loop)
+        self.run_chain_btn = QPushButton("Run")
+        self.stop_chain_btn = QPushButton("Stop")
+        self.clear_all_btn = QPushButton("Clear")
+        self.stop_chain_btn.setEnabled(False)
+        self.run_chain_btn.clicked.connect(self._on_run_chain)
+        self.stop_chain_btn.clicked.connect(self._on_stop_chain)
+        self.clear_all_btn.clicked.connect(self._on_clear_all_slots)
+
+        chain_row1.addWidget(self.run_chain_btn, 1)
+        chain_row1.addWidget(self.stop_chain_btn, 1)
+
+        chain_row2.addWidget(self.loop_btn)
+        chain_row2.addWidget(self.clear_all_btn, 1)
+
+        chain_controls = QVBoxLayout()
+        chain_controls.setSpacing(4)
+        chain_controls.addLayout(chain_row1)
+        chain_controls.addLayout(chain_row2)
+        content_layout.addLayout(chain_controls)
+
+        content.setFixedWidth(220)
+        self.setWidget(content)
+
+        # Chain state
+        self._chain_state = CHAIN_IDLE
+        self._chain_queue: list[int] = []
+        self._chain_current = -1
+        self._chain_loop_count = 0
+        self._stored_original_on_finished = None
+
+        # Load saved state (populates self._slots and builds widgets)
+        self._load_cascade()
+        self._refresh_button_labels()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+
+    # ------------------------------------------------------------------
+    # Slot widget management
+    # ------------------------------------------------------------------
+
+    def _add_slot_widget(self, index: int) -> None:
+        """Create and insert a slot widget at the given position."""
+        slot_widget = QWidget()
+        slot_layout = QVBoxLayout(slot_widget)
+        slot_layout.setContentsMargins(0, 0, 0, 2)
+        slot_layout.setSpacing(2)
+
+        # Row 1: number label + main button + arrow button + remove button
+        row1 = QHBoxLayout()
+        row1.setSpacing(2)
+
+        num_label = QLabel(f"{index + 1}")
+        num_label.setFixedWidth(16)
+        num_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        main_btn = QPushButton("(empty)")
+        main_btn.setFixedHeight(28)
+        main_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        main_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        main_btn.clicked.connect(lambda checked=False, b=main_btn: self._on_slot_clicked(self._slot_buttons.index(b)))
+        main_btn.customContextMenuRequested.connect(lambda pos, b=main_btn: self._on_slot_right_click(self._slot_buttons.index(b)))
+
+        arrow_btn = QPushButton("\u25be")
+        arrow_btn.setFixedWidth(24)
+        arrow_btn.setFixedHeight(28)
+        arrow_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        arrow_btn.setToolTip("Change or clear this step")
+        arrow_btn.clicked.connect(lambda checked=False, b=arrow_btn: self._on_slot_right_click(self._arrow_buttons.index(b)))
+        if _dark_mode:
+            arrow_btn.setStyleSheet(f"color: {DARK_COLORS['text_dim']}; padding: 0px;")
+
+        remove_btn = QPushButton("\u2212")
+        remove_btn.setFixedWidth(24)
+        remove_btn.setFixedHeight(28)
+        remove_btn.setToolTip("Remove this step")
+        remove_btn.clicked.connect(lambda checked=False, b=remove_btn: self._on_remove_slot(self._find_slot_by_remove_btn(b)))
+        if _dark_mode:
+            remove_btn.setStyleSheet(f"color: {DARK_COLORS['text_dim']}; padding: 0px;")
+
+        row1.addWidget(num_label)
+        row1.addWidget(main_btn, 1)
+        row1.addWidget(arrow_btn)
+        row1.addWidget(remove_btn)
+        slot_layout.addLayout(row1)
+
+        # Row 2: delay label + spinner (centered)
+        delay_row = QHBoxLayout()
+        delay_row.addStretch()
+        dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        delay_label = QLabel("Delay")
+        delay_label.setStyleSheet(f"font-size: 11px; color: {dim_color};")
+        delay_row.addWidget(delay_label)
+        delay_spin = QSpinBox()
+        delay_spin.setRange(0, 3600)
+        saved_delay = self._slots[index].get("delay", 0) if index < len(self._slots) else 0
+        delay_spin.setValue(saved_delay)
+        delay_spin.setSuffix("s")
+        delay_spin.setSingleStep(1)
+        delay_spin.setFixedWidth(80)
+        delay_spin.setToolTip("Delay after this step (seconds). 0 = no delay.")
+        delay_spin.valueChanged.connect(lambda val, b=main_btn: self._on_delay_changed(self._slot_buttons.index(b), val))
+        delay_row.addWidget(delay_spin)
+        delay_row.addStretch()
+        slot_layout.addLayout(delay_row)
+
+        # Insert into container (before the + button and stretch)
+        insert_pos = len(self._slot_widgets)
+        self._slots_container.insertWidget(insert_pos, slot_widget)
+
+        # Store widget info
+        info = {
+            "widget": slot_widget,
+            "main_btn": main_btn,
+            "arrow_btn": arrow_btn,
+            "remove_btn": remove_btn,
+            "num_label": num_label,
+            "delay_label": delay_label,
+            "delay_spin": delay_spin,
+        }
+        self._slot_widgets.append(info)
+        self._slot_buttons.append(main_btn)
+        self._arrow_buttons.append(arrow_btn)
+
+    def _find_slot_by_remove_btn(self, btn: QPushButton) -> int:
+        """Find slot index by its remove button."""
+        for i, info in enumerate(self._slot_widgets):
+            if info["remove_btn"] is btn:
+                return i
+        return -1
+
+    def _on_add_slot(self) -> None:
+        """Add a new empty slot at the end."""
+        if len(self._slots) >= CASCADE_MAX_SLOTS:
+            self._main_window.statusBar().showMessage(f"Maximum {CASCADE_MAX_SLOTS} steps")
+            return
+        self._slots.append({"tool_path": None, "preset_path": None, "delay": 0})
+        self._add_slot_widget(len(self._slots) - 1)
+        self._save_cascade()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+
+    def _on_remove_slot(self, index: int) -> None:
+        """Remove the slot at the given index."""
+        if index < 0 or len(self._slots) <= 1:
+            return
+        self._slots.pop(index)
+        info = self._slot_widgets.pop(index)
+        self._slot_buttons.pop(index)
+        self._arrow_buttons.pop(index)
+        info["widget"].deleteLater()
+        self._renumber_slots()
+        self._save_cascade()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+
+    def _renumber_slots(self) -> None:
+        """Update all number labels after add/remove."""
+        for i, info in enumerate(self._slot_widgets):
+            info["num_label"].setText(f"{i + 1}")
+
+    def _update_add_button_state(self) -> None:
+        """Disable + button when at max slots."""
+        self.add_step_btn.setEnabled(len(self._slots) < CASCADE_MAX_SLOTS)
+
+    def _update_remove_button_state(self) -> None:
+        """Disable remove button when only 1 slot remains."""
+        only_one = len(self._slot_widgets) <= 1
+        for info in self._slot_widgets:
+            info["remove_btn"].setEnabled(not only_one)
+
+    def _on_delay_changed(self, index: int, value: int) -> None:
+        """Update delay value in the data model when spinner changes."""
+        if 0 <= index < len(self._slots):
+            self._slots[index]["delay"] = value
+            self._save_cascade()
+
+    def _toggle_loop(self) -> None:
+        """Toggle loop mode on/off."""
+        self._loop_enabled = not self._loop_enabled
+        self._style_loop_btn()
+        self._save_cascade()
+
+    def _style_loop_btn(self) -> None:
+        """Update loop button appearance based on current state."""
+        if self._loop_enabled:
+            color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
+            self.loop_btn.setStyleSheet(f"border: 2px solid {color};")
+            self.loop_btn.setText("Loop \u2713")
+        else:
+            self.loop_btn.setStyleSheet("")
+            self.loop_btn.setText("Loop")
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _save_cascade(self) -> None:
+        """Persist slot data to QSettings."""
+        settings = self._main_window.settings
+        data = []
+        for slot in self._slots:
+            data.append({
+                "tool_path": slot.get("tool_path"),
+                "preset_path": slot.get("preset_path"),
+                "delay": slot.get("delay", 0),
+            })
+        settings.setValue("cascade/slots", json.dumps(data))
+        settings.setValue("cascade/loop_mode", 1 if self._loop_enabled else 0)
+
+    def _load_cascade(self) -> None:
+        """Restore slot data from QSettings, migrating from old keys if needed."""
+        settings = self._main_window.settings
+        raw = settings.value("cascade/slots")
+        if raw is None:
+            # Migration from old "favorites" keys
+            raw = settings.value("favorites/slots")
+            if raw is not None:
+                settings.setValue("cascade/slots", raw)
+                settings.remove("favorites/slots")
+            vis = settings.value("favorites/visible")
+            if vis is not None:
+                settings.setValue("cascade/visible", vis)
+                settings.remove("favorites/visible")
+
+        loaded_slots = None
+        if raw:
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list) and data:
+                    loaded_slots = []
+                    for item in data:
+                        loaded_slots.append({
+                            "tool_path": item.get("tool_path") if isinstance(item, dict) else None,
+                            "preset_path": item.get("preset_path") if isinstance(item, dict) else None,
+                            "delay": item.get("delay", 0) if isinstance(item, dict) else 0,
+                        })
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if loaded_slots is None:
+            loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0}
+                            for _ in range(CASCADE_INITIAL_SLOTS)]
+
+        # Tear down any existing widgets
+        for info in self._slot_widgets:
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+
+        self._slots = loaded_slots
+        for i in range(len(self._slots)):
+            self._add_slot_widget(i)
+
+        # Restore loop mode
+        self._loop_enabled = int(self._main_window.settings.value("cascade/loop_mode", 0) or 0) == 1
+        self._style_loop_btn()
+
+    # ------------------------------------------------------------------
+    # Cascade file save/load/import/export
+    # ------------------------------------------------------------------
+
+    def _export_cascade_data(self, name: str, description: str = "") -> dict:
+        """Serialize current slots to the cascade file format."""
+        base = Path(__file__).parent
+        steps = []
+        for slot in self._slots:
+            if not slot.get("tool_path"):
+                continue
+            tool_rel = slot["tool_path"]
+            try:
+                tool_rel = str(Path(slot["tool_path"]).relative_to(base))
+            except ValueError:
+                pass
+            preset_rel = None
+            if slot.get("preset_path"):
+                try:
+                    preset_rel = str(Path(slot["preset_path"]).relative_to(base))
+                except ValueError:
+                    preset_rel = slot["preset_path"]
+            steps.append({
+                "tool": tool_rel,
+                "preset": preset_rel,
+                "delay": slot.get("delay", 0),
+            })
+        return {
+            "_format": "scaffold_cascade",
+            "name": name,
+            "description": description,
+            "loop_mode": self._loop_enabled,
+            "steps": steps,
+        }
+
+    def _import_cascade_data(self, data: dict) -> None:
+        """Load cascade data from a dict, replacing current slots."""
+        fmt = data.get("_format")
+        if fmt != "scaffold_cascade":
+            raise ValueError(
+                f'Invalid or missing _format (expected "scaffold_cascade", got {fmt!r})'
+            )
+        steps = data.get("steps")
+        if not steps or not isinstance(steps, list):
+            raise ValueError("Cascade data must contain a non-empty 'steps' list")
+
+        base = Path(__file__).parent
+
+        # Tear down existing slot widgets (same as _on_clear_all_slots sans confirmation)
+        for info in self._slot_widgets:
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+
+        # Build new slots from steps
+        new_slots = []
+        for step in steps:
+            tool_path = str(base / step["tool"]) if step.get("tool") else None
+            preset_path = str(base / step["preset"]) if step.get("preset") else None
+            new_slots.append({
+                "tool_path": tool_path,
+                "preset_path": preset_path,
+                "delay": step.get("delay", 0),
+            })
+
+        # Pad to minimum
+        while len(new_slots) < CASCADE_INITIAL_SLOTS:
+            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0})
+
+        self._slots = new_slots
+        for i in range(len(self._slots)):
+            self._add_slot_widget(i)
+
+        self._loop_enabled = bool(data.get("loop_mode", False))
+        self._style_loop_btn()
+        self._save_cascade()
+        self._refresh_button_labels()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+
+    def _on_save_cascade_file(self) -> None:
+        """Save the current cascade slots to a named JSON file."""
+        has_any = any(s.get("tool_path") for s in self._slots)
+        if not has_any:
+            self._main_window.statusBar().showMessage("No cascade steps to save")
+            return
+
+        name, ok = QInputDialog.getText(self, "Save Cascade", "Cascade name:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        safe_name = re.sub(r'[^\w\- ]', '_', name)
+        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        if not safe_name:
+            QMessageBox.warning(self, "Invalid Name", "The name is not valid after sanitizing.")
+            return
+
+        cascade_path = _cascades_dir() / f"{safe_name}.json"
+
+        # Pre-fill description if overwriting
+        existing_desc = ""
+        if cascade_path.exists():
+            answer = QMessageBox.question(
+                self, "Overwrite Cascade",
+                f"Overwrite existing cascade '{safe_name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                existing_data = json.loads(cascade_path.read_text(encoding="utf-8"))
+                existing_desc = existing_data.get("description", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        description, ok2 = QInputDialog.getText(
+            self, "Save Cascade", "Description (optional):", text=existing_desc,
+        )
+        if not ok2:
+            return
+        description = description.strip()
+
+        data = self._export_cascade_data(name, description)
+        try:
+            cascade_path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            self._main_window.statusBar().showMessage(f"Error saving cascade: {e}")
+            return
+        self._main_window.statusBar().showMessage(f"Cascade saved: {name}")
+
+    def _on_load_cascade_list(self) -> None:
+        """Show the cascade list dialog and load the selected cascade."""
+        has_any = any(s.get("tool_path") for s in self._slots)
+        if has_any:
+            answer = QMessageBox.question(
+                self, "Load Cascade",
+                "Loading a cascade will replace current steps. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        dlg = CascadeListDialog(mode="load", parent=self)
+        if not dlg.exec() or not dlg.selected_path:
+            return
+
+        cascade_path = Path(dlg.selected_path)
+        try:
+            data = json.loads(cascade_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
+            return
+
+        try:
+            self._import_cascade_data(data)
+        except ValueError as e:
+            self._main_window.statusBar().showMessage(f"Invalid cascade: {e}")
+            return
+
+        name = data.get("name", cascade_path.stem)
+        base = Path(__file__).parent
+        missing = 0
+        for step in data.get("steps", []):
+            if step.get("tool") and not (base / step["tool"]).exists():
+                missing += 1
+        if missing:
+            self._main_window.statusBar().showMessage(
+                f"Loaded cascade: {name} \u2014 {missing} tool(s) not found"
+            )
+        else:
+            self._main_window.statusBar().showMessage(f"Loaded cascade: {name}")
+
+    def _on_export_cascade(self) -> None:
+        """Export a saved cascade file to a user-chosen location."""
+        cascade_dir = _cascades_dir()
+        cascades = sorted(cascade_dir.glob("*.json"))
+        if not cascades:
+            self._main_window.statusBar().showMessage("No cascade files to export")
+            return
+
+        dlg = CascadeListDialog(mode="export", parent=self)
+        if not dlg.exec() or not dlg.selected_path:
+            return
+
+        src = Path(dlg.selected_path)
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Export Cascade", src.name, "JSON files (*.json)",
+        )
+        if not dest:
+            return
+
+        try:
+            content = src.read_text(encoding="utf-8")
+            Path(dest).write_text(content, encoding="utf-8")
+        except OSError as e:
+            self._main_window.statusBar().showMessage(f"Export failed: {e}")
+            return
+        self._main_window.statusBar().showMessage(f"Cascade exported: {src.stem}")
+
+    def _on_import_cascade(self) -> None:
+        """Import a cascade JSON file into the cascades directory."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Cascade", "", "JSON files (*.json)",
+        )
+        if not path:
+            return
+        src = Path(path)
+
+        try:
+            raw = src.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (json.JSONDecodeError, OSError) as e:
+            QMessageBox.critical(self, "Import Failed", f"Invalid JSON file:\n{e}")
+            return
+        if not isinstance(data, dict) or data.get("_format") != "scaffold_cascade":
+            QMessageBox.critical(
+                self, "Import Failed",
+                "This file is not a valid Scaffold cascade file.\n"
+                'Expected "_format": "scaffold_cascade".',
+            )
+            return
+
+        name = data.get("name", src.stem)
+        safe_name = re.sub(r'[^\w\- ]', '_', name)
+        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        if not safe_name:
+            safe_name = src.stem
+
+        dest = _cascades_dir() / f"{safe_name}.json"
+        if dest.exists():
+            answer = QMessageBox.question(
+                self, "Overwrite Cascade",
+                f"Overwrite existing cascade '{safe_name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            dest.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            self._main_window.statusBar().showMessage(f"Import failed: {e}")
+            return
+        self._main_window.statusBar().showMessage(f"Cascade imported: {name}")
+
+    # ------------------------------------------------------------------
+    # Button labels and styling
+    # ------------------------------------------------------------------
+
+    def _refresh_button_labels(self) -> None:
+        """Update button text to reflect current slot assignments."""
+        for i, slot in enumerate(self._slots):
+            info = self._slot_widgets[i]
+            btn = info["main_btn"]
+            arrow = info["arrow_btn"]
+            remove = info["remove_btn"]
+            if slot["tool_path"]:
+                tool_name = Path(slot["tool_path"]).stem
+                if slot.get("preset_path"):
+                    preset_name = Path(slot["preset_path"]).stem
+                    label = f"{tool_name} \u2014 {preset_name}"
+                else:
+                    label = tool_name
+                fm = btn.fontMetrics()
+                # Available width for text: 220 (content) - 12 (margins) - 16 (num) - 24 (arrow)
+                # - 24 (remove) - 6 (spacing) - ~24 (dark mode button padding) ≈ 114px; use 120.
+                max_text_width = 220 - 100
+                elided = fm.elidedText(label, Qt.TextElideMode.ElideRight, max_text_width)
+                btn.setText(elided)
+                self._style_slot_button(btn, empty=False, arrow_btn=arrow, remove_btn=remove)
+            else:
+                btn.setText("(empty)")
+                self._style_slot_button(btn, empty=True, arrow_btn=arrow, remove_btn=remove)
+
+    def _style_slot_button(self, btn: QPushButton, empty: bool,
+                           arrow_btn: QPushButton | None = None,
+                           remove_btn: QPushButton | None = None) -> None:
+        """Apply theme-appropriate styling to a slot button, arrow, and remove."""
+        if empty:
+            dim_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            btn.setStyleSheet(f"color: {dim_color}; text-align: center;")
+            if arrow_btn:
+                arrow_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;" if _dark_mode else f"color: {dim_color};")
+            if remove_btn:
+                remove_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;" if _dark_mode else f"color: {dim_color};")
+        else:
+            if _dark_mode:
+                text_color = DARK_COLORS["text"]
+                btn.setStyleSheet(f"color: {text_color}; text-align: center;")
+                if arrow_btn:
+                    arrow_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
+                if remove_btn:
+                    remove_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
+            else:
+                btn.setStyleSheet("text-align: center;")
+                if arrow_btn:
+                    arrow_btn.setStyleSheet("")
+                if remove_btn:
+                    remove_btn.setStyleSheet("")
+
+    # ------------------------------------------------------------------
+    # Slot interaction
+    # ------------------------------------------------------------------
+
+    def _on_slot_clicked(self, slot_index: int) -> None:
+        """Left-click: load the assigned tool+preset, or open picker if empty."""
+        slot = self._slots[slot_index]
+        if not slot["tool_path"]:
+            self._on_slot_right_click(slot_index)
+            return
+
+        tool_path = slot["tool_path"]
+        preset_path = slot.get("preset_path")
+
+        if not Path(tool_path).exists():
+            self._main_window.statusBar().showMessage(f"Tool not found: {Path(tool_path).name}")
+            return
+
+        self._main_window._load_tool_path(tool_path)
+
+        if preset_path and Path(preset_path).exists():
+            try:
+                preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
+                self._main_window.form.apply_values(preset_data)
+                self._main_window.statusBar().showMessage(
+                    f"Loaded cascade step: {Path(preset_path).stem}"
+                )
+            except (json.JSONDecodeError, OSError):
+                self._main_window.statusBar().showMessage("Preset file could not be loaded")
+        elif preset_path:
+            self._main_window.statusBar().showMessage(
+                f"Preset not found: {Path(preset_path).name} \u2014 tool loaded without preset"
+            )
+
+    def _on_slot_right_click(self, slot_index: int) -> None:
+        """Right-click: open picker dialog to assign/change/clear the slot."""
+        dlg = CascadePickerDialog(slot_index, self._main_window, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._slots[slot_index]["tool_path"] = dlg.selected_tool
+            self._slots[slot_index]["preset_path"] = dlg.selected_preset
+            self._save_cascade()
+            self._refresh_button_labels()
+
+    def _on_clear_all_slots(self) -> None:
+        """Clear all cascade slot assignments after confirmation."""
+        has_any = any(s.get("tool_path") for s in self._slots)
+        if not has_any:
+            return
+        answer = QMessageBox.question(
+            self, "Clear Cascade",
+            "Clear all cascade slots?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        # Remove all slot widgets
+        for info in self._slot_widgets:
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+        # Reset to initial empty slots
+        self._slots = [{"tool_path": None, "preset_path": None, "delay": 0}
+                       for _ in range(CASCADE_INITIAL_SLOTS)]
+        for i in range(CASCADE_INITIAL_SLOTS):
+            self._add_slot_widget(i)
+        self._refresh_button_labels()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+        self._save_cascade()
+        self._main_window.statusBar().showMessage("All cascade slots cleared")
+
+    # ------------------------------------------------------------------
+    # Chain runner
+    # ------------------------------------------------------------------
+
+    def _on_run_chain(self) -> None:
+        """Start running all assigned cascade steps sequentially."""
+        queue = []
+        for i, slot in enumerate(self._slots):
+            if slot.get("tool_path") and Path(slot["tool_path"]).exists():
+                queue.append(i)
+
+        if not queue:
+            self._main_window.statusBar().showMessage("No valid cascade steps to run")
+            return
+
+        self._chain_queue = queue
+        self._chain_current = -1
+        self._chain_loop_count = 0
+        self._chain_state = CHAIN_LOADING
+
+        # Disable UI during chain
+        self.run_chain_btn.setEnabled(False)
+        self.run_chain_btn.setText("Running...")
+        self.stop_chain_btn.setEnabled(True)
+        self.clear_all_btn.setEnabled(False)
+        self.loop_btn.setEnabled(False)
+        self.add_step_btn.setEnabled(False)
+        for info in self._slot_widgets:
+            info["main_btn"].setEnabled(False)
+            info["arrow_btn"].setEnabled(False)
+            info["remove_btn"].setEnabled(False)
+            info["delay_spin"].setEnabled(False)
+
+        # Disable File menu actions to prevent manual interference
+        self._main_window.act_load.setEnabled(False)
+
+        # Start first step
+        self._chain_advance()
+
+    def _chain_advance(self) -> None:
+        """Load and run the next cascade step in the chain."""
+        self._chain_current += 1
+
+        if self._chain_current >= len(self._chain_queue):
+            if self._loop_enabled:
+                self._chain_loop_count += 1
+                self._chain_current = -1
+                self._main_window.statusBar().showMessage(
+                    f"Cascade: starting loop {self._chain_loop_count + 1}"
+                )
+                last_slot_index = self._chain_queue[-1]
+                delay_secs = self._slots[last_slot_index].get("delay", 0)
+                delay_ms = max(delay_secs * 1000, 300)
+                QTimer.singleShot(delay_ms, self._chain_advance)
+                return
+            else:
+                runs = self._chain_loop_count + 1
+                self._chain_cleanup(f"Cascade complete ({runs} run(s))")
+                return
+
+        slot_index = self._chain_queue[self._chain_current]
+        slot = self._slots[slot_index]
+        tool_path = slot["tool_path"]
+        preset_path = slot.get("preset_path")
+
+        # Highlight the active slot button
+        self._highlight_active_slot(slot_index)
+
+        # Status update
+        step = self._chain_current + 1
+        total = len(self._chain_queue)
+        loop_prefix = f"loop {self._chain_loop_count + 1}, " if self._chain_loop_count > 0 else ""
+        self._main_window.statusBar().showMessage(
+            f"Cascade: {loop_prefix}step {step}/{total} \u2014 {Path(tool_path).stem}"
+        )
+
+        # Preserve output from previous chain steps
+        self._main_window._chain_preserve_output = True
+        if self._chain_current == 0 and self._chain_loop_count > 0 and hasattr(self._main_window, 'output'):
+            sep = f"\n{'\u2550' * 60}\n  Loop {self._chain_loop_count + 1}\n{'\u2550' * 60}\n"
+            self._main_window._append_output(sep, "gray")
+        elif self._chain_current > 0 and hasattr(self._main_window, 'output'):
+            sep = f"\n{'\u2500' * 60}\n"
+            self._main_window._append_output(sep, "gray")
+
+        # Clear stale recovery file before loading next tool
+        if hasattr(self._main_window, '_clear_recovery_file'):
+            self._main_window._clear_recovery_file()
+
+        # Load tool
+        try:
+            self._main_window._load_tool_path(tool_path)
+        except Exception as e:
+            self._chain_cleanup(f"Cascade failed loading tool: {e}")
+            return
+
+        # Disable main window controls (_load_tool_path re-enables them)
+        self._main_window.run_btn.setEnabled(False)
+        self._main_window.act_back.setEnabled(False)
+        self._main_window.act_reload.setEnabled(False)
+
+        # Apply preset
+        if preset_path and Path(preset_path).exists():
+            try:
+                preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
+                self._main_window.form.apply_values(preset_data)
+            except (json.JSONDecodeError, OSError) as e:
+                self._chain_cleanup(f"Cascade failed loading preset: {e}")
+                return
+
+        # Small delay to let the form render before executing
+        QTimer.singleShot(150, self._chain_execute_current)
+
+    def _chain_execute_current(self) -> None:
+        """Execute the currently loaded tool after form has rendered."""
+        if self._chain_state != CHAIN_LOADING:
+            return  # Chain was cancelled during the delay
+
+        # Validate required fields
+        missing = self._main_window.form.validate_required()
+        if missing:
+            self._chain_cleanup("Cascade stopped: required fields missing")
+            return
+
+        self._chain_state = CHAIN_RUNNING
+
+        # Monkey-patch _on_finished to advance the chain after each step
+        original_on_finished = self._main_window._on_finished
+
+        def _chain_on_finished(exit_code, exit_status):
+            """Wrapper that calls original handler then advances chain."""
+            original_on_finished(exit_code, exit_status)
+            # Re-disable run_btn (original handler re-enables it)
+            self._main_window.run_btn.setEnabled(False)
+            if self._chain_state == CHAIN_RUNNING:
+                self._chain_state = CHAIN_LOADING
+                slot_idx = self._chain_queue[self._chain_current]
+                delay_secs = self._slots[slot_idx].get("delay", 0)
+                delay_ms = max(delay_secs * 1000, 300)  # Minimum 300ms for UI breathing room
+                if delay_secs > 0:
+                    next_step = self._chain_current + 2  # 1-indexed display
+                    self._main_window.statusBar().showMessage(
+                        f"Cascade: waiting {delay_secs}s before step {next_step}..."
+                    )
+                QTimer.singleShot(delay_ms, self._chain_advance)
+
+        self._main_window._on_finished = _chain_on_finished
+        self._stored_original_on_finished = original_on_finished
+
+        # Start the command
+        self._main_window._on_run_stop()
+
+        # If process failed to even start (e.g. binary not found),
+        # _on_error fires and sets process=None without _on_finished.
+        # Detect this and clean up.
+        if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+            self._chain_cleanup("Cascade stopped: process failed to start")
+
+    def _on_stop_chain(self) -> None:
+        """Cancel the chain and stop the current process."""
+        was_running = self._chain_state
+        self._chain_state = CHAIN_IDLE
+        if was_running == CHAIN_RUNNING:
+            if self._main_window.process and self._main_window.process.state() != QProcess.ProcessState.NotRunning:
+                self._main_window._on_run_stop()  # Triggers the stop path
+        self._chain_cleanup("Cascade cancelled")
+
+    def _chain_cleanup(self, message: str) -> None:
+        """Reset chain state and re-enable UI."""
+        self._chain_state = CHAIN_IDLE
+        self._chain_queue = []
+        self._chain_current = -1
+        self._main_window._chain_preserve_output = False
+        self._main_window._autosave_timer.stop()
+
+        # Restore original _on_finished if it was replaced
+        if self._stored_original_on_finished is not None:
+            self._main_window._on_finished = self._stored_original_on_finished
+            self._stored_original_on_finished = None
+
+        # Re-enable UI
+        self.run_chain_btn.setEnabled(True)
+        self.run_chain_btn.setText("Run")
+        self.stop_chain_btn.setEnabled(False)
+        self.clear_all_btn.setEnabled(True)
+        self.loop_btn.setEnabled(True)
+        self.add_step_btn.setEnabled(len(self._slots) < CASCADE_MAX_SLOTS)
+        for info in self._slot_widgets:
+            info["main_btn"].setEnabled(True)
+            info["arrow_btn"].setEnabled(True)
+            info["remove_btn"].setEnabled(True)
+            info["delay_spin"].setEnabled(True)
+        self._update_remove_button_state()
+        self._main_window.run_btn.setEnabled(True)
+        self._main_window.act_load.setEnabled(True)
+        # Only re-enable these if a tool is loaded
+        if self._main_window.data is not None:
+            self._main_window.act_back.setEnabled(True)
+            self._main_window.act_reload.setEnabled(True)
+
+        self._clear_slot_highlights()
+        self._main_window.statusBar().showMessage(message)
+
+    def _highlight_active_slot(self, index: int) -> None:
+        """Highlight the currently executing slot button."""
+        self._clear_slot_highlights()
+        color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
+        if _dark_mode:
+            text_color = DARK_COLORS["text"]
+            self._slot_buttons[index].setStyleSheet(
+                f"color: {text_color}; text-align: center; padding: 4px 12px; border: 2px solid {color};")
+            self._arrow_buttons[index].setStyleSheet(
+                f"color: {text_color}; padding: 0px; border: 2px solid {color};")
+        else:
+            self._slot_buttons[index].setStyleSheet(f"border: 2px solid {color};")
+            self._arrow_buttons[index].setStyleSheet(f"border: 2px solid {color};")
+
+    def _clear_slot_highlights(self) -> None:
+        """Remove highlighting from all slot buttons."""
+        self._refresh_button_labels()
+
+    def update_theme(self) -> None:
+        """Re-apply theme colors to slot buttons and chain controls."""
+        self._refresh_button_labels()
+        self._clear_slot_highlights()
+        self._style_loop_btn()
+        dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        for info in self._slot_widgets:
+            info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -3280,6 +4762,7 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setInterval(AUTOSAVE_DEBOUNCE_MS)
         self._autosave_timer.timeout.connect(self._autosave_form)
         self._default_form_snapshot = None
+        self._chain_preserve_output = False
         self._cleanup_stale_recovery_files()
 
         # Restore geometry
@@ -3315,8 +4798,21 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Ready")
 
+        # Cascade sidebar (created before _build_menu so menu can reference it)
+        self.cascade_dock = CascadeSidebar(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.cascade_dock)
+
         self._build_menu()
         self._build_shortcuts()
+
+        visible = self.settings.value("cascade/visible", False, type=bool)
+        self.cascade_dock.setVisible(visible)
+        self.act_cascade_toggle.setChecked(visible)
+        if visible:
+            self.setMinimumWidth(MIN_WINDOW_WIDTH + 320)
+        self.cascade_dock.visibilityChanged.connect(
+            lambda vis: self.act_cascade_toggle.setChecked(vis)
+        )
 
         if tool_path:
             self._load_tool_path(tool_path)
@@ -3375,6 +4871,25 @@ class MainWindow(QMainWindow):
         self.act_export_preset = self.preset_menu.addAction("Export Preset...")
         self.act_export_preset.triggered.connect(self._on_export_preset)
 
+        # Cascade menu
+        cascade_menu = self.menuBar().addMenu("Cascade")
+        self.act_cascade_toggle = cascade_menu.addAction("Show Cascade Panel")
+        self.act_cascade_toggle.setShortcut("Ctrl+G")
+        self.act_cascade_toggle.setCheckable(True)
+        self.act_cascade_toggle.triggered.connect(self._toggle_cascade)
+
+        cascade_menu.addSeparator()
+        self.act_save_cascade = cascade_menu.addAction("Save Cascade...")
+        self.act_save_cascade.triggered.connect(self.cascade_dock._on_save_cascade_file)
+        self.act_load_cascade = cascade_menu.addAction("Cascade List...")
+        self.act_load_cascade.triggered.connect(self.cascade_dock._on_load_cascade_list)
+
+        cascade_menu.addSeparator()
+        self.act_import_cascade = cascade_menu.addAction("Import Cascade...")
+        self.act_import_cascade.triggered.connect(self.cascade_dock._on_import_cascade)
+        self.act_export_cascade = cascade_menu.addAction("Export Cascade...")
+        self.act_export_cascade.triggered.connect(self.cascade_dock._on_export_cascade)
+
         # View menu — theme selector
         view_menu = self.menuBar().addMenu("View")
         theme_menu = view_menu.addMenu("Theme")
@@ -3431,6 +4946,22 @@ class MainWindow(QMainWindow):
         self._set_theme("dark" if not _dark_mode else "light")
         self._sync_theme_checks()
 
+    def _toggle_cascade(self, checked: bool = None) -> None:
+        """Show/hide the Cascade sidebar and persist the state."""
+        if checked is None:
+            checked = not self.cascade_dock.isVisible()
+        if checked and not self.cascade_dock.isVisible():
+            # Expand window to accommodate sidebar + button breathing room
+            min_needed = MIN_WINDOW_WIDTH + 320
+            if self.width() < min_needed:
+                self.resize(min_needed, self.height())
+            self.setMinimumWidth(min_needed)
+        elif not checked:
+            self.setMinimumWidth(MIN_WINDOW_WIDTH)
+        self.cascade_dock.setVisible(checked)
+        self.act_cascade_toggle.setChecked(self.cascade_dock.isVisible())
+        self.settings.setValue("cascade/visible", self.cascade_dock.isVisible())
+
     def _on_about(self) -> None:
         """Show the About Scaffold dialog."""
         QMessageBox.about(
@@ -3454,6 +4985,7 @@ class MainWindow(QMainWindow):
             "Ctrl+H          Command History...\n"
             "\n"
             "Ctrl+D          Toggle Dark/Light Theme\n"
+            "Ctrl+G          Toggle Cascade Panel\n"
             "Ctrl+F          Find Field\n"
             "Ctrl+Shift+F    Search Output\n"
             "Ctrl+Enter      Run Command\n"
@@ -3508,8 +5040,12 @@ class MainWindow(QMainWindow):
         # Update required label colors in the form
         if hasattr(self, "form"):
             self.form.update_theme()
-        # Force repaint
+        # Force repaint — must happen BEFORE cascade theme update so that
+        # setStyle() doesn't reset the inline styles that update_theme() applies.
         QApplication.instance().setStyle(QApplication.instance().style().name())
+        # Cascade sidebar
+        if hasattr(self, "cascade_dock"):
+            self.cascade_dock.update_theme()
 
     @staticmethod
     def _style_section_label(label: QLabel) -> None:
@@ -3595,12 +5131,14 @@ class MainWindow(QMainWindow):
                 f" color: {DARK_COLORS['warning_text']};"
                 f" padding: 6px 12px;"
                 f" border: 1px solid {DARK_COLORS['warning_border']};"
+                " border-radius: 4px;"
                 " font-weight: bold;"
             )
         else:
             self.warning_bar.setStyleSheet(
                 f"background-color: {LIGHT_WARNING_BG}; color: {LIGHT_WARNING_FG};"
                 f" padding: 6px 12px; border: 1px solid {LIGHT_WARNING_BORDER};"
+                " border-radius: 4px;"
                 " font-weight: bold;"
             )
 
@@ -3623,10 +5161,10 @@ class MainWindow(QMainWindow):
 
     def _shortcut_stop(self) -> None:
         """Trigger Stop via Escape — close output search first, then field search, then stop process."""
-        if self._output_search_widget.isVisible() and self._output_search_bar.hasFocus():
+        if hasattr(self, '_output_search_widget') and self._output_search_widget.isVisible() and self._output_search_bar.hasFocus():
             self._close_output_search()
             return
-        if self.form and self.form._search_row_widget.isVisible():
+        if hasattr(self, 'form') and self.form and self.form._search_row_widget.isVisible():
             self.form.close_search()
             return
         if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
@@ -3634,12 +5172,12 @@ class MainWindow(QMainWindow):
 
     def _shortcut_find(self) -> None:
         """Open field search bar via Ctrl+F when form view is active."""
-        if self.form and self.stack.currentIndex() == 1:
+        if hasattr(self, 'form') and self.form and self.stack.currentIndex() == 1:
             self.form.open_search()
 
     def _shortcut_output_find(self) -> None:
         """Open output search bar via Ctrl+Shift+F when form view is active."""
-        if self.stack.currentIndex() == 1:
+        if self.stack.currentIndex() == 1 and hasattr(self, '_output_search_widget'):
             self._output_search_widget.setVisible(True)
             self._output_search_bar.setFocus()
             self._output_search_bar.selectAll()
@@ -3870,6 +5408,8 @@ class MainWindow(QMainWindow):
 
     def _check_for_recovery(self) -> None:
         """On tool load, offer to restore auto-saved form state."""
+        if self._chain_preserve_output:
+            return
         path = self._recovery_file_path()
         if path is None or not path.exists():
             return
@@ -3920,6 +5460,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Persist window geometry and session state; kill any running process on exit."""
+        # Stop chain runner if active
+        if self.cascade_dock._chain_state != CHAIN_IDLE:
+            self.cascade_dock._chain_cleanup("Closing")
         # Stop timers FIRST to prevent them from recreating files during teardown
         self._autosave_timer.stop()
         self._elapsed_timer.stop()
@@ -3995,6 +5538,13 @@ class MainWindow(QMainWindow):
 
         # Three-tier _format check: correct -> silent, missing -> warn, wrong -> reject
         fmt = data.get("_format")
+        if fmt == "scaffold_cascade":
+            QMessageBox.critical(
+                self, "Wrong File Format",
+                "This is a cascade file, not a tool schema. "
+                "Use Cascade \u2192 Cascade List to open it.",
+            )
+            return
         if fmt is not None and fmt != "scaffold_schema":
             QMessageBox.critical(
                 self, "Wrong File Format",
@@ -4082,6 +5632,11 @@ class MainWindow(QMainWindow):
         self.process = None
         self._killed = False
         self._timed_out = False
+
+        # Preserve output content during chain execution
+        _preserved_output = None
+        if self._chain_preserve_output and hasattr(self, 'output'):
+            _preserved_output = self.output.document().toHtml()
 
         # Clear old contents
         layout = self.form_container_layout
@@ -4189,7 +5744,6 @@ class MainWindow(QMainWindow):
         preview_section_widget.setLayout(preview_section)
         layout.addWidget(preview_section_widget)
 
-
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(lambda: self.status.setText(""))
@@ -4296,6 +5850,10 @@ class MainWindow(QMainWindow):
             )
         layout.addWidget(self.output)
 
+        # Restore preserved output from previous chain step
+        if _preserved_output is not None:
+            self.output.document().setHtml(_preserved_output)
+
         # Output batching buffer — collect readyRead data and flush on a timer
         self._output_buffer: list[tuple[str, str]] = []
         self._flush_timer = QTimer(self)
@@ -4348,17 +5906,38 @@ class MainWindow(QMainWindow):
             return
         name = name.strip()
 
+        # Sanitize filename (match cascade save pattern)
+        safe_name = re.sub(r'[^\w\- ]', '_', name)
+        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        if not safe_name:
+            QMessageBox.warning(self, "Invalid Name", "The name is not valid after sanitizing.")
+            return
+
+        preset_dir = _presets_dir(self.data["tool"])
+        preset_path = preset_dir / f"{safe_name}.json"
+
+        # Pre-fill description if overwriting
+        existing_desc = ""
+        if preset_path.exists():
+            answer = QMessageBox.question(
+                self, "Overwrite Preset",
+                f"Overwrite existing preset '{safe_name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                existing_data = json.loads(preset_path.read_text(encoding="utf-8"))
+                existing_desc = existing_data.get("_description", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
         description, ok2 = QInputDialog.getText(
-            self, "Save Preset", "Description (optional):",
+            self, "Save Preset", "Description (optional):", text=existing_desc,
         )
         if not ok2:
             return
         description = description.strip()
-
-        # Sanitize filename
-        safe_name = re.sub(r'[^\w\-. ]', '_', name)
-        preset_dir = _presets_dir(self.data["tool"])
-        preset_path = preset_dir / f"{safe_name}.json"
 
         preset = self.form.serialize_values()
         preset["_description"] = description
@@ -4773,7 +6352,7 @@ class MainWindow(QMainWindow):
         self._update_output_search_visibility()
 
         # Capture history data at run start (before user can change the form)
-        self._history_display = display
+        self._history_display = _format_display(self.form._mask_passwords_for_display(cmd))
         self._history_preset = self.form.serialize_values()
         self._history_timestamp = time.time()
 
@@ -4791,6 +6370,8 @@ class MainWindow(QMainWindow):
 
     def _on_stdout_ready(self) -> None:
         """Buffer available stdout data for the next flush cycle."""
+        if not self.process:
+            return
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
         self._output_buffer.append((text, OUTPUT_FG))
@@ -4799,6 +6380,8 @@ class MainWindow(QMainWindow):
 
     def _on_stderr_ready(self) -> None:
         """Buffer available stderr data for the next flush cycle."""
+        if not self.process:
+            return
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
         self._output_buffer.append((text, COLOR_WARN))
@@ -5015,6 +6598,24 @@ def print_prompt() -> None:
         sys.stdout.buffer.write(b"\n")
 
 
+def print_preset_prompt() -> None:
+    """Print the LLM preset-generation prompt from PROMPT_PRESET.txt to stdout."""
+    prompt_path = Path(__file__).parent / "PROMPT_PRESET.txt"
+    if not prompt_path.exists():
+        print("Error: PROMPT_PRESET.txt not found alongside scaffold.py", file=sys.stderr)
+        sys.exit(1)
+    try:
+        text = prompt_path.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"Error reading PROMPT_PRESET.txt: {e}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
+        sys.stdout.buffer.write(b"\n")
+
+
 def main() -> None:
     """Entry point: handle --help / --prompt / --validate CLI flags, then launch the GUI."""
     if "--version" in sys.argv or "-V" in sys.argv:
@@ -5030,6 +6631,7 @@ def main() -> None:
             "  python scaffold.py <tool.json>            Open a specific tool directly\n"
             "  python scaffold.py --validate <tool.json> Validate a schema (no GUI)\n"
             "  python scaffold.py --prompt               Print the LLM schema-generation prompt\n"
+            "  python scaffold.py --preset-prompt          Print the LLM preset-generation prompt\n"
             "  python scaffold.py --version              Show version and exit\n"
             "  python scaffold.py --help                 Show this help and exit\n"
             "\n"
@@ -5039,6 +6641,10 @@ def main() -> None:
 
     if "--prompt" in sys.argv:
         print_prompt()
+        sys.exit(0)
+
+    if "--preset-prompt" in sys.argv:
+        print_preset_prompt()
         sys.exit(0)
 
     if "--validate" in sys.argv:

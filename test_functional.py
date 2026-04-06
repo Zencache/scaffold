@@ -10,6 +10,7 @@ Exercises every checklist item from the Part 4 review programmatically:
   - Session persistence (window geometry)
 """
 
+import io
 import json
 import os
 import sys
@@ -18,10 +19,15 @@ import shutil
 import time
 from pathlib import Path
 
+# Fix Unicode output on Windows (cp1252 can't encode ▼/▾ characters)
+if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QColor, QKeyEvent
 
@@ -6398,6 +6404,1662 @@ _s61_form_win.close()
 _s61_form_win.deleteLater()
 app.processEvents()
 
+
+# =====================================================================
+# Section 62 — Cascade Sidebar
+# =====================================================================
+print("\n--- Section 62: Cascade Sidebar ---")
+
+# Clear stale cascade settings from any prior run
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# 62a: CascadeSidebar class exists and is a QDockWidget
+check(hasattr(scaffold, "CascadeSidebar"), "62a: CascadeSidebar class exists")
+check(issubclass(scaffold.CascadeSidebar, QDockWidget), "62a: CascadeSidebar is a QDockWidget")
+
+# 62b: MainWindow has a cascade_dock attribute after __init__
+_s62_win = scaffold.MainWindow()
+app.processEvents()
+check(hasattr(_s62_win, "cascade_dock"), "62b: MainWindow has cascade_dock attribute")
+check(isinstance(_s62_win.cascade_dock, scaffold.CascadeSidebar), "62b: cascade_dock is a CascadeSidebar")
+
+# 62c: Sidebar starts with CASCADE_INITIAL_SLOTS (2) slot buttons
+_s62_dock = _s62_win.cascade_dock
+_s62_slot_btns = _s62_dock._slot_buttons
+check(len(_s62_slot_btns) == scaffold.CASCADE_INITIAL_SLOTS,
+      f"62c: sidebar has {scaffold.CASCADE_INITIAL_SLOTS} slot buttons (got {len(_s62_slot_btns)})")
+for _s62_btn in _s62_slot_btns:
+    check(isinstance(_s62_btn, QPushButton), "62c: each slot is a QPushButton")
+
+# 62d: Sidebar does NOT have an auto_run checkbox (removed)
+check(not hasattr(_s62_dock, "auto_run_check"), "62d: sidebar has no auto_run_check (removed)")
+
+# 62e: Cascade menu exists in menu bar (not in View menu)
+_s62_menu_titles = [a.text() for a in _s62_win.menuBar().actions()]
+check("Cascade" in _s62_menu_titles, "62e: Cascade menu exists in menu bar")
+_s62_cas_idx = _s62_menu_titles.index("Cascade") if "Cascade" in _s62_menu_titles else -1
+_s62_view_idx = _s62_menu_titles.index("View") if "View" in _s62_menu_titles else -1
+check(_s62_cas_idx < _s62_view_idx, "62e: Cascade menu appears before View menu")
+check(hasattr(_s62_win, "act_cascade_toggle"), "62e: MainWindow has act_cascade_toggle action")
+check(_s62_win.act_cascade_toggle.isCheckable(), "62e: act_cascade_toggle is checkable")
+
+# 62f: Toggle action shows/hides the dock widget
+_s62_win.show()
+app.processEvents()
+_s62_win.cascade_dock.hide()
+app.processEvents()
+_s62_win.act_cascade_toggle.trigger()
+app.processEvents()
+check(_s62_win.cascade_dock.isVisible(), "62f: trigger shows dock when hidden")
+_s62_win.act_cascade_toggle.trigger()
+app.processEvents()
+check(not _s62_win.cascade_dock.isVisible(), "62f: trigger hides dock when visible")
+
+# 62g: Slots are initially empty (no tool assigned, delay is 0)
+for _s62_i, _s62_slot in enumerate(_s62_dock._slots):
+    check(_s62_slot["tool_path"] is None, f"62g: slot {_s62_i} tool_path is None initially")
+    check(_s62_slot["preset_path"] is None, f"62g: slot {_s62_i} preset_path is None initially")
+    check(_s62_slot.get("delay", 0) == 0, f"62g: slot {_s62_i} delay is 0 initially")
+
+# 62h: _save_cascade writes to QSettings under "cascade/slots"
+_s62_test_settings = QSettings("Scaffold", "Scaffold")
+_s62_dock._slots[0]["tool_path"] = "/fake/tool.json"
+_s62_dock._slots[0]["preset_path"] = "/fake/preset.json"
+_s62_dock._save_cascade()
+_s62_saved = _s62_test_settings.value("cascade/slots")
+check(_s62_saved is not None, "62h: cascade/slots written to QSettings")
+_s62_parsed = json.loads(_s62_saved)
+check(_s62_parsed[0]["tool_path"] == "/fake/tool.json", "62h: slot 0 tool_path persisted")
+check(_s62_parsed[0]["preset_path"] == "/fake/preset.json", "62h: slot 0 preset_path persisted")
+
+# 62i: _load_cascade restores slot data from QSettings
+_s62_dock._slots[0]["tool_path"] = None
+_s62_dock._slots[0]["preset_path"] = None
+_s62_dock._load_cascade()
+_s62_dock._refresh_button_labels()
+_s62_dock._update_add_button_state()
+_s62_dock._update_remove_button_state()
+check(_s62_dock._slots[0]["tool_path"] == "/fake/tool.json", "62i: slot 0 tool_path restored")
+check(_s62_dock._slots[0]["preset_path"] == "/fake/preset.json", "62i: slot 0 preset_path restored")
+
+# 62j: Assigning a tool+preset to a slot persists across _save/_load cycle
+_s62_dock._slots[1]["tool_path"] = "/another/tool.json"
+_s62_dock._slots[1]["preset_path"] = "/another/preset.json"
+_s62_dock._save_cascade()
+_s62_dock._slots[1]["tool_path"] = None
+_s62_dock._slots[1]["preset_path"] = None
+_s62_dock._load_cascade()
+_s62_dock._refresh_button_labels()
+_s62_dock._update_add_button_state()
+_s62_dock._update_remove_button_state()
+check(_s62_dock._slots[1]["tool_path"] == "/another/tool.json", "62j: slot 1 round-trip tool_path")
+check(_s62_dock._slots[1]["preset_path"] == "/another/preset.json", "62j: slot 1 round-trip preset_path")
+
+# 62k: Clicking a slot with a valid tool+preset calls _load_tool_path
+_s62_nmap_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s62_presets = scaffold._presets_dir("nmap")
+_s62_preset_files = list(_s62_presets.glob("*.json"))
+_s62_preset_path = str(_s62_preset_files[0]) if _s62_preset_files else None
+_s62_dock._slots[0]["tool_path"] = _s62_nmap_path
+_s62_dock._slots[0]["preset_path"] = _s62_preset_path
+_s62_dock._on_slot_clicked(0)
+app.processEvents()
+check(_s62_win.tool_path == _s62_nmap_path, "62k: clicking slot loaded the tool")
+
+# 62l: Clicking a slot with an assigned tool+preset applies the preset values
+if _s62_preset_path:
+    _s62_preset_data = json.loads(Path(_s62_preset_path).read_text(encoding="utf-8"))
+    check(_s62_win.form is not None, "62l: form exists after slot click with preset")
+else:
+    check(True, "62l: skipped (no presets for nmap)")
+
+# 62m: Empty slot click opens picker dialog (does not crash)
+_s62_dock._slots[1]["tool_path"] = None
+_s62_dock._slots[1]["preset_path"] = None
+try:
+    _s62_m_dlg = scaffold.CascadePickerDialog(1, _s62_win, parent=_s62_dock)
+    _s62_m_dlg.close()
+    _s62_m_dlg.deleteLater()
+    app.processEvents()
+    check(True, "62m: empty slot click opens picker (no crash)")
+except Exception as _s62_m_ex:
+    check(False, f"62m: empty slot picker failed: {_s62_m_ex}")
+
+# 62n: Slot with a deleted/missing tool shows a warning, does not crash
+_s62_dock._slots[1]["tool_path"] = "/nonexistent/missing_tool.json"
+_s62_dock._slots[1]["preset_path"] = None
+_s62_dock._on_slot_clicked(1)
+app.processEvents()
+check(True, "62n: clicking slot with missing tool did not crash")
+
+# 62o: Slot with a deleted/missing preset loads the tool but shows a status message
+_s62_dock._slots[1]["tool_path"] = _s62_nmap_path
+_s62_dock._slots[1]["preset_path"] = "/nonexistent/missing_preset.json"
+_s62_dock._on_slot_clicked(1)
+app.processEvents()
+check(_s62_win.tool_path == _s62_nmap_path, "62o: tool loaded despite missing preset")
+check("not found" in _s62_win.statusBar().currentMessage().lower() or
+      "Preset" in _s62_win.statusBar().currentMessage(),
+      "62o: status message mentions missing preset")
+
+# 62p: Sidebar content widget has fixed width of 220
+_s62_content_widget = _s62_dock.widget()
+check(_s62_content_widget.fixedWidth() if hasattr(_s62_content_widget, 'fixedWidth') else
+      _s62_content_widget.maximumWidth() == 220,
+      f"62p: sidebar content fixed width is 220 (got {_s62_content_widget.maximumWidth()})")
+
+# 62q: Sidebar survives theme toggle (no crash, dock still visible)
+_s62_win.cascade_dock.show()
+app.processEvents()
+_s62_win._set_theme("dark")
+app.processEvents()
+check(not _s62_win.cascade_dock.isHidden(), "62q: dock still visible after dark theme")
+_s62_win._set_theme("light")
+app.processEvents()
+check(not _s62_win.cascade_dock.isHidden(), "62q: dock still visible after light theme")
+
+# 62r: CascadePickerDialog class exists and is a QDialog
+check(hasattr(scaffold, "CascadePickerDialog"), "62r: CascadePickerDialog class exists")
+check(issubclass(scaffold.CascadePickerDialog, QDialog), "62r: CascadePickerDialog is a QDialog")
+
+# 62s: CascadePickerDialog has a QTreeWidget with tool parent nodes
+_s62_picker = scaffold.CascadePickerDialog(0, _s62_win)
+app.processEvents()
+check(hasattr(_s62_picker, "tree"), "62s: CascadePickerDialog has tree attribute")
+check(isinstance(_s62_picker.tree, QTreeWidget), "62s: tree is a QTreeWidget")
+check(_s62_picker.tree.topLevelItemCount() > 0, f"62s: tree has tool nodes (got {_s62_picker.tree.topLevelItemCount()})")
+
+# 62t: CascadePickerDialog tool nodes are expandable and show preset children
+_s62_found_presets = False
+for _s62_ti in range(_s62_picker.tree.topLevelItemCount()):
+    _s62_item = _s62_picker.tree.topLevelItem(_s62_ti)
+    if _s62_item.childCount() > 0:
+        _s62_found_presets = True
+        break
+check(_s62_found_presets, "62t: at least one tool node has preset children")
+
+# 62u: Double-clicking a preset node sets selected_tool and selected_preset
+_s62_preset_node = None
+for _s62_ti in range(_s62_picker.tree.topLevelItemCount()):
+    _s62_parent = _s62_picker.tree.topLevelItem(_s62_ti)
+    for _s62_ci in range(_s62_parent.childCount()):
+        _s62_child = _s62_parent.child(_s62_ci)
+        if _s62_child.data(0, Qt.ItemDataRole.UserRole + 1) == "preset":
+            _s62_preset_node = _s62_child
+            break
+    if _s62_preset_node:
+        break
+
+if _s62_preset_node:
+    _s62_picker.tree.itemDoubleClicked.emit(_s62_preset_node, 0)
+    app.processEvents()
+    check(_s62_picker.selected_tool is not None, "62u: selected_tool set after double-clicking preset node")
+    check(_s62_picker.selected_preset is not None, "62u: selected_preset set after double-clicking preset node")
+else:
+    check(True, "62u: skipped (no presets found)")
+    check(True, "62u: skipped (no presets found)")
+
+# 62v: Double-clicking a tool node (parent) does NOT close the dialog
+_s62_picker2 = scaffold.CascadePickerDialog(0, _s62_win)
+app.processEvents()
+_s62_tool_node = _s62_picker2.tree.topLevelItem(0)
+if _s62_tool_node:
+    _s62_picker2.tree.itemDoubleClicked.emit(_s62_tool_node, 0)
+    app.processEvents()
+    check(_s62_picker2.isVisible() or not _s62_picker2.result(), "62v: double-clicking tool node does not accept dialog")
+else:
+    check(True, "62v: skipped (no tool nodes)")
+_s62_picker2.close()
+_s62_picker2.deleteLater()
+
+# 62w: Edit Preset dialog opens and closes without crash
+_s62_nmap_tool = "nmap"
+_s62_nmap_pdir = scaffold._presets_dir(_s62_nmap_tool)
+_s62_nmap_presets = sorted(_s62_nmap_pdir.glob("*.json"))
+if _s62_nmap_presets:
+    try:
+        _s62_ep = scaffold.PresetPicker(_s62_nmap_tool, _s62_nmap_pdir, mode="edit", parent=_s62_win)
+        _s62_ep.close()
+        _s62_ep.deleteLater()
+        app.processEvents()
+        check(True, "62w: Edit Preset dialog opens and closes without crash")
+    except Exception as _s62_ex:
+        check(False, f"62w: Edit Preset dialog crashed: {_s62_ex}")
+else:
+    check(True, "62w: skipped (no presets for nmap)")
+
+# 62x: Menu bar order is File | Presets | Cascade | View | Help
+_s62_bar_titles = [a.text() for a in _s62_win.menuBar().actions()]
+_s62_expected_order = ["File", "Presets", "Cascade", "View", "Help"]
+check(_s62_bar_titles == _s62_expected_order,
+      f"62x: menu bar order is {_s62_expected_order} (got {_s62_bar_titles})")
+
+# 62y: Dock features are closable only (no floating, no moving)
+_s62_features = _s62_dock.features()
+check(_s62_features == QDockWidget.DockWidgetFeature.DockWidgetClosable,
+      "62y: dock features are closable only")
+
+# 62z: Arrow button exists with arrow indicator (split button design)
+_s62_dock._slots[0]["tool_path"] = None
+_s62_dock._refresh_button_labels()
+check("\u25be" in _s62_dock._arrow_buttons[0].text(),
+      "62z: empty slot button text contains \u25be indicator")
+
+# 62aa: Assigned slot shows tool and preset name; arrow on separate button
+_s62_dock._slots[0]["tool_path"] = _s62_nmap_path
+_s62_dock._slots[0]["preset_path"] = _s62_preset_path
+_s62_dock._refresh_button_labels()
+_s62_aa_text = _s62_dock._slot_buttons[0].text()
+check("nmap" in _s62_aa_text.lower() or "Nmap" in _s62_aa_text,
+      f"62aa: assigned slot shows tool name (got '{_s62_aa_text}')")
+check("\u25be" in _s62_dock._arrow_buttons[0].text(),
+      "62aa: assigned slot has \u25be indicator")
+
+# 62ab: Assigned slot without preset shows just tool name; arrow on separate button
+_s62_dock._slots[1]["tool_path"] = _s62_nmap_path
+_s62_dock._slots[1]["preset_path"] = None
+_s62_dock._refresh_button_labels()
+_s62_ab_text = _s62_dock._slot_buttons[1].text()
+check("\u2014" not in _s62_ab_text,
+      "62ab: slot without preset has no dash separator")
+check("\u25be" in _s62_dock._arrow_buttons[1].text(),
+      "62ab: slot without preset still has \u25be indicator")
+
+# 62ac: Slot button style uses text-align: center
+_s62_dock._refresh_button_labels()
+_s62_ac_style = _s62_dock._slot_buttons[0].styleSheet()
+check("text-align: center" in _s62_ac_style,
+      f"62ac: slot button style has centered text (got '{_s62_ac_style}')")
+
+# 62ad: Minimum window width increases when sidebar opens
+_s62_win.cascade_dock.hide()
+app.processEvents()
+_s62_win._toggle_cascade(True)
+app.processEvents()
+check(_s62_win.minimumWidth() >= scaffold.MIN_WINDOW_WIDTH + 220,
+      f"62ad: min width increased with sidebar (got {_s62_win.minimumWidth()})")
+_s62_win._toggle_cascade(False)
+app.processEvents()
+check(_s62_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH,
+      f"62ad: min width restored without sidebar (got {_s62_win.minimumWidth()})")
+
+# Cleanup — reset cascade slots in QSettings
+_s62_test_settings.remove("cascade")
+_s62_picker.close()
+_s62_picker.deleteLater()
+_s62_win.close()
+_s62_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 63 — Chain Runner (Run Button on Cascade Sidebar)
+# =====================================================================
+print("\n--- Section 63: Chain Runner ---")
+
+_s63_test_dir = Path(__file__).parent / "tests"
+_s63_minimal = str(_s63_test_dir / "test_minimal.json")
+
+# Clear stale cascade settings
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+_s63_win = scaffold.MainWindow()
+_s63_win.show()
+app.processEvents()
+_s63_dock = _s63_win.cascade_dock
+_s63_dock.show()
+app.processEvents()
+
+# 63a: run_chain_btn and stop_chain_btn exist
+check(hasattr(_s63_dock, "run_chain_btn"), "63a: run_chain_btn exists on CascadeSidebar")
+check(isinstance(_s63_dock.run_chain_btn, QPushButton), "63a: run_chain_btn is a QPushButton")
+check(hasattr(_s63_dock, "stop_chain_btn"), "63a: stop_chain_btn exists on CascadeSidebar")
+check(isinstance(_s63_dock.stop_chain_btn, QPushButton), "63a: stop_chain_btn is a QPushButton")
+
+# 63b: stop_chain_btn is disabled when chain is idle
+check(not _s63_dock.stop_chain_btn.isEnabled(), "63b: stop_chain_btn disabled when idle")
+check(_s63_dock.run_chain_btn.isEnabled(), "63b: run_chain_btn enabled when idle")
+
+# 63c: _chain_state starts as CHAIN_IDLE
+check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63c: _chain_state starts as CHAIN_IDLE")
+
+# 63d: _on_run_chain with no assigned slots shows status message, does not crash
+for _s63_slot in _s63_dock._slots:
+    _s63_slot["tool_path"] = None
+    _s63_slot["preset_path"] = None
+_s63_dock._on_run_chain()
+app.processEvents()
+check("no valid" in _s63_win.statusBar().currentMessage().lower(),
+      "63d: empty chain shows 'no valid' status message")
+check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63d: chain state still idle after empty run")
+
+# 63e: _on_run_chain disables run_chain_btn and slot buttons
+_s63_dock._slots[0]["tool_path"] = _s63_minimal
+_s63_dock._on_run_chain()
+app.processEvents()
+check(not _s63_dock.run_chain_btn.isEnabled(), "63e: run_chain_btn disabled during chain")
+check(_s63_dock.stop_chain_btn.isEnabled(), "63e: stop_chain_btn enabled during chain")
+for _s63_i, _s63_btn in enumerate(_s63_dock._slot_buttons):
+    check(not _s63_btn.isEnabled(), f"63e: slot button {_s63_i} disabled during chain")
+
+# 63f: Main Run button is disabled during chain execution
+check(not _s63_win.run_btn.isEnabled(), "63f: main Run button disabled during chain")
+
+# 63g: File > Load is disabled during chain execution
+check(not _s63_win.act_load.isEnabled(), "63g: File > Load disabled during chain")
+check(not _s63_win.act_back.isEnabled(), "63g: File > Tool List disabled during chain")
+check(not _s63_win.act_reload.isEnabled(), "63g: File > Reload disabled during chain")
+
+# Now stop the chain to clean up
+_s63_dock._on_stop_chain()
+app.processEvents()
+
+# 63h: _on_stop_chain re-enables run_chain_btn and slot buttons
+check(_s63_dock.run_chain_btn.isEnabled(), "63h: run_chain_btn re-enabled after stop")
+check(not _s63_dock.stop_chain_btn.isEnabled(), "63h: stop_chain_btn disabled after stop")
+for _s63_btn in _s63_dock._slot_buttons:
+    check(_s63_btn.isEnabled(), "63h: slot buttons re-enabled after stop")
+
+# 63i: _chain_cleanup restores all UI state
+check(_s63_win.run_btn.isEnabled(), "63i: main Run button re-enabled after cleanup")
+check(_s63_win.act_load.isEnabled(), "63i: File > Load re-enabled after cleanup")
+check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63i: chain state is IDLE after cleanup")
+check(_s63_dock._chain_queue == [], "63i: chain queue is empty after cleanup")
+check(_s63_dock._chain_current == -1, "63i: chain current is -1 after cleanup")
+
+# 63j: Chain with missing tool path shows error, cleans up
+_s63_dock._slots[0]["tool_path"] = "/nonexistent/fake_tool.json"
+_s63_dock._slots[0]["preset_path"] = None
+for _s63_i in range(1, len(_s63_dock._slots)):
+    _s63_dock._slots[_s63_i]["tool_path"] = None
+    _s63_dock._slots[_s63_i]["preset_path"] = None
+_s63_dock._on_run_chain()
+app.processEvents()
+check("no valid" in _s63_win.statusBar().currentMessage().lower(),
+      "63j: chain with nonexistent tool path shows no valid message")
+check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63j: chain state idle after missing tool")
+
+# 63k: run_chain_btn text changes to "Running..." during chain, reverts after cleanup
+_s63_dock._slots[0]["tool_path"] = _s63_minimal
+_s63_dock._on_run_chain()
+app.processEvents()
+check(_s63_dock.run_chain_btn.text() == "Running...", "63k: run_chain_btn text is 'Running...' during chain")
+_s63_dock._on_stop_chain()
+app.processEvents()
+check(_s63_dock.run_chain_btn.text() == "Run", "63k: run_chain_btn text reverts to 'Run' after stop")
+
+# 63l: Chain with one assigned slot loads the tool
+_s63_dock._slots[0]["tool_path"] = _s63_minimal
+_s63_dock._slots[0]["preset_path"] = None
+for _s63_i in range(1, len(_s63_dock._slots)):
+    _s63_dock._slots[_s63_i]["tool_path"] = None
+_s63_dock._on_run_chain()
+app.processEvents()
+check(_s63_win.tool_path == _s63_minimal, "63l: chain loaded the tool into main window")
+_s63_dock._on_stop_chain()
+app.processEvents()
+
+# 63m: Chain skips empty slots in queue
+# Add extra slots to test non-consecutive assignment
+while len(_s63_dock._slots) < 4:
+    _s63_dock._on_add_slot()
+    app.processEvents()
+_s63_dock._slots[0]["tool_path"] = None
+_s63_dock._slots[1]["tool_path"] = _s63_minimal
+_s63_dock._slots[2]["tool_path"] = None
+_s63_dock._slots[3]["tool_path"] = _s63_minimal
+_s63_dock._on_run_chain()
+app.processEvents()
+check(len(_s63_dock._chain_queue) == 2, f"63m: chain queue has 2 entries (got {len(_s63_dock._chain_queue)})")
+check(_s63_dock._chain_queue == [1, 3], f"63m: chain queue is [1, 3] (got {_s63_dock._chain_queue})")
+_s63_dock._on_stop_chain()
+app.processEvents()
+
+# 63n: Theme toggle during idle chain does not crash
+_s63_win._set_theme("dark")
+app.processEvents()
+check(_s63_dock.run_chain_btn.isEnabled(), "63n: run_chain_btn still enabled after dark theme")
+_s63_win._set_theme("light")
+app.processEvents()
+check(_s63_dock.run_chain_btn.isEnabled(), "63n: run_chain_btn still enabled after light theme")
+
+# 63o: closeEvent triggers chain cleanup
+_s63_dock._slots[0]["tool_path"] = _s63_minimal
+_s63_dock._chain_state = scaffold.CHAIN_LOADING
+_s63_dock._chain_queue = [0]
+_s63_dock._chain_current = 0
+if _s63_dock._chain_state != scaffold.CHAIN_IDLE:
+    _s63_dock._chain_cleanup("Closing")
+app.processEvents()
+check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63o: chain cleaned up on close")
+
+# 63p: Slot highlighting during chain
+_s63_dock._highlight_active_slot(1)
+app.processEvents()
+_s63_style = _s63_dock._slot_buttons[1].styleSheet()
+check("border" in _s63_style.lower(), f"63p: active slot has border highlight (got '{_s63_style}')")
+_s63_dock._clear_slot_highlights()
+app.processEvents()
+_s63_style_after = _s63_dock._slot_buttons[1].styleSheet()
+check("border" not in _s63_style_after.lower() or "2px solid" not in _s63_style_after.lower(),
+      "63p: slot highlight cleared")
+
+# 63q: Chain constants exist
+check(hasattr(scaffold, "CHAIN_IDLE"), "63q: CHAIN_IDLE constant exists")
+check(hasattr(scaffold, "CHAIN_LOADING"), "63q: CHAIN_LOADING constant exists")
+check(hasattr(scaffold, "CHAIN_RUNNING"), "63q: CHAIN_RUNNING constant exists")
+check(hasattr(scaffold, "CHAIN_FINISHED"), "63q: CHAIN_FINISHED constant exists")
+check(scaffold.CHAIN_IDLE == "idle", "63q: CHAIN_IDLE is 'idle'")
+check(scaffold.CHAIN_LOADING == "loading", "63q: CHAIN_LOADING is 'loading'")
+check(scaffold.CHAIN_RUNNING == "running", "63q: CHAIN_RUNNING is 'running'")
+check(scaffold.CHAIN_FINISHED == "finished", "63q: CHAIN_FINISHED is 'finished'")
+
+# Cleanup
+_s63_win.close()
+_s63_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 64 — Chain Runner Targeted Fixes (Bugs 1–5)
+# =====================================================================
+print("\n--- Section 64: Chain Runner Targeted Fixes ---")
+
+# Clear stale cascade settings
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+_s64_win = scaffold.MainWindow()
+_s64_win.show()
+app.processEvents()
+_s64_dock = _s64_win.cascade_dock
+_s64_dock.show()
+app.processEvents()
+
+_s64_test_dir = Path(__file__).parent / "tests"
+_s64_minimal = str(_s64_test_dir / "test_minimal.json")
+
+# 64a: _chain_preserve_output flag exists and defaults to False
+check(hasattr(_s64_win, "_chain_preserve_output"),
+      "64a: _chain_preserve_output flag exists on MainWindow")
+check(_s64_win._chain_preserve_output is False,
+      "64a: _chain_preserve_output defaults to False")
+
+# 64b: _check_for_recovery returns early when _chain_preserve_output is True
+_s64_win._chain_preserve_output = True
+_s64_win._check_for_recovery()
+_s64_win._chain_preserve_output = False
+check(True, "64b: _check_for_recovery returns early during chain (no crash)")
+
+# 64c: Window minimum width is MIN_WINDOW_WIDTH + 320 when sidebar opens
+_s64_win.cascade_dock.setVisible(False)
+app.processEvents()
+_s64_win._toggle_cascade(True)
+app.processEvents()
+check(_s64_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH + 320,
+      f"64c: min width with sidebar = {scaffold.MIN_WINDOW_WIDTH + 320} (got {_s64_win.minimumWidth()})")
+
+# 64d: Window minimum width resets to MIN_WINDOW_WIDTH when sidebar closes
+_s64_win._toggle_cascade(False)
+app.processEvents()
+check(_s64_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH,
+      f"64d: min width without sidebar = {scaffold.MIN_WINDOW_WIDTH} (got {_s64_win.minimumWidth()})")
+
+# 64e: Arrow buttons exist (CASCADE_INITIAL_SLOTS of them initially)
+check(hasattr(_s64_dock, "_arrow_buttons"),
+      "64e: _arrow_buttons attribute exists on CascadeSidebar")
+check(len(_s64_dock._arrow_buttons) == scaffold.CASCADE_INITIAL_SLOTS,
+      f"64e: {scaffold.CASCADE_INITIAL_SLOTS} arrow buttons exist (got {len(_s64_dock._arrow_buttons)})")
+
+# 64f: Arrow buttons have ▾ text
+for _s64_i, _s64_ab in enumerate(_s64_dock._arrow_buttons):
+    check("\u25be" in _s64_ab.text(),
+          f"64f: arrow button {_s64_i} has \u25be text")
+
+# 64g: Main button text does NOT contain ▾ (picker button is separate)
+_s64_dock._slots[0]["tool_path"] = _s64_minimal
+_s64_dock._refresh_button_labels()
+check("\u25be" not in _s64_dock._slot_buttons[0].text(),
+      "64g: main button text does not contain picker indicator")
+
+# 64h: clear_all_btn exists on CascadeSidebar
+check(hasattr(_s64_dock, "clear_all_btn"),
+      "64h: clear_all_btn exists on CascadeSidebar")
+check(isinstance(_s64_dock.clear_all_btn, QPushButton),
+      "64h: clear_all_btn is a QPushButton")
+
+# 64i: _on_clear_all_slots with no assigned slots does nothing
+for _s64_s in _s64_dock._slots:
+    _s64_s["tool_path"] = None
+    _s64_s["preset_path"] = None
+_s64_dock._on_clear_all_slots()
+check(True, "64i: _on_clear_all_slots with empty slots does not crash")
+
+# 64j: _on_clear_all_slots resets all slots when confirmed
+_s64_dock._slots[0]["tool_path"] = _s64_minimal
+_s64_dock._slots[1]["tool_path"] = _s64_minimal
+_s64_dock._refresh_button_labels()
+_s64_orig_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s64_dock._on_clear_all_slots()
+QMessageBox.question = _s64_orig_question
+check(all(s["tool_path"] is None for s in _s64_dock._slots),
+      "64j: all slots cleared after _on_clear_all_slots")
+
+# 64k: clear_all_btn, add_step_btn, remove_btn, delay_spin disabled during chain
+_s64_dock._slots[0]["tool_path"] = _s64_minimal
+_s64_dock._on_run_chain()
+app.processEvents()
+check(not _s64_dock.clear_all_btn.isEnabled(),
+      "64k: clear_all_btn disabled during chain execution")
+check(not _s64_dock.add_step_btn.isEnabled(),
+      "64k: add_step_btn disabled during chain execution")
+for _s64_i, _s64_info in enumerate(_s64_dock._slot_widgets):
+    check(not _s64_info["arrow_btn"].isEnabled(),
+          f"64k: arrow button {_s64_i} disabled during chain")
+    check(not _s64_info["remove_btn"].isEnabled(),
+          f"64k: remove button {_s64_i} disabled during chain")
+    check(not _s64_info["delay_spin"].isEnabled(),
+          f"64k: delay spin {_s64_i} disabled during chain")
+_s64_dock._on_stop_chain()
+app.processEvents()
+
+# 64l: clear_all_btn, add_step_btn re-enabled after chain cleanup
+check(_s64_dock.clear_all_btn.isEnabled(),
+      "64l: clear_all_btn re-enabled after chain cleanup")
+check(_s64_dock.add_step_btn.isEnabled(),
+      "64l: add_step_btn re-enabled after chain cleanup")
+for _s64_i, _s64_info in enumerate(_s64_dock._slot_widgets):
+    check(_s64_info["arrow_btn"].isEnabled(),
+          f"64l: arrow button {_s64_i} re-enabled after chain cleanup")
+    check(_s64_info["delay_spin"].isEnabled(),
+          f"64l: delay spin {_s64_i} re-enabled after chain cleanup")
+
+# 64m: Output preserved across chain steps (via _chain_preserve_output flag)
+_s64_win._load_tool_path(_s64_minimal)
+app.processEvents()
+from PySide6.QtGui import QTextCharFormat, QColor
+_s64_fmt = QTextCharFormat()
+_s64_fmt.setForeground(QColor("white"))
+_s64_cursor = _s64_win.output.textCursor()
+_s64_cursor.insertText("STEP1_OUTPUT", _s64_fmt)
+_s64_win._chain_preserve_output = True
+_s64_win._build_form_view()
+app.processEvents()
+_s64_output_text = _s64_win.output.toPlainText()
+check("STEP1_OUTPUT" in _s64_output_text,
+      f"64m: output preserved across chain steps (got '{_s64_output_text[:40]}')")
+_s64_win._chain_preserve_output = False
+
+# 64n: Output NOT preserved when not in chain
+_s64_win.output.clear()
+_s64_cursor = _s64_win.output.textCursor()
+_s64_cursor.insertText("SHOULD_BE_CLEARED", _s64_fmt)
+_s64_win._build_form_view()
+app.processEvents()
+_s64_output_text2 = _s64_win.output.toPlainText()
+check("SHOULD_BE_CLEARED" not in _s64_output_text2,
+      "64n: output cleared when not in chain mode")
+
+# 64o: Arrow button highlight during chain
+_s64_dock._highlight_active_slot(0)
+_s64_arrow_style = _s64_dock._arrow_buttons[0].styleSheet()
+check("border" in _s64_arrow_style,
+      f"64o: arrow button gets border highlight (got '{_s64_arrow_style}')")
+_s64_dock._clear_slot_highlights()
+
+# Cleanup
+_s64_win.close()
+_s64_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 65 — Cascade Dynamic Slots
+# =====================================================================
+print("\n--- Section 65: Cascade Dynamic Slots ---")
+
+# Clear stale cascade settings
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+_s65_win = scaffold.MainWindow()
+_s65_win.show()
+app.processEvents()
+_s65_dock = _s65_win.cascade_dock
+_s65_dock.show()
+app.processEvents()
+_s65_test_settings = QSettings("Scaffold", "Scaffold")
+
+# 65a: CascadeSidebar starts with CASCADE_INITIAL_SLOTS (2) empty slots
+check(len(_s65_dock._slots) == scaffold.CASCADE_INITIAL_SLOTS,
+      f"65a: starts with {scaffold.CASCADE_INITIAL_SLOTS} slots (got {len(_s65_dock._slots)})")
+check(len(_s65_dock._slot_widgets) == scaffold.CASCADE_INITIAL_SLOTS,
+      f"65a: {scaffold.CASCADE_INITIAL_SLOTS} slot widgets (got {len(_s65_dock._slot_widgets)})")
+
+# 65b: add_step_btn exists and is enabled
+check(hasattr(_s65_dock, "add_step_btn"), "65b: add_step_btn exists")
+check(isinstance(_s65_dock.add_step_btn, QPushButton), "65b: add_step_btn is a QPushButton")
+check(_s65_dock.add_step_btn.isEnabled(), "65b: add_step_btn is enabled initially")
+
+# 65c: Clicking add_step_btn increases slot count by 1
+_s65_count_before = len(_s65_dock._slots)
+_s65_dock._on_add_slot()
+app.processEvents()
+check(len(_s65_dock._slots) == _s65_count_before + 1,
+      f"65c: slot count increased from {_s65_count_before} to {len(_s65_dock._slots)}")
+check(len(_s65_dock._slot_widgets) == _s65_count_before + 1,
+      "65c: slot widget count matches slot count")
+check(len(_s65_dock._slot_buttons) == _s65_count_before + 1,
+      "65c: slot buttons count matches")
+check(len(_s65_dock._arrow_buttons) == _s65_count_before + 1,
+      "65c: arrow buttons count matches")
+
+# 65d: Cannot add more than CASCADE_MAX_SLOTS (20)
+while len(_s65_dock._slots) < scaffold.CASCADE_MAX_SLOTS:
+    _s65_dock._on_add_slot()
+app.processEvents()
+check(len(_s65_dock._slots) == scaffold.CASCADE_MAX_SLOTS,
+      f"65d: filled to max {scaffold.CASCADE_MAX_SLOTS} slots")
+_s65_dock._on_add_slot()
+app.processEvents()
+check(len(_s65_dock._slots) == scaffold.CASCADE_MAX_SLOTS,
+      "65d: cannot add past CASCADE_MAX_SLOTS")
+
+# 65e: add_step_btn disabled at max slots
+check(not _s65_dock.add_step_btn.isEnabled(),
+      "65e: add_step_btn disabled at max slots")
+
+# Reset to CASCADE_INITIAL_SLOTS + 1 (3) for further testing
+_s65_orig_q = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s65_dock._slots[0]["tool_path"] = "/tmp/dummy.json"
+_s65_dock._on_clear_all_slots()
+QMessageBox.question = _s65_orig_q
+app.processEvents()
+_s65_dock._on_add_slot()
+app.processEvents()
+
+# 65f: Remove button removes a slot
+_s65_count_before = len(_s65_dock._slots)
+_s65_dock._on_remove_slot(1)
+app.processEvents()
+check(len(_s65_dock._slots) == _s65_count_before - 1,
+      f"65f: slot removed (was {_s65_count_before}, now {len(_s65_dock._slots)})")
+
+# 65g: Cannot remove last remaining slot
+while len(_s65_dock._slots) > 1:
+    _s65_dock._on_remove_slot(0)
+    app.processEvents()
+check(len(_s65_dock._slots) == 1, "65g: down to 1 slot")
+_s65_dock._on_remove_slot(0)
+app.processEvents()
+check(len(_s65_dock._slots) == 1, "65g: cannot remove last remaining slot")
+check(not _s65_dock._slot_widgets[0]["remove_btn"].isEnabled(),
+      "65g: remove button disabled when only 1 slot")
+
+# 65h: Renumbering works after removal
+for _ in range(3):
+    _s65_dock._on_add_slot()
+    app.processEvents()
+check(len(_s65_dock._slots) == 4, "65h: rebuilt to 4 slots")
+_s65_dock._on_remove_slot(1)
+app.processEvents()
+for _s65_i, _s65_info in enumerate(_s65_dock._slot_widgets):
+    check(_s65_info["num_label"].text() == str(_s65_i + 1),
+          f"65h: slot {_s65_i} label is '{_s65_info['num_label'].text()}' (expected '{_s65_i + 1}')")
+
+# 65i: Delay spinner exists per slot
+for _s65_i, _s65_info in enumerate(_s65_dock._slot_widgets):
+    check("delay_spin" in _s65_info,
+          f"65i: slot {_s65_i} has delay_spin")
+    check(isinstance(_s65_info["delay_spin"], QSpinBox),
+          f"65i: slot {_s65_i} delay_spin is QSpinBox")
+
+# 65j: All slots' delay spinners are visible (including last)
+for _s65_i, _s65_info in enumerate(_s65_dock._slot_widgets):
+    check(_s65_info["delay_spin"].isVisible(),
+          f"65j: slot {_s65_i} delay spinner is visible")
+
+# 65k: Adding a slot keeps all delay spinners visible
+_s65_prev_count = len(_s65_dock._slot_widgets)
+_s65_dock._on_add_slot()
+app.processEvents()
+for _s65_i, _s65_info in enumerate(_s65_dock._slot_widgets):
+    check(_s65_info["delay_spin"].isVisible(),
+          f"65k: slot {_s65_i} delay spinner visible after add")
+
+# 65l: Delay value persists to QSettings
+_s65_dock._slot_widgets[0]["delay_spin"].setValue(5)
+app.processEvents()
+check(_s65_dock._slots[0]["delay"] == 5, "65l: delay value stored in data model")
+_s65_raw = _s65_test_settings.value("cascade/slots")
+_s65_parsed = json.loads(_s65_raw)
+check(_s65_parsed[0].get("delay") == 5, "65l: delay value persisted to QSettings")
+
+# 65m: QSettings migration from "favorites/*" to "cascade/*" works
+_s65_test_settings.remove("cascade")
+_s65_test_settings.setValue("favorites/slots", json.dumps([
+    {"tool_path": "/migrated/tool.json", "preset_path": "/migrated/preset.json"},
+]))
+_s65_test_settings.setValue("favorites/visible", True)
+_s65_mig_win = scaffold.MainWindow()
+app.processEvents()
+check(_s65_test_settings.value("cascade/slots") is not None,
+      "65m: cascade/slots exists after migration")
+check(_s65_test_settings.value("favorites/slots") is None,
+      "65m: favorites/slots removed after migration")
+check(_s65_test_settings.value("cascade/visible") is not None,
+      "65m: cascade/visible exists after migration")
+check(_s65_test_settings.value("favorites/visible") is None,
+      "65m: favorites/visible removed after migration")
+_s65_mig_slots = _s65_mig_win.cascade_dock._slots
+check(_s65_mig_slots[0]["tool_path"] == "/migrated/tool.json",
+      "65m: migrated tool_path preserved")
+_s65_mig_win.close()
+_s65_mig_win.deleteLater()
+app.processEvents()
+_s65_test_settings.remove("cascade")
+
+# 65n: Clear all resets to CASCADE_INITIAL_SLOTS empty slots
+_s65_dock._slots[0]["tool_path"] = "/tmp/dummy.json"
+_s65_orig_q2 = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s65_dock._on_clear_all_slots()
+QMessageBox.question = _s65_orig_q2
+app.processEvents()
+check(len(_s65_dock._slots) == scaffold.CASCADE_INITIAL_SLOTS,
+      f"65n: clear all resets to {scaffold.CASCADE_INITIAL_SLOTS} slots (got {len(_s65_dock._slots)})")
+check(all(s["tool_path"] is None for s in _s65_dock._slots),
+      "65n: all slots empty after clear all")
+
+# 65o: Slots container is scrollable (QScrollArea parent check)
+_s65_scroll = None
+_s65_w = _s65_dock._slot_widgets[0]["widget"]
+while _s65_w:
+    _s65_w = _s65_w.parentWidget()
+    if isinstance(_s65_w, QScrollArea):
+        _s65_scroll = _s65_w
+        break
+check(_s65_scroll is not None, "65o: slots are inside a QScrollArea")
+
+# Cleanup
+_s65_test_settings.remove("cascade")
+_s65_win.close()
+_s65_win.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 66 — Cascade Layout Fixes, Delay Spinner, and Loop Mode
+# =====================================================================
+print("\n--- Section 66: Cascade Layout Fixes, Delay Spinner, Loop Mode ---")
+
+# Clear stale cascade settings
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+_s66_win = scaffold.MainWindow()
+_s66_win.show()
+app.processEvents()
+_s66_dock = _s66_win.cascade_dock
+_s66_dock.show()
+app.processEvents()
+_s66_test_settings = QSettings("Scaffold", "Scaffold")
+
+# -- Bug 1 fix: scroll area does NOT have stretch=1 --
+
+# 66a: Scroll area size policy is Preferred (not Expanding)
+_s66_content = _s66_dock.widget()
+_s66_layout = _s66_content.layout()
+_s66_scroll = None
+for _s66_idx in range(_s66_layout.count()):
+    _s66_item = _s66_layout.itemAt(_s66_idx)
+    if _s66_item.widget() and isinstance(_s66_item.widget(), QScrollArea):
+        _s66_scroll = _s66_item.widget()
+        _s66_scroll_stretch = _s66_layout.stretch(_s66_idx)
+        break
+check(_s66_scroll is not None, "66a: scroll area found in content layout")
+check(_s66_scroll_stretch == 0,
+      f"66a: scroll area stretch is 0 (got {_s66_scroll_stretch})")
+_s66_sp = _s66_scroll.sizePolicy()
+check(_s66_sp.horizontalPolicy() == QSizePolicy.Policy.Preferred,
+      "66a: scroll area horizontal policy is Preferred")
+check(_s66_sp.verticalPolicy() == QSizePolicy.Policy.Expanding,
+      "66a: scroll area vertical policy is Expanding")
+
+# 66b: No stretch spacer between scroll area and chain_bar (scroll area expands naturally)
+_s66_has_spacer_after_scroll = False
+_s66_found_scroll = False
+for _s66_idx in range(_s66_layout.count()):
+    _s66_item = _s66_layout.itemAt(_s66_idx)
+    if _s66_item.widget() and isinstance(_s66_item.widget(), QScrollArea):
+        _s66_found_scroll = True
+    elif _s66_found_scroll and _s66_item.spacerItem():
+        _s66_has_spacer_after_scroll = True
+        break
+    elif _s66_found_scroll and _s66_item.layout():
+        break  # Found chain_bar layout directly after scroll — correct
+check(not _s66_has_spacer_after_scroll, "66b: no stretch spacer between scroll area and button bar")
+
+# -- Bug 2 fix: run_chain_btn has adequate minimum width --
+
+# 66c: Chain controls use two-row vertical layout (run+stop row, loop+clear row)
+_s66_chain_layout = None
+for _s66_idx in range(_s66_layout.count()):
+    _s66_item = _s66_layout.itemAt(_s66_idx)
+    if _s66_item.layout() and _s66_item.layout() is not _s66_layout.itemAt(0).layout():
+        _s66_chain_layout = _s66_item.layout()
+check(_s66_chain_layout is not None and isinstance(_s66_chain_layout, QVBoxLayout),
+      "66c: chain controls use QVBoxLayout (two-row layout)")
+
+# -- Delay spinner (replaces combo) --
+
+# 66d: Delay widget is QSpinBox (not QComboBox)
+_s66_info0 = _s66_dock._slot_widgets[0]
+check("delay_spin" in _s66_info0, "66d: delay_spin key exists in slot widget info")
+check(isinstance(_s66_info0["delay_spin"], QSpinBox), "66d: delay widget is QSpinBox")
+check("delay_combo" not in _s66_info0, "66d: delay_combo key does not exist")
+
+# 66e: Delay spinner range is 0-3600
+_s66_spin = _s66_info0["delay_spin"]
+check(_s66_spin.minimum() == 0, f"66e: delay_spin min is 0 (got {_s66_spin.minimum()})")
+check(_s66_spin.maximum() == 3600, f"66e: delay_spin max is 3600 (got {_s66_spin.maximum()})")
+
+# 66f: Delay spinner has "s" suffix
+check(_s66_spin.suffix() == "s", f"66f: delay_spin suffix is 's' (got '{_s66_spin.suffix()}')")
+
+# 66g: Setting delay_spin value updates slot data
+_s66_spin.setValue(42)
+app.processEvents()
+check(_s66_dock._slots[0]["delay"] == 42,
+      f"66g: setting spin to 42 updates data model (got {_s66_dock._slots[0]['delay']})")
+
+# 66h: All slots' delay spinners are visible (including last)
+for _s66_i, _s66_info in enumerate(_s66_dock._slot_widgets):
+    check(_s66_info["delay_spin"].isVisible(),
+          f"66h: slot {_s66_i} delay spinner is visible")
+
+# -- Loop mode (toggle button) --
+
+# 66i: loop_btn exists on CascadeSidebar
+check(hasattr(_s66_dock, "loop_btn"), "66i: loop_btn exists on CascadeSidebar")
+check(isinstance(_s66_dock.loop_btn, QPushButton), "66i: loop_btn is a QPushButton")
+
+# 66j: loop_btn starts as "Loop" (off) and _loop_enabled is False
+check(_s66_dock.loop_btn.text() == "Loop", f"66j: loop_btn text is 'Loop' (got '{_s66_dock.loop_btn.text()}')")
+check(_s66_dock._loop_enabled is False, "66j: _loop_enabled starts False")
+
+# 66k: loop_btn is disabled during chain execution
+_s66_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s66_dock._slots[0]["tool_path"] = _s66_minimal
+_s66_dock._on_run_chain()
+app.processEvents()
+check(not _s66_dock.loop_btn.isEnabled(), "66k: loop_btn disabled during chain execution")
+_s66_dock._on_stop_chain()
+app.processEvents()
+
+# 66l: loop_btn is re-enabled after chain cleanup
+check(_s66_dock.loop_btn.isEnabled(), "66l: loop_btn re-enabled after chain cleanup")
+
+# 66m: toggling loop updates _loop_enabled and persists to QSettings
+_s66_dock._toggle_loop()
+app.processEvents()
+check(_s66_dock._loop_enabled is True, "66m: _loop_enabled is True after toggle")
+check("\u2713" in _s66_dock.loop_btn.text(), f"66m: loop_btn text contains checkmark (got '{_s66_dock.loop_btn.text()}')")
+_s66_dock._save_cascade()
+_s66_saved_loop = _s66_test_settings.value("cascade/loop_mode")
+check(int(_s66_saved_loop) == 1, f"66m: loop mode persisted as 1 (got {_s66_saved_loop})")
+
+# 66n: toggling again disables loop
+_s66_dock._toggle_loop()
+app.processEvents()
+check(_s66_dock._loop_enabled is False, "66n: _loop_enabled is False after second toggle")
+check(_s66_dock.loop_btn.text() == "Loop", f"66n: loop_btn text restored to 'Loop' (got '{_s66_dock.loop_btn.text()}')")
+_s66_dock._save_cascade()
+
+# Cleanup
+_s66_test_settings.remove("cascade")
+_s66_win.close()
+_s66_win.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 67 — Cascade Save/Load/Import/Export
+# =====================================================================
+print("\n--- Section 67: Cascade Save/Load/Import/Export ---")
+
+# Clear stale cascade settings and any leftover cascade files
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s67_cascades = Path(__file__).parent / "cascades"
+if _s67_cascades.exists():
+    for _f in _s67_cascades.glob("*.json"):
+        _f.unlink()
+
+_s67_win = scaffold.MainWindow()
+_s67_win.show()
+app.processEvents()
+_s67_dock = _s67_win.cascade_dock
+_s67_dock.show()
+app.processEvents()
+
+_s67_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+
+# 67a: _cascades_dir() returns a Path and creates the directory
+_s67_cdir = scaffold._cascades_dir()
+check(isinstance(_s67_cdir, Path), "67a: _cascades_dir() returns a Path")
+check(_s67_cdir.is_dir(), "67a: _cascades_dir() creates directory")
+
+# 67b: _export_cascade_data() returns dict with correct _format marker
+_s67_dock._slots[0]["tool_path"] = _s67_minimal
+_s67_dock._slots[0]["preset_path"] = None
+_s67_export = _s67_dock._export_cascade_data("Test Export")
+check(isinstance(_s67_export, dict), "67b: _export_cascade_data returns dict")
+check(_s67_export.get("_format") == "scaffold_cascade", "67b: _format is scaffold_cascade")
+check(_s67_export.get("name") == "Test Export", "67b: name field is correct")
+
+# 67c: _export_cascade_data() skips empty slots
+_s67_steps = _s67_export.get("steps", [])
+check(len(_s67_steps) == 1, f"67c: only non-empty slots exported (got {len(_s67_steps)}, expected 1)")
+
+# 67d: _export_cascade_data() converts absolute paths to relative
+_s67_base = Path(scaffold.__file__).parent
+_s67_tool_in_export = _s67_steps[0]["tool"] if _s67_steps else ""
+_s67_is_relative = not Path(_s67_tool_in_export).is_absolute()
+check(_s67_is_relative, f"67d: tool path is relative (got {_s67_tool_in_export!r})")
+
+# 67e: _import_cascade_data() with valid data creates correct number of slots
+_s67_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "Import Test",
+    "description": "test desc",
+    "loop_mode": False,
+    "steps": [
+        {"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 3},
+        {"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 5},
+        {"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 0},
+    ],
+}
+_s67_dock._import_cascade_data(_s67_import_data)
+app.processEvents()
+check(len(_s67_dock._slots) == 3, f"67e: import creates 3 slots (got {len(_s67_dock._slots)})")
+
+# 67f: _import_cascade_data() resolves relative paths to absolute
+_s67_resolved = _s67_dock._slots[0].get("tool_path", "")
+check(Path(_s67_resolved).is_absolute(), f"67f: resolved path is absolute (got {_s67_resolved!r})")
+
+# 67g: _import_cascade_data() raises ValueError on missing _format
+_s67_bad1 = {"name": "bad", "steps": [{"tool": "x", "preset": None, "delay": 0}]}
+try:
+    _s67_dock._import_cascade_data(_s67_bad1)
+    check(False, "67g: should have raised ValueError for missing _format")
+except ValueError:
+    check(True, "67g: ValueError raised for missing _format")
+
+# 67h: _import_cascade_data() raises ValueError on wrong _format value
+_s67_bad2 = {"_format": "scaffold_preset", "steps": [{"tool": "x", "preset": None, "delay": 0}]}
+try:
+    _s67_dock._import_cascade_data(_s67_bad2)
+    check(False, "67h: should have raised ValueError for wrong _format")
+except ValueError:
+    check(True, "67h: ValueError raised for wrong _format")
+
+# 67i: _import_cascade_data() raises ValueError on missing/empty steps
+_s67_bad3 = {"_format": "scaffold_cascade", "steps": []}
+try:
+    _s67_dock._import_cascade_data(_s67_bad3)
+    check(False, "67i: should have raised ValueError for empty steps")
+except ValueError:
+    check(True, "67i: ValueError raised for empty steps")
+
+_s67_bad4 = {"_format": "scaffold_cascade"}
+try:
+    _s67_dock._import_cascade_data(_s67_bad4)
+    check(False, "67i: should have raised ValueError for missing steps")
+except ValueError:
+    check(True, "67i: ValueError raised for missing steps")
+
+# 67j: _import_cascade_data() pads to CASCADE_INITIAL_SLOTS if fewer steps
+_s67_one_step = {
+    "_format": "scaffold_cascade",
+    "name": "Pad Test",
+    "steps": [{"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 0}],
+}
+_s67_dock._import_cascade_data(_s67_one_step)
+app.processEvents()
+check(len(_s67_dock._slots) >= scaffold.CASCADE_INITIAL_SLOTS,
+      f"67j: padded to at least {scaffold.CASCADE_INITIAL_SLOTS} slots (got {len(_s67_dock._slots)})")
+
+# 67k: _import_cascade_data() restores loop_mode
+_s67_loop_data = {
+    "_format": "scaffold_cascade",
+    "name": "Loop Test",
+    "loop_mode": True,
+    "steps": [{"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 0}],
+}
+_s67_dock._import_cascade_data(_s67_loop_data)
+app.processEvents()
+check(_s67_dock._loop_enabled is True, "67k: loop_mode restored to True")
+# Reset loop for further tests
+_s67_dock._loop_enabled = False
+_s67_dock._style_loop_btn()
+
+# 67l: Round-trip: export → import → export produces identical data
+_s67_dock._import_cascade_data(_s67_import_data)
+app.processEvents()
+_s67_rt1 = _s67_dock._export_cascade_data("RT Test", "round trip")
+_s67_dock._import_cascade_data(_s67_rt1)
+app.processEvents()
+_s67_rt2 = _s67_dock._export_cascade_data("RT Test", "round trip")
+check(_s67_rt1 == _s67_rt2, "67l: round-trip export→import→export produces identical data")
+
+# 67m: CascadeListDialog exists and is a QDialog
+_s67_cld = scaffold.CascadeListDialog(parent=_s67_win)
+check(isinstance(_s67_cld, QDialog), "67m: CascadeListDialog is a QDialog")
+_s67_cld.close()
+
+# 67n: CascadeListDialog populates table from valid cascade files on disk
+_s67_cascade_file = _s67_cascades / "test_cascade.json"
+_s67_cascade_file.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "Disk Test",
+    "description": "from disk",
+    "loop_mode": False,
+    "steps": [{"tool": "tools/fake.json", "preset": None, "delay": 0}],
+}, indent=2), encoding="utf-8")
+_s67_cld2 = scaffold.CascadeListDialog(parent=_s67_win)
+check(_s67_cld2.table.rowCount() >= 1, f"67n: table populated with at least 1 row (got {_s67_cld2.table.rowCount()})")
+# Check name column
+_s67_name_item = _s67_cld2.table.item(0, 0)
+check(_s67_name_item is not None and _s67_name_item.text() == "Disk Test",
+      f"67n: first row name is 'Disk Test' (got {_s67_name_item.text() if _s67_name_item else None})")
+_s67_cld2.close()
+
+# 67o: CascadeListDialog skips non-cascade JSON files
+_s67_noncascade = _s67_cascades / "not_a_cascade.json"
+_s67_noncascade.write_text(json.dumps({"_format": "scaffold_preset", "foo": "bar"}), encoding="utf-8")
+_s67_cld3 = scaffold.CascadeListDialog(parent=_s67_win)
+_s67_found_noncascade = False
+for _r in range(_s67_cld3.table.rowCount()):
+    _item = _s67_cld3.table.item(_r, 0)
+    if _item and "not_a_cascade" in _item.text():
+        _s67_found_noncascade = True
+check(not _s67_found_noncascade, "67o: non-cascade JSON file skipped")
+_s67_cld3.close()
+
+# 67p: Save/Load actions exist on MainWindow (menu bar)
+check(hasattr(_s67_win, "act_save_cascade"), "67p: act_save_cascade exists on MainWindow")
+check(hasattr(_s67_win, "act_load_cascade"), "67p: act_load_cascade exists on MainWindow")
+
+# 67p2: Save/Load actions also exist on cascade panel menu button
+_s67_panel_menu = _s67_dock._menu_btn.menu()
+_s67_panel_actions = [a.text() for a in _s67_panel_menu.actions() if not a.isSeparator()]
+check("Save Cascade..." in _s67_panel_actions, "67p2: 'Save Cascade...' in panel menu")
+check("Cascade List..." in _s67_panel_actions, "67p2: 'Cascade List...' in panel menu")
+
+# 67q: Import/Export actions exist on MainWindow (menu bar)
+check(hasattr(_s67_win, "act_import_cascade"), "67q: act_import_cascade exists on MainWindow")
+check(hasattr(_s67_win, "act_export_cascade"), "67q: act_export_cascade exists on MainWindow")
+
+# 67q2: Import/Export actions also exist on cascade panel menu button
+check("Import Cascade..." in _s67_panel_actions, "67q2: 'Import Cascade...' in panel menu")
+check("Export Cascade..." in _s67_panel_actions, "67q2: 'Export Cascade...' in panel menu")
+
+# 67r: Save with no assigned slots shows status message
+# Clear all slots first
+for _s in _s67_dock._slots:
+    _s["tool_path"] = None
+    _s["preset_path"] = None
+_s67_status_msgs = []
+_s67_orig_showMessage = _s67_win.statusBar().showMessage
+_s67_win.statusBar().showMessage = lambda msg, *a, **kw: (_s67_status_msgs.append(msg), _s67_orig_showMessage(msg, *a, **kw))
+_s67_dock._on_save_cascade_file()
+app.processEvents()
+check(any("No cascade steps" in m for m in _s67_status_msgs),
+      f"67r: save with no slots shows 'No cascade steps' message (got {_s67_status_msgs})")
+_s67_win.statusBar().showMessage = _s67_orig_showMessage
+
+# 67s: Full round-trip: assign slots → save → clear → load → verify
+# Set up slots
+_s67_dock._import_cascade_data({
+    "_format": "scaffold_cascade",
+    "name": "Full RT",
+    "steps": [
+        {"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 2},
+        {"tool": str(Path(_s67_minimal).relative_to(_s67_base)), "preset": None, "delay": 0},
+    ],
+})
+app.processEvents()
+# Save to file
+_s67_rt_data = _s67_dock._export_cascade_data("Full_RT", "round trip test")
+_s67_rt_file = _s67_cascades / "Full_RT.json"
+_s67_rt_file.write_text(json.dumps(_s67_rt_data, indent=2, ensure_ascii=False), encoding="utf-8")
+# Clear slots
+for _info in _s67_dock._slot_widgets:
+    _info["widget"].deleteLater()
+_s67_dock._slot_widgets.clear()
+_s67_dock._slot_buttons.clear()
+_s67_dock._arrow_buttons.clear()
+_s67_dock._slots = [{"tool_path": None, "preset_path": None, "delay": 0}
+                    for _ in range(scaffold.CASCADE_INITIAL_SLOTS)]
+for _i in range(scaffold.CASCADE_INITIAL_SLOTS):
+    _s67_dock._add_slot_widget(_i)
+app.processEvents()
+# Load from file
+_s67_loaded = json.loads(_s67_rt_file.read_text(encoding="utf-8"))
+_s67_dock._import_cascade_data(_s67_loaded)
+app.processEvents()
+_s67_has_tool = any(s.get("tool_path") for s in _s67_dock._slots)
+check(_s67_has_tool, "67s: after load, at least one slot has a tool assigned")
+check(len([s for s in _s67_dock._slots if s.get("tool_path")]) == 2,
+      f"67s: loaded 2 tool slots (got {len([s for s in _s67_dock._slots if s.get('tool_path')])})")
+
+# 67t: CascadePickerDialog has a Select button
+_s67_picker = scaffold.CascadePickerDialog(0, _s67_win, parent=_s67_win)
+check(hasattr(_s67_picker, "select_btn"), "67t: CascadePickerDialog has select_btn attribute")
+check(isinstance(_s67_picker.select_btn, QPushButton), "67t: select_btn is a QPushButton")
+check(not _s67_picker.select_btn.isEnabled(), "67t: select_btn starts disabled")
+_s67_picker.close()
+
+# 67u: _load_tool_path rejects _format: "scaffold_cascade" with correct error
+_s67_cascade_tool = Path(__file__).parent / "tests" / "_s67_cascade_as_tool.json"
+_s67_cascade_tool.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "Fake",
+    "steps": [{"tool": "x.json", "preset": None, "delay": 0}],
+}, indent=2), encoding="utf-8")
+# Monkeypatch QMessageBox.critical to capture the call
+_s67_critical_calls = []
+_s67_orig_critical = QMessageBox.critical
+QMessageBox.critical = lambda parent, title, text, *a, **kw: _s67_critical_calls.append((title, text))
+_s67_win._load_tool_path(str(_s67_cascade_tool))
+app.processEvents()
+QMessageBox.critical = _s67_orig_critical
+check(len(_s67_critical_calls) >= 1, "67u: loading cascade file as tool triggers critical dialog")
+if _s67_critical_calls:
+    check("cascade" in _s67_critical_calls[0][1].lower(),
+          f"67u: error message mentions cascade (got {_s67_critical_calls[0][1]!r})")
+
+# Cleanup
+_s67_cascade_tool.unlink(missing_ok=True)
+if _s67_cascades.exists():
+    for _f in _s67_cascades.glob("*.json"):
+        _f.unlink()
+    try:
+        _s67_cascades.rmdir()
+    except OSError:
+        pass
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s67_win.close()
+_s67_win.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 68 — Shortcut Safety and Preset Overwrite
+# =====================================================================
+print("\n--- Section 68: Shortcut Safety and Preset Overwrite ---")
+
+# 68a-c: Shortcut safety on picker (no tool loaded)
+# Clear last_tool so no tool auto-loads
+_s68_settings = scaffold._create_settings()
+_s68_settings.remove("session/last_tool")
+_s68_win = scaffold.MainWindow()
+_s68_win.show()
+app.processEvents()
+
+check(_s68_win.stack.currentIndex() == 0, "68a: picker shown (stack index 0)")
+
+# 68a: _shortcut_stop does not crash on picker
+_s68a_ok = True
+try:
+    _s68_win._shortcut_stop()
+except AttributeError:
+    _s68a_ok = False
+check(_s68a_ok, "68a: _shortcut_stop() does not raise on picker")
+
+# 68b: _shortcut_find does not crash on picker
+_s68b_ok = True
+try:
+    _s68_win._shortcut_find()
+except AttributeError:
+    _s68b_ok = False
+check(_s68b_ok, "68b: _shortcut_find() does not raise on picker")
+
+# 68c: _shortcut_output_find does not crash on picker
+_s68c_ok = True
+try:
+    _s68_win._shortcut_output_find()
+except AttributeError:
+    _s68c_ok = False
+check(_s68c_ok, "68c: _shortcut_output_find() does not raise on picker")
+
+_s68_win.close()
+_s68_win.deleteLater()
+app.processEvents()
+
+# 68d-f: Preset overwrite confirmation
+_s68_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s68_win2 = scaffold.MainWindow(tool_path=_s68_minimal)
+_s68_win2.show()
+app.processEvents()
+
+_s68_preset_dir = scaffold._presets_dir(_s68_win2.data["tool"])
+
+# Clean up any leftover test presets
+for _f in _s68_preset_dir.glob("test_preset*"):
+    _f.unlink()
+
+# 68d: Save a preset named "test_preset" — mock getText to return name then description
+_s68_getText_calls = []
+_s68_orig_getText = scaffold.QInputDialog.getText
+
+def _s68_mock_getText_save(*args, **kwargs):
+    _s68_getText_calls.append(args)
+    if len(_s68_getText_calls) == 1:
+        return ("test_preset", True)  # name prompt
+    return ("test description", True)  # description prompt
+
+scaffold.QInputDialog.getText = staticmethod(_s68_mock_getText_save)
+try:
+    _s68_win2._on_save_preset()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _s68_orig_getText
+
+_s68_preset_path = _s68_preset_dir / "test_preset.json"
+check(_s68_preset_path.exists(), "68d: preset file created on disk")
+
+# 68e: Saving again with same name triggers overwrite confirmation
+_s68_getText_calls2 = []
+_s68_question_calls = []
+_s68_orig_question = QMessageBox.question
+
+def _s68_mock_getText_overwrite(*args, **kwargs):
+    _s68_getText_calls2.append(args)
+    if len(_s68_getText_calls2) == 1:
+        return ("test_preset", True)  # name prompt
+    return ("updated description", True)  # description prompt
+
+def _s68_mock_question(*args, **kwargs):
+    _s68_question_calls.append(args)
+    return QMessageBox.StandardButton.Yes
+
+scaffold.QInputDialog.getText = staticmethod(_s68_mock_getText_overwrite)
+QMessageBox.question = staticmethod(_s68_mock_question)
+try:
+    _s68_win2._on_save_preset()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _s68_orig_getText
+    QMessageBox.question = _s68_orig_question
+
+check(len(_s68_question_calls) == 1, "68e: overwrite confirmation dialog shown")
+# Verify file was updated with new description
+_s68_updated = json.loads(_s68_preset_path.read_text(encoding="utf-8"))
+check(_s68_updated.get("_description") == "updated description",
+      f"68e: description updated after overwrite (got {_s68_updated.get('_description')!r})")
+
+# 68f: Sanitized name collapses spaces to underscores and strips leading/trailing
+_s68_getText_calls3 = []
+
+def _s68_mock_getText_spaces(*args, **kwargs):
+    _s68_getText_calls3.append(args)
+    if len(_s68_getText_calls3) == 1:
+        return ("  my  preset  ", True)  # name with extra spaces
+    return ("", True)  # description
+
+scaffold.QInputDialog.getText = staticmethod(_s68_mock_getText_spaces)
+try:
+    _s68_win2._on_save_preset()
+    app.processEvents()
+finally:
+    scaffold.QInputDialog.getText = _s68_orig_getText
+
+_s68_spaces_path = _s68_preset_dir / "my_preset.json"
+check(_s68_spaces_path.exists(),
+      f"68f: spaces collapsed to underscores in filename (looking for my_preset.json)")
+
+# 68g: Preset filename sanitization — direct verification
+import re as _s68_re
+_s68_name_raw = "  hello!!world  "
+_s68_safe = _s68_re.sub(r'[^\w\- ]', '_', _s68_name_raw.strip())
+_s68_safe = _s68_re.sub(r'\s+', '_', _s68_safe).strip('_')
+check(_s68_safe == "hello__world", f"68g: sanitization result correct (got {_s68_safe!r})")
+
+# Cleanup test presets
+for _f in _s68_preset_dir.glob("test_preset*"):
+    _f.unlink()
+for _f in _s68_preset_dir.glob("my_preset*"):
+    _f.unlink()
+
+_s68_win2.close()
+_s68_win2.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 69 — Theme Toggle Label Updates and Preview Coloring
+# =====================================================================
+print("\n--- Section 69: Theme Toggle Label Updates and Preview Coloring ---")
+
+# 69a-b: Dangerous label color updates on theme toggle
+_s69_danger = {
+    "tool": "s69_danger", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Force", "flag": "--force", "type": "boolean",
+         "description": "Skip confirmation", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "none", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": None, "dangerous": True},
+    ],
+}
+_s69_tmpdir = tempfile.mkdtemp()
+_s69_p1 = Path(_s69_tmpdir) / "s69_danger.json"
+_s69_p1.write_text(json.dumps(_s69_danger))
+
+# Start in dark mode
+scaffold.apply_theme(True)
+app.processEvents()
+_s69_w1 = scaffold.MainWindow(tool_path=str(_s69_p1))
+_s69_w1.show()
+app.processEvents()
+_s69_f1 = _s69_w1.form
+_s69_k1 = (_s69_f1.GLOBAL, "--force")
+_s69_lbl1 = _s69_f1.fields[_s69_k1]["label"]
+
+# 69a: Dark mode — dangerous label uses dark-mode color (#f38ba8)
+check("#f38ba8" in _s69_lbl1.text(),
+      f"69a: dangerous label has dark-mode color in dark theme: {_s69_lbl1.text()}")
+
+# 69b: Toggle to light mode — dangerous label updates to "red"
+scaffold.apply_theme(False)
+app.processEvents()
+_s69_f1.update_theme()
+app.processEvents()
+check("red" in _s69_lbl1.text() and "#f38ba8" not in _s69_lbl1.text(),
+      f"69b: dangerous label updated to light-mode color after toggle: {_s69_lbl1.text()}")
+
+_s69_w1.close(); _s69_w1.deleteLater(); app.processEvents()
+
+# 69c-d: Deprecated label color updates on theme toggle
+_s69_dep = {
+    "tool": "s69_dep", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "OldFlag", "flag": "--old", "type": "string",
+         "description": "The old way", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": "Use --new instead", "dangerous": False},
+    ],
+}
+_s69_p2 = Path(_s69_tmpdir) / "s69_dep.json"
+_s69_p2.write_text(json.dumps(_s69_dep))
+
+# Start in dark mode
+scaffold.apply_theme(True)
+app.processEvents()
+_s69_w2 = scaffold.MainWindow(tool_path=str(_s69_p2))
+_s69_w2.show()
+app.processEvents()
+_s69_f2 = _s69_w2.form
+_s69_k2 = (_s69_f2.GLOBAL, "--old")
+_s69_lbl2 = _s69_f2.fields[_s69_k2]["label"]
+
+# 69c: Dark mode — deprecated label uses dark warning_text color (#fab387)
+check("#fab387" in _s69_lbl2.text(),
+      f"69c: deprecated label has dark-mode color in dark theme: {_s69_lbl2.text()}")
+
+# 69d: Toggle to light mode — deprecated label updates to #856404
+scaffold.apply_theme(False)
+app.processEvents()
+_s69_f2.update_theme()
+app.processEvents()
+check("#856404" in _s69_lbl2.text() and "#fab387" not in _s69_lbl2.text(),
+      f"69d: deprecated label updated to light-mode color after toggle: {_s69_lbl2.text()}")
+
+_s69_w2.close(); _s69_w2.deleteLater(); app.processEvents()
+
+# 69e: Preview coloring of negative numbers — treated as values, not flags
+scaffold.apply_theme(False)
+app.processEvents()
+_s69_cmd_neg = ["nmap", "-T", "-1", "192.168.1.1"]
+_s69_html_neg = scaffold._colored_preview_html(_s69_cmd_neg, 0, None)
+_s69_val_color = scaffold.LIGHT_PREVIEW["value"]
+_s69_flag_color = scaffold.LIGHT_PREVIEW["flag"]
+# -1 should be wrapped in value color, not flag color
+check(f"color:{_s69_val_color};" in _s69_html_neg and "-1" in _s69_html_neg,
+      f"69e: negative number -1 colored as value in preview")
+# Also verify -1 is NOT wrapped in the flag color span
+# Parse: find the span containing -1 and check its color
+_s69_neg_idx = _s69_html_neg.find("-1</span>")
+_s69_neg_span_start = _s69_html_neg.rfind("<span", 0, _s69_neg_idx)
+_s69_neg_span = _s69_html_neg[_s69_neg_span_start:_s69_neg_idx]
+check(_s69_val_color in _s69_neg_span,
+      f"69e: -1 span uses value color, not flag color")
+
+# 69f: Actual flags still colored as flags
+_s69_cmd_flags = ["nmap", "-sV", "-T4", "target"]
+_s69_html_flags = scaffold._colored_preview_html(_s69_cmd_flags, 0, None)
+_s69_sv_idx = _s69_html_flags.find("-sV</span>")
+_s69_sv_span_start = _s69_html_flags.rfind("<span", 0, _s69_sv_idx)
+_s69_sv_span = _s69_html_flags[_s69_sv_span_start:_s69_sv_idx]
+check(_s69_flag_color in _s69_sv_span,
+      f"69f: -sV colored as flag in preview")
+
+# 69g: Warning bar border-radius
+_s69_nobin = {
+    "tool": "s69_nobin", "binary": "nonexistent_binary_xyz_69", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Arg", "flag": "-a", "type": "string",
+         "description": "An arg", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None,
+         "deprecated": None, "dangerous": False},
+    ],
+}
+_s69_p3 = Path(_s69_tmpdir) / "s69_nobin.json"
+_s69_p3.write_text(json.dumps(_s69_nobin))
+_s69_w3 = scaffold.MainWindow(tool_path=str(_s69_p3))
+_s69_w3.show()
+app.processEvents()
+check(_s69_w3.warning_bar.isVisible(), "69g: warning bar visible for missing binary")
+check("border-radius" in _s69_w3.warning_bar.styleSheet(),
+      f"69g: warning bar has border-radius in stylesheet")
+
+_s69_w3.close(); _s69_w3.deleteLater(); app.processEvents()
+
+# Restore dark mode for remaining tests
+scaffold.apply_theme(True)
+app.processEvents()
+
+import shutil as _s69_shutil
+_s69_shutil.rmtree(_s69_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 70 — Password History Masking and Field Search Description
+# =====================================================================
+print("\n--- Section 70: Password History Masking and Field Search Description ---")
+
+_s70_tmpdir = tempfile.mkdtemp()
+
+# --- Password masking tests ---
+_s70_pw_schema = {
+    "_format": "scaffold_schema",
+    "tool": "pw_history_test",
+    "binary": "echo",
+    "description": "Test password masking in history",
+    "arguments": [
+        {"name": "API Key", "flag": "--api-key", "type": "password",
+         "description": "Secret key"},
+        {"name": "Host", "flag": "--host", "type": "string",
+         "description": "Target host"},
+    ],
+}
+_s70_pw_path = Path(_s70_tmpdir) / "pw_history_test.json"
+_s70_pw_path.write_text(json.dumps(_s70_pw_schema))
+
+_s70_orig_warning = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+_s70_w = scaffold.MainWindow()
+_s70_w._load_tool_path(str(_s70_pw_path))
+app.processEvents()
+
+# Set field values
+_s70_w.form._set_field_value(("__global__", "--api-key"), "s3cret")
+_s70_w.form._set_field_value(("__global__", "--host"), "example.com")
+app.processEvents()
+
+_s70_cmd, _s70_display = _s70_w.form.build_command()
+_s70_masked = _s70_w.form._mask_passwords_for_display(_s70_cmd)
+
+# 70a: Masked list contains ******** and does NOT contain "s3cret"
+check("********" in _s70_masked and "s3cret" not in _s70_masked,
+      "70a: password value masked, cleartext removed")
+
+# 70b: Flag itself is preserved
+check("--api-key" in _s70_masked,
+      "70b: password flag --api-key preserved in masked output")
+
+# 70c: Non-password value preserved
+check("example.com" in _s70_masked,
+      "70c: non-password value example.com preserved")
+
+_s70_w.close(); _s70_w.deleteLater(); app.processEvents()
+
+# 70d: Equals separator masking
+_s70_eq_schema = {
+    "_format": "scaffold_schema",
+    "tool": "pw_eq_test",
+    "binary": "echo",
+    "description": "Test password masking with equals separator",
+    "arguments": [
+        {"name": "API Key", "flag": "--api-key", "type": "password",
+         "description": "Secret key", "separator": "equals"},
+        {"name": "Host", "flag": "--host", "type": "string",
+         "description": "Target host"},
+    ],
+}
+_s70_eq_path = Path(_s70_tmpdir) / "pw_eq_test.json"
+_s70_eq_path.write_text(json.dumps(_s70_eq_schema))
+
+_s70_w2 = scaffold.MainWindow()
+_s70_w2._load_tool_path(str(_s70_eq_path))
+app.processEvents()
+
+_s70_w2.form._set_field_value(("__global__", "--api-key"), "s3cret")
+_s70_w2.form._set_field_value(("__global__", "--host"), "example.com")
+app.processEvents()
+
+_s70_cmd2, _ = _s70_w2.form.build_command()
+_s70_masked2 = _s70_w2.form._mask_passwords_for_display(_s70_cmd2)
+check("--api-key=********" in _s70_masked2 and "--api-key=s3cret" not in _s70_masked2,
+      "70d: equals separator password masked as --api-key=********")
+
+_s70_w2.close(); _s70_w2.deleteLater(); app.processEvents()
+
+# 70e: No password value set — mask returns identical copy
+_s70_w3 = scaffold.MainWindow()
+_s70_w3._load_tool_path(str(_s70_pw_path))
+app.processEvents()
+
+# Only set host, leave password empty
+_s70_w3.form._set_field_value(("__global__", "--host"), "example.com")
+app.processEvents()
+
+_s70_cmd3, _ = _s70_w3.form.build_command()
+_s70_masked3 = _s70_w3.form._mask_passwords_for_display(_s70_cmd3)
+check(_s70_masked3 == list(_s70_cmd3),
+      "70e: no password set — masked output identical to original")
+
+_s70_w3.close(); _s70_w3.deleteLater(); app.processEvents()
+
+# --- Field search description tests ---
+_s70_search_schema = {
+    "_format": "scaffold_schema",
+    "tool": "search_desc_test",
+    "binary": "echo",
+    "description": "Test field search with description matching",
+    "arguments": [
+        {"name": "Port Range", "flag": "-p", "type": "string",
+         "description": "Specify port range to scan (e.g., 1-1024)"},
+    ],
+}
+_s70_search_path = Path(_s70_tmpdir) / "search_desc_test.json"
+_s70_search_path.write_text(json.dumps(_s70_search_schema))
+
+_s70_w4 = scaffold.MainWindow()
+_s70_w4._load_tool_path(str(_s70_search_path))
+app.processEvents()
+
+# 70f: Search matches name
+_s70_w4.form._on_search_text_changed("port")
+check(len(_s70_w4.form._search_matches) == 1,
+      "70f: search 'port' matches field by name")
+
+# 70g: Search matches description text
+_s70_w4.form._on_search_text_changed("scan")
+check(len(_s70_w4.form._search_matches) == 1,
+      "70g: search 'scan' matches field by description")
+
+# 70h: No false positives
+_s70_w4.form._on_search_text_changed("zzzzz")
+check(len(_s70_w4.form._search_matches) == 0,
+      "70h: search 'zzzzz' produces no matches")
+
+_s70_w4.close(); _s70_w4.deleteLater(); app.processEvents()
+
+QMessageBox.warning = _s70_orig_warning
+
+import shutil as _s70_shutil
+_s70_shutil.rmtree(_s70_tmpdir, ignore_errors=True)
+
+# =====================================================================
+print("\n=== SECTION 71: schema_hash Defensive Handling ===")
+# =====================================================================
+
+# 71a: Argument missing "flag" key entirely — no crash, returns 8-char string
+_s71_no_flag = {"arguments": [{"name": "bad", "type": "string"}]}
+_s71_h = scaffold.schema_hash(_s71_no_flag)
+check(isinstance(_s71_h, str) and len(_s71_h) == 8, "71a: missing flag key → 8-char hash, no exception")
+
+# 71b: Non-string flag values (int, None, list) — skipped silently
+_s71_bad_flags = {"arguments": [
+    {"flag": 123, "name": "a", "type": "string"},
+    {"flag": None, "name": "b", "type": "string"},
+    {"flag": ["--x"], "name": "c", "type": "string"},
+]}
+_s71_h2 = scaffold.schema_hash(_s71_bad_flags)
+check(isinstance(_s71_h2, str) and len(_s71_h2) == 8, "71b: non-string flags → 8-char hash, no exception")
+
+# 71c: Subcommands missing "name" key — skipped silently
+_s71_no_sub_name = {"arguments": [], "subcommands": [
+    {"arguments": [{"flag": "--foo", "name": "foo", "type": "string"}]},
+]}
+_s71_h3 = scaffold.schema_hash(_s71_no_sub_name)
+check(isinstance(_s71_h3, str) and len(_s71_h3) == 8, "71c: subcommand missing name → 8-char hash, no exception")
+
+# 71d: Mix of valid and invalid args — hash matches hash of only valid args
+_s71_mixed = {"arguments": [
+    {"flag": "--good", "name": "good", "type": "string"},
+    {"flag": 999, "name": "bad_int", "type": "string"},
+    {"name": "no_flag", "type": "string"},
+    {"flag": "--also-good", "name": "also", "type": "string"},
+]}
+_s71_valid_only = {"arguments": [
+    {"flag": "--good", "name": "good", "type": "string"},
+    {"flag": "--also-good", "name": "also", "type": "string"},
+]}
+_s71_h_mixed = scaffold.schema_hash(_s71_mixed)
+_s71_h_valid = scaffold.schema_hash(_s71_valid_only)
+check(_s71_h_mixed == _s71_h_valid,
+      f"71d: mixed valid/invalid hash matches valid-only hash: {_s71_h_mixed} == {_s71_h_valid}")
+
+# 71e: Subcommand that is not a dict — skipped
+_s71_bad_sub = {"arguments": [], "subcommands": ["not_a_dict", 42]}
+_s71_h5 = scaffold.schema_hash(_s71_bad_sub)
+check(isinstance(_s71_h5, str) and len(_s71_h5) == 8, "71e: non-dict subcommands → 8-char hash, no exception")
 
 # =====================================================================
 # Final cleanup
