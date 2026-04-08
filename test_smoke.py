@@ -4,11 +4,17 @@ Confirms nothing is broken after recent changes. Does not refactor or optimize.
 Covers: launch/load, form/preview, command execution, preset round-trip, window behavior.
 """
 
+import io
 import json
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+# Fix Unicode output on Windows (cp1252 can't encode ▼/▾ characters)
+if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).parent))

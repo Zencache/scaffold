@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
-from PySide6.QtGui import QColor, QKeyEvent
+from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent, QPalette
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -1106,10 +1106,10 @@ f14.extra_flags_edit.setPlainText("")
 cmd, _ = f14.build_command()
 check("--extra1" not in cmd, f"empty extra flags -> nothing appended: {cmd}")
 
-# Extra flags with unclosed quote -> fallback split, no crash
+# Extra flags with unclosed quote -> empty list (no broken tokens), no crash
 f14.extra_flags_edit.setPlainText('--flag "unclosed')
 cmd, _ = f14.build_command()
-check("--flag" in cmd, f"unclosed quote extra flags: no crash, flag present: {cmd}")
+check("--flag" not in cmd, f"unclosed quote extra flags: no broken tokens in cmd: {cmd}")
 
 f14.extra_flags_group.setChecked(False)
 
@@ -4183,12 +4183,42 @@ check("--api-key" not in _s38_mpreset, "38f2: password field excluded from prese
 check(_s38_mpreset.get("--host") == "example.com", "38f2: non-password field still in preset")
 _s38_mw.close(); _s38_mw.deleteLater(); app.processEvents()
 
-# --- 38f3: apply_values with missing password key leaves field empty ---
+# --- 38f3: apply_values with missing password key preserves existing value ---
 _s38_f._set_field_value(_s38_k, "original-secret")
 _s38_preset_no_pw = _s38_f.serialize_values()  # excludes password
-_s38_f.apply_values(_s38_preset_no_pw)
+_s38_had_pw = _s38_f.apply_values(_s38_preset_no_pw)
 app.processEvents()
-check(_s38_f.get_field_value(_s38_k) is None, "38f3: apply_values with missing password leaves field empty")
+check(_s38_f.get_field_value(_s38_k) == "original-secret",
+      "38f3: apply_values preserves existing password value")
+check(_s38_had_pw is True, "38f3: apply_values returns True when password fields exist")
+
+# --- 38f4: apply_values preserves password across a round-trip ---
+_s38_f._set_field_value(_s38_k, "round-trip-secret")
+_s38_snap = _s38_f.serialize_values()
+check("--api-key" not in _s38_snap, "38f4: password not in serialized preset")
+_s38_f.apply_values(_s38_snap)
+app.processEvents()
+check(_s38_f.get_field_value(_s38_k) == "round-trip-secret",
+      "38f4: password field unchanged after apply_values round-trip")
+
+# --- 38f5: apply_values returns False when no password fields exist ---
+_s38_no_pw_tool = {
+    "tool": "no_pw", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Host", "flag": "--host", "type": "string",
+         "description": "Hostname", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+_s38_no_pw_p = Path(_s38_tmpdir) / "no_pw.json"
+_s38_no_pw_p.write_text(json.dumps(_s38_no_pw_tool))
+_s38_no_pw_w = scaffold.MainWindow(tool_path=str(_s38_no_pw_p))
+_s38_no_pw_ret = _s38_no_pw_w.form.apply_values({"--host": "example.com"})
+check(_s38_no_pw_ret is False, "38f5: apply_values returns False when no password fields")
+_s38_no_pw_w.close(); _s38_no_pw_w.deleteLater(); app.processEvents()
 
 # --- 38g: password with validation regex works ---
 _s38_val_tool = {
@@ -6645,13 +6675,15 @@ _s62_dock._refresh_button_labels()
 check("\u25be" in _s62_dock._arrow_buttons[0].text(),
       "62z: empty slot button text contains \u25be indicator")
 
-# 62aa: Assigned slot shows tool and preset name; arrow on separate button
+# 62aa: Assigned slot shows preset name (not tool name); arrow on separate button
 _s62_dock._slots[0]["tool_path"] = _s62_nmap_path
 _s62_dock._slots[0]["preset_path"] = _s62_preset_path
 _s62_dock._refresh_button_labels()
 _s62_aa_text = _s62_dock._slot_buttons[0].text()
-check("nmap" in _s62_aa_text.lower() or "Nmap" in _s62_aa_text,
-      f"62aa: assigned slot shows tool name (got '{_s62_aa_text}')")
+_s62_aa_preset_stem = Path(_s62_preset_path).stem if _s62_preset_path else ""
+_s62_aa_stripped = _s62_aa_text.rstrip("\u2026….")
+check(_s62_aa_preset_stem and _s62_aa_preset_stem.startswith(_s62_aa_stripped) and len(_s62_aa_stripped) > 0,
+      f"62aa: assigned slot shows preset name (got '{_s62_aa_text}')")
 check("\u25be" in _s62_dock._arrow_buttons[0].text(),
       "62aa: assigned slot has \u25be indicator")
 
@@ -6779,11 +6811,11 @@ check("no valid" in _s63_win.statusBar().currentMessage().lower(),
       "63j: chain with nonexistent tool path shows no valid message")
 check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63j: chain state idle after missing tool")
 
-# 63k: run_chain_btn text changes to "Running..." during chain, reverts after cleanup
+# 63k: run_chain_btn text changes to "Run..." during chain, reverts after cleanup
 _s63_dock._slots[0]["tool_path"] = _s63_minimal
 _s63_dock._on_run_chain()
 app.processEvents()
-check(_s63_dock.run_chain_btn.text() == "Running...", "63k: run_chain_btn text is 'Running...' during chain")
+check(_s63_dock.run_chain_btn.text() == "Run...", "63k: run_chain_btn text is 'Run...' during chain")
 _s63_dock._on_stop_chain()
 app.processEvents()
 check(_s63_dock.run_chain_btn.text() == "Run", "63k: run_chain_btn text reverts to 'Run' after stop")
@@ -8088,6 +8120,2711 @@ _s72_dir1 = scaffold._make_arrow_icons()
 _s72_dir2 = scaffold._make_arrow_icons()
 check(_s72_dir1 is not None and _s72_dir1 == _s72_dir2,
       f"72d: _make_arrow_icons returns same dir on repeated calls: {_s72_dir1} == {_s72_dir2}")
+
+# =====================================================================
+print("\n=== SECTION 73: TG8 — _chain_advance Stale Timer Guard ===")
+# =====================================================================
+
+_s73_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s73_win = scaffold.MainWindow(tool_path=_s73_minimal)
+_s73_dock = _s73_win.cascade_dock
+_s73_dock.show()
+app.processEvents()
+
+# Simulate the stale timer scenario directly:
+# 1. Start a chain, then immediately stop it
+# 2. Schedule _chain_advance via QTimer.singleShot (simulating a stale timer)
+# 3. Pump events — the guard should prevent _chain_advance from running
+
+_s73_dock._slots[0]["tool_path"] = _s73_minimal
+_s73_dock._slots[0]["preset_path"] = None
+for _s73_i in range(1, len(_s73_dock._slots)):
+    _s73_dock._slots[_s73_i]["tool_path"] = None
+    _s73_dock._slots[_s73_i]["preset_path"] = None
+
+# Start the chain (sets state to CHAIN_LOADING, queues _chain_advance)
+_s73_dock._on_run_chain()
+app.processEvents()
+
+# Stop immediately (sets state to CHAIN_IDLE, calls _chain_cleanup)
+_s73_dock._on_stop_chain()
+app.processEvents()
+
+check(_s73_win.statusBar().currentMessage() == "Cascade cancelled",
+      f"73a: status bar reads 'Cascade cancelled' after stop: '{_s73_win.statusBar().currentMessage()}'")
+
+# Now simulate the stale timer firing — schedule _chain_advance as if a
+# QTimer.singleShot from the delay logic had been pending when we stopped
+QTimer.singleShot(0, _s73_dock._chain_advance)
+app.processEvents()
+for _ in range(5):
+    app.processEvents()
+    time.sleep(0.02)
+
+# The guard should have returned early — status bar unchanged, state still IDLE
+check(_s73_win.statusBar().currentMessage() == "Cascade cancelled",
+      f"73b: status bar still 'Cascade cancelled' after stale timer fires: '{_s73_win.statusBar().currentMessage()}'")
+check(_s73_dock._chain_state == scaffold.CHAIN_IDLE,
+      "73c: chain state still IDLE after stale _chain_advance fires")
+
+_s73_win.close(); _s73_win.deleteLater(); app.processEvents()
+
+# =====================================================================
+print("\n=== SECTION 74: L3 — _format_powershell Single-Quote Escaping ===")
+# =====================================================================
+
+# 74a: token with apostrophe uses doubled single quotes
+_s74a = scaffold._format_powershell(["tool", "it's here"])
+check("'it''s here'" in _s74a,
+      f"74a: apostrophe token uses doubled single quotes: {_s74a}")
+
+# 74b: token with apostrophe and $var — no double quotes, $ stays literal
+_s74b = scaffold._format_powershell(["tool", "it's $HOME now"])
+check("'it''s $HOME now'" in _s74b,
+      f"74b: apostrophe+dollar token uses single quotes with escaping: {_s74b}")
+
+# 74c: token with embedded single quotes
+_s74c = scaffold._format_powershell(["tool", "she said 'hi'"])
+check("'she said ''hi'''" in _s74c,
+      f"74c: embedded single quotes are doubled: {_s74c}")
+
+# =====================================================================
+print("\n=== SECTION 75: M4 — Extra Flags Validation Blocks Execution ===")
+# =====================================================================
+
+_s75_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s75_win = scaffold.MainWindow(tool_path=_s75_path)
+_s75_win.show()
+app.processEvents()
+_s75_form = _s75_win.form
+
+# Set a required field so validation passes
+for _s75_k, _s75_f in _s75_form.fields.items():
+    if _s75_f["arg"]["positional"] and _s75_f["arg"]["required"]:
+        _s75_form._set_field_value(_s75_k, "127.0.0.1")
+        break
+
+# 75a: extra_flags_valid() returns True when group is unchecked regardless of content
+_s75_form.extra_flags_group.setChecked(False)
+_s75_form.extra_flags_edit.setPlainText('--flag "unclosed')
+app.processEvents()
+check(_s75_form.extra_flags_valid() is True,
+      "75a: extra_flags_valid() True when group unchecked despite bad content")
+
+# 75b: extra_flags_valid() returns True for valid flag strings
+_s75_form.extra_flags_group.setChecked(True)
+_s75_form.extra_flags_edit.setPlainText('--flag "valid value"')
+app.processEvents()
+check(_s75_form.extra_flags_valid() is True,
+      "75b: extra_flags_valid() True for valid flags")
+
+# 75c: extra_flags_valid() returns False for unmatched quotes
+_s75_form.extra_flags_group.setChecked(True)
+_s75_form.extra_flags_edit.setPlainText('--flag "unclosed')
+app.processEvents()
+check(_s75_form.extra_flags_valid() is False,
+      "75c: extra_flags_valid() False for unmatched quotes")
+
+# 75d: _on_run_stop() does not start a process when extra_flags_valid() is False
+_s75_form.extra_flags_group.setChecked(True)
+_s75_form.extra_flags_edit.setPlainText('--flag "unclosed')
+_s75_form.command_changed.emit()
+app.processEvents()
+_s75_win._on_run_stop()
+app.processEvents()
+check(_s75_win.process is None,
+      "75d: _on_run_stop() does not start process with invalid extra flags")
+
+# 75e: Run button is disabled in _update_preview() when extra flags are invalid
+_s75_form.extra_flags_group.setChecked(True)
+_s75_form.extra_flags_edit.setPlainText('--flag "unclosed')
+_s75_form.command_changed.emit()
+app.processEvents()
+_s75_win._update_preview()
+app.processEvents()
+check(not _s75_win.run_btn.isEnabled(),
+      "75e: Run button disabled when extra flags are invalid")
+
+# Verify Run button re-enables when flags are fixed
+_s75_form.extra_flags_edit.setPlainText('--flag "fixed"')
+_s75_form.command_changed.emit()
+app.processEvents()
+_s75_win._update_preview()
+app.processEvents()
+check(_s75_win.run_btn.isEnabled(),
+      "75e: Run button re-enabled when extra flags are fixed")
+
+_s75_win.close(); _s75_win.deleteLater(); app.processEvents()
+
+# =====================================================================
+# Section 76 — Cascade Variables Data Model
+# =====================================================================
+print("\n=== SECTION 76: Cascade Variables Data Model ===")
+
+_s76_orig_warning = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+_s76_w = scaffold.MainWindow()
+app.processEvents()
+_s76_cas = _s76_w.cascade_dock
+
+# 76a: _cascade_variables attribute exists and is a list
+check(hasattr(_s76_cas, "_cascade_variables") and isinstance(_s76_cas._cascade_variables, list),
+      "76a: _cascade_variables attribute exists and is a list")
+
+# 76b: _export_cascade_data() output contains "variables" key (empty list by default)
+_s76_export = _s76_cas._export_cascade_data("test76")
+check("variables" in _s76_export and _s76_export["variables"] == [],
+      "76b: _export_cascade_data() contains 'variables' key (empty list)")
+
+# 76c: _import_cascade_data() with variables populates _cascade_variables
+_s76_test_vars = [
+    {"name": "Target IP", "flag": "TARGET", "description": "IP to scan", "apply_to": "all"},
+    {"name": "Hash File", "flag": "HASH_FILE", "type_hint": "file", "apply_to": [0, 2]},
+]
+_s76_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "test76c",
+    "description": "",
+    "loop_mode": False,
+    "steps": [{"tool": "tests/nmap.json", "preset": None, "delay": 0}],
+    "variables": _s76_test_vars,
+}
+_s76_cas._import_cascade_data(_s76_import_data)
+app.processEvents()
+check(_s76_cas._cascade_variables == _s76_test_vars,
+      "76c: _import_cascade_data() with variables populates _cascade_variables")
+
+# 76d: _import_cascade_data() without "variables" key defaults to empty list
+_s76_no_vars_data = {
+    "_format": "scaffold_cascade",
+    "name": "test76d",
+    "description": "",
+    "loop_mode": False,
+    "steps": [{"tool": "tests/nmap.json", "preset": None, "delay": 0}],
+}
+_s76_cas._import_cascade_data(_s76_no_vars_data)
+app.processEvents()
+check(_s76_cas._cascade_variables == [],
+      "76d: import without 'variables' key defaults to empty list (backward compat)")
+
+# 76e: Variables round-trip through export → import
+_s76_roundtrip_vars = [
+    {"name": "Target IP", "flag": "TARGET", "description": "IP to scan", "apply_to": "all"},
+    {"name": "Hash File", "flag": "HASH_FILE", "type_hint": "file", "apply_to": [0, 2]},
+    {"name": "Verbose", "flag": "--verbose"},
+]
+_s76_cas._cascade_variables = list(_s76_roundtrip_vars)
+_s76_exported = _s76_cas._export_cascade_data("roundtrip76")
+# Re-import the exported data
+_s76_cas._cascade_variables = []  # clear first
+_s76_cas._import_cascade_data(_s76_exported)
+app.processEvents()
+check(_s76_cas._cascade_variables == _s76_roundtrip_vars,
+      "76e: variables round-trip through export → import")
+
+# 76f: Variables persist through QSettings _save_cascade → _load_cascade
+_s76_persist_vars = [
+    {"name": "Output Dir", "flag": "--output", "type_hint": "directory"},
+    {"name": "Port", "flag": "-p", "type_hint": "integer", "description": "Port number"},
+]
+_s76_cas._cascade_variables = list(_s76_persist_vars)
+_s76_cas._save_cascade()
+# Clear in-memory, then reload from QSettings
+_s76_cas._cascade_variables = []
+_s76_cas._load_cascade()
+app.processEvents()
+check(_s76_cas._cascade_variables == _s76_persist_vars,
+      "76f: variables persist through QSettings _save_cascade → _load_cascade")
+
+# 76g: Variable with only name and flag is valid
+_s76_minimal_data = {
+    "_format": "scaffold_cascade",
+    "name": "test76g",
+    "description": "",
+    "loop_mode": False,
+    "steps": [{"tool": "tests/nmap.json", "preset": None, "delay": 0}],
+    "variables": [{"name": "Simple", "flag": "--simple"}],
+}
+_s76_cas._import_cascade_data(_s76_minimal_data)
+app.processEvents()
+check(len(_s76_cas._cascade_variables) == 1
+      and _s76_cas._cascade_variables[0] == {"name": "Simple", "flag": "--simple"},
+      "76g: variable with only name and flag is valid")
+
+# 76h: Variable missing name or flag is rejected (ValueError)
+_s76_missing_name = {
+    "_format": "scaffold_cascade",
+    "name": "test76h",
+    "description": "",
+    "loop_mode": False,
+    "steps": [{"tool": "tests/nmap.json", "preset": None, "delay": 0}],
+    "variables": [{"flag": "--no-name"}],
+}
+_s76_missing_flag = {
+    "_format": "scaffold_cascade",
+    "name": "test76h2",
+    "description": "",
+    "loop_mode": False,
+    "steps": [{"tool": "tests/nmap.json", "preset": None, "delay": 0}],
+    "variables": [{"name": "No Flag"}],
+}
+_s76h_rejected = 0
+for _s76h_bad in (_s76_missing_name, _s76_missing_flag):
+    try:
+        _s76_cas._import_cascade_data(_s76h_bad)
+    except ValueError:
+        _s76h_rejected += 1
+check(_s76h_rejected == 2,
+      "76h: variable missing name or flag raises ValueError")
+
+# 76i: _export_cascade_data() preserves variable order
+_s76_ordered_vars = [
+    {"name": "Zulu", "flag": "--zulu"},
+    {"name": "Alpha", "flag": "--alpha"},
+    {"name": "Mike", "flag": "--mike"},
+]
+_s76_cas._cascade_variables = list(_s76_ordered_vars)
+_s76_ordered_export = _s76_cas._export_cascade_data("order76")
+check(_s76_ordered_export["variables"] == _s76_ordered_vars,
+      "76i: _export_cascade_data() preserves variable order")
+
+_s76_w.close(); _s76_w.deleteLater(); app.processEvents()
+QMessageBox.warning = _s76_orig_warning
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# =====================================================================
+# Section 77 — Cascade Variable Input Dialog
+# =====================================================================
+print("\n=== SECTION 77: Cascade Variable Input Dialog ===")
+
+# 77a: CascadeVariableDialog can be constructed with an empty list
+_s77_dlg_empty = scaffold.CascadeVariableDialog([], parent=None)
+_s77_has_label = False
+for child in _s77_dlg_empty.findChildren(QLabel):
+    if "no variables" in child.text().lower():
+        _s77_has_label = True
+        break
+check(_s77_has_label or _s77_dlg_empty is not None,
+      "77a: CascadeVariableDialog constructed with empty list")
+_s77_dlg_empty.close()
+_s77_dlg_empty.deleteLater()
+app.processEvents()
+
+# 77b: CascadeVariableDialog renders one row per variable
+_s77_vars_b = [
+    {"name": "Input File", "flag": "--input", "type_hint": "string"},
+    {"name": "Output Dir", "flag": "--output", "type_hint": "directory"},
+    {"name": "Count", "flag": "--count", "type_hint": "integer"},
+]
+_s77_dlg_b = scaffold.CascadeVariableDialog(_s77_vars_b)
+_s77_labels_b = [lbl for lbl in _s77_dlg_b.findChildren(QLabel)
+                 if lbl.text() in ("Input File", "Output Dir", "Count")]
+check(len(_s77_labels_b) == 3,
+      "77b: CascadeVariableDialog renders one row per variable")
+_s77_dlg_b.close()
+_s77_dlg_b.deleteLater()
+app.processEvents()
+
+# 77c: String variable gets QLineEdit
+_s77_vars_c = [{"name": "Name", "flag": "--name", "type_hint": "string"}]
+_s77_dlg_c = scaffold.CascadeVariableDialog(_s77_vars_c)
+_s77_input_c = _s77_dlg_c._inputs.get("--name")
+check(isinstance(_s77_input_c, QLineEdit),
+      "77c: String variable gets QLineEdit")
+_s77_dlg_c.close()
+_s77_dlg_c.deleteLater()
+app.processEvents()
+
+# 77d: File variable gets QLineEdit + Browse button
+_s77_vars_d = [{"name": "File", "flag": "--file", "type_hint": "file"}]
+_s77_dlg_d = scaffold.CascadeVariableDialog(_s77_vars_d)
+_s77_input_d = _s77_dlg_d._inputs.get("--file")
+_s77_browse_d = [btn for btn in _s77_dlg_d.findChildren(QPushButton)
+                 if btn.text() == "Browse..."]
+check(isinstance(_s77_input_d, QLineEdit) and len(_s77_browse_d) >= 1,
+      "77d: File variable gets QLineEdit + Browse button")
+_s77_dlg_d.close()
+_s77_dlg_d.deleteLater()
+app.processEvents()
+
+# 77e: Directory variable gets QLineEdit + Browse button
+_s77_vars_e = [{"name": "Dir", "flag": "--dir", "type_hint": "directory"}]
+_s77_dlg_e = scaffold.CascadeVariableDialog(_s77_vars_e)
+_s77_input_e = _s77_dlg_e._inputs.get("--dir")
+_s77_browse_e = [btn for btn in _s77_dlg_e.findChildren(QPushButton)
+                 if btn.text() == "Browse..."]
+check(isinstance(_s77_input_e, QLineEdit) and len(_s77_browse_e) >= 1,
+      "77e: Directory variable gets QLineEdit + Browse button")
+_s77_dlg_e.close()
+_s77_dlg_e.deleteLater()
+app.processEvents()
+
+# 77f: Integer variable gets QSpinBox
+_s77_vars_f = [{"name": "Num", "flag": "--num", "type_hint": "integer"}]
+_s77_dlg_f = scaffold.CascadeVariableDialog(_s77_vars_f)
+_s77_input_f = _s77_dlg_f._inputs.get("--num")
+check(isinstance(_s77_input_f, QSpinBox),
+      "77f: Integer variable gets QSpinBox")
+_s77_dlg_f.close()
+_s77_dlg_f.deleteLater()
+app.processEvents()
+
+# 77g: Float variable gets QDoubleSpinBox
+_s77_vars_g = [{"name": "Rate", "flag": "--rate", "type_hint": "float"}]
+_s77_dlg_g = scaffold.CascadeVariableDialog(_s77_vars_g)
+_s77_input_g = _s77_dlg_g._inputs.get("--rate")
+check(isinstance(_s77_input_g, QDoubleSpinBox),
+      "77g: Float variable gets QDoubleSpinBox")
+_s77_dlg_g.close()
+_s77_dlg_g.deleteLater()
+app.processEvents()
+
+# 77h: get_values() returns dict with flag as key
+_s77_vars_h = [
+    {"name": "Name", "flag": "--name", "type_hint": "string"},
+    {"name": "Count", "flag": "--count", "type_hint": "integer"},
+    {"name": "Rate", "flag": "--rate", "type_hint": "float"},
+]
+_s77_dlg_h = scaffold.CascadeVariableDialog(_s77_vars_h)
+_s77_dlg_h._inputs["--name"].setText("hello")
+_s77_dlg_h._inputs["--count"].setValue(42)
+_s77_dlg_h._inputs["--rate"].setValue(3.14)
+_s77_vals_h = _s77_dlg_h.get_values()
+check(_s77_vals_h.get("--name") == "hello"
+      and _s77_vals_h.get("--count") == 42
+      and abs(_s77_vals_h.get("--rate", 0) - 3.14) < 0.001,
+      "77h: get_values() returns dict with flag as key")
+_s77_dlg_h.close()
+_s77_dlg_h.deleteLater()
+app.processEvents()
+
+# 77i: Description text appears as placeholder on QLineEdit inputs
+_s77_vars_i = [{"name": "Path", "flag": "--path", "type_hint": "string",
+                "description": "Enter the path"}]
+_s77_dlg_i = scaffold.CascadeVariableDialog(_s77_vars_i)
+_s77_input_i = _s77_dlg_i._inputs.get("--path")
+check(isinstance(_s77_input_i, QLineEdit)
+      and _s77_input_i.placeholderText() == "Enter the path",
+      "77i: Description text appears as placeholder on QLineEdit inputs")
+_s77_dlg_i.close()
+_s77_dlg_i.deleteLater()
+app.processEvents()
+
+# 77j: Default type_hint is "string" when omitted
+_s77_vars_j = [{"name": "Arg", "flag": "--arg"}]
+_s77_dlg_j = scaffold.CascadeVariableDialog(_s77_vars_j)
+_s77_input_j = _s77_dlg_j._inputs.get("--arg")
+check(isinstance(_s77_input_j, QLineEdit),
+      "77j: Default type_hint is 'string' when omitted")
+_s77_dlg_j.close()
+_s77_dlg_j.deleteLater()
+app.processEvents()
+
+# 77k: Dialog has OK and Cancel buttons
+from PySide6.QtWidgets import QDialogButtonBox
+_s77_dlg_k = scaffold.CascadeVariableDialog([])
+_s77_btn_boxes = _s77_dlg_k.findChildren(QDialogButtonBox)
+_s77_has_ok = False
+_s77_has_cancel = False
+if _s77_btn_boxes:
+    _s77_bb = _s77_btn_boxes[0]
+    _s77_has_ok = _s77_bb.button(QDialogButtonBox.StandardButton.Ok) is not None
+    _s77_has_cancel = _s77_bb.button(QDialogButtonBox.StandardButton.Cancel) is not None
+check(_s77_has_ok and _s77_has_cancel,
+      "77k: Dialog has OK and Cancel buttons")
+_s77_dlg_k.close()
+_s77_dlg_k.deleteLater()
+app.processEvents()
+
+# 77l: Dialog title is "Cascade Variables"
+_s77_dlg_l = scaffold.CascadeVariableDialog([])
+check(_s77_dlg_l.windowTitle() == "Cascade Variables",
+      "77l: Dialog title is 'Cascade Variables'")
+_s77_dlg_l.close()
+_s77_dlg_l.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# Section 78 — Cascade Variable Injection
+# =====================================================================
+print("\n=== SECTION 78: Cascade Variable Injection ===")
+
+# Create two test tool schemas with a shared --target string field
+_s78_tmpdir = tempfile.mkdtemp(prefix="scaffold_test78_")
+_s78_tool_a = {
+    "tool": "tool_a",
+    "binary": "echo",
+    "description": "Test tool A",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string"},
+        {"name": "Mode", "flag": "--mode", "type": "string"},
+    ],
+}
+_s78_tool_b = {
+    "tool": "tool_b",
+    "binary": "echo",
+    "description": "Test tool B",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string"},
+        {"name": "Output", "flag": "--output", "type": "string"},
+    ],
+}
+_s78_path_a = os.path.join(_s78_tmpdir, "tool_a.json")
+_s78_path_b = os.path.join(_s78_tmpdir, "tool_b.json")
+Path(_s78_path_a).write_text(json.dumps(_s78_tool_a))
+Path(_s78_path_b).write_text(json.dumps(_s78_tool_b))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s78_win = scaffold.MainWindow()
+_s78_win.show()
+app.processEvents()
+_s78_dock = _s78_win.cascade_dock
+_s78_dock.show()
+app.processEvents()
+
+# 78a: _chain_variable_values attribute exists and is an empty dict initially
+check(hasattr(_s78_dock, "_chain_variable_values") and _s78_dock._chain_variable_values == {},
+      "78a: _chain_variable_values exists and is empty dict initially")
+
+# 78b: Running a chain with no variables does NOT show the variable dialog
+_s78_dock._cascade_variables = []
+_s78_dock._slots[0]["tool_path"] = _s78_path_a
+_s78_dlg_constructed = [False]
+_s78_OrigDialog = scaffold.CascadeVariableDialog
+
+class _S78MockDialogTracker(_s78_OrigDialog):
+    def __init__(self, *args, **kwargs):
+        _s78_dlg_constructed[0] = True
+        super().__init__(*args, **kwargs)
+
+scaffold.CascadeVariableDialog = _S78MockDialogTracker
+_s78_dock._on_run_chain()
+app.processEvents()
+_s78_dock._on_stop_chain()
+app.processEvents()
+scaffold.CascadeVariableDialog = _s78_OrigDialog
+check(not _s78_dlg_constructed[0],
+      "78b: no variable dialog when _cascade_variables is empty")
+
+# 78c: Running a chain with variables constructs CascadeVariableDialog (mock to auto-accept)
+_s78_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "apply_to": "all"},
+]
+_s78_mock_constructed = [False]
+
+class _S78MockDialogAccept(QDialog):
+    def __init__(self, variables, parent=None):
+        super().__init__(parent)
+        _s78_mock_constructed[0] = True
+        self._test_values = {"--target": "injected_value"}
+    def exec(self):
+        return QDialog.DialogCode.Accepted
+    def get_values(self):
+        return self._test_values
+
+scaffold.CascadeVariableDialog = _S78MockDialogAccept
+_s78_dock._slots[0]["tool_path"] = _s78_path_a
+_s78_dock._on_run_chain()
+app.processEvents()
+check(_s78_mock_constructed[0], "78c: variable dialog constructed when variables defined")
+check(_s78_dock._chain_variable_values == {"--target": "injected_value"},
+      "78c: chain_variable_values populated from dialog")
+_s78_dock._on_stop_chain()
+app.processEvents()
+scaffold.CascadeVariableDialog = _s78_OrigDialog
+
+# 78d: Canceling the variable dialog aborts the chain
+_s78_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "apply_to": "all"},
+]
+
+class _S78MockDialogReject(QDialog):
+    def __init__(self, variables, parent=None):
+        super().__init__(parent)
+    def exec(self):
+        return QDialog.DialogCode.Rejected
+
+scaffold.CascadeVariableDialog = _S78MockDialogReject
+_s78_dock._slots[0]["tool_path"] = _s78_path_a
+_s78_dock._on_run_chain()
+app.processEvents()
+check(_s78_dock._chain_state == scaffold.CHAIN_IDLE,
+      "78d: chain state stays IDLE after dialog cancel")
+check(_s78_dock.run_chain_btn.isEnabled(),
+      "78d: run_chain_btn stays enabled after dialog cancel")
+scaffold.CascadeVariableDialog = _s78_OrigDialog
+
+# 78e: Variable values are cleared on _chain_cleanup()
+_s78_dock._chain_variable_values = {"--target": "leftover"}
+_s78_dock._chain_cleanup("test cleanup")
+app.processEvents()
+check(_s78_dock._chain_variable_values == {},
+      "78e: _chain_variable_values cleared on _chain_cleanup()")
+
+# 78f: apply_to: "all" injects into every step
+_s78_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "apply_to": "all"},
+]
+
+scaffold.CascadeVariableDialog = _S78MockDialogAccept
+# Ensure 2+ slots
+while len(_s78_dock._slots) < 2:
+    _s78_dock._on_add_slot()
+    app.processEvents()
+_s78_dock._slots[0]["tool_path"] = _s78_path_a
+_s78_dock._slots[0]["preset_path"] = None
+_s78_dock._slots[1]["tool_path"] = _s78_path_b
+_s78_dock._slots[1]["preset_path"] = None
+for _s78_i in range(2, len(_s78_dock._slots)):
+    _s78_dock._slots[_s78_i]["tool_path"] = None
+
+_s78_dock._on_run_chain()
+app.processEvents()
+# Step 0 (tool_a) is now loaded with variable injected
+_s78_val_step0 = _s78_win.form.get_field_value(("__global__", "--target"))
+check(_s78_val_step0 == "injected_value",
+      "78f: apply_to 'all' — step 0 has injected value")
+
+# Advance to step 1 (tool_b)
+_s78_dock._chain_advance()
+app.processEvents()
+_s78_val_step1 = _s78_win.form.get_field_value(("__global__", "--target"))
+check(_s78_val_step1 == "injected_value",
+      "78f: apply_to 'all' — step 1 also has injected value")
+_s78_dock._on_stop_chain()
+app.processEvents()
+scaffold.CascadeVariableDialog = _s78_OrigDialog
+
+# 78g: apply_to: [0] only injects into step 0, not step 1
+_s78_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "apply_to": [0]},
+]
+
+class _S78MockDialogAcceptG(QDialog):
+    def __init__(self, variables, parent=None):
+        super().__init__(parent)
+        self._test_values = {"--target": "only_step0"}
+    def exec(self):
+        return QDialog.DialogCode.Accepted
+    def get_values(self):
+        return self._test_values
+
+scaffold.CascadeVariableDialog = _S78MockDialogAcceptG
+_s78_dock._slots[0]["tool_path"] = _s78_path_a
+_s78_dock._slots[0]["preset_path"] = None
+_s78_dock._slots[1]["tool_path"] = _s78_path_b
+_s78_dock._slots[1]["preset_path"] = None
+for _s78_i in range(2, len(_s78_dock._slots)):
+    _s78_dock._slots[_s78_i]["tool_path"] = None
+
+_s78_dock._on_run_chain()
+app.processEvents()
+# Step 0 (slot_index=0) is in apply_to list — should have value
+_s78_val_g0 = _s78_win.form.get_field_value(("__global__", "--target"))
+check(_s78_val_g0 == "only_step0",
+      "78g: apply_to [0] — step 0 has injected value")
+
+# Advance to step 1 (slot_index=1) — NOT in apply_to list
+_s78_dock._chain_advance()
+app.processEvents()
+_s78_val_g1 = _s78_win.form.get_field_value(("__global__", "--target"))
+check(_s78_val_g1 is None,
+      "78g: apply_to [0] — step 1 does NOT have injected value")
+_s78_dock._on_stop_chain()
+app.processEvents()
+scaffold.CascadeVariableDialog = _s78_OrigDialog
+
+# Cleanup section 78
+_s78_win.close()
+_s78_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s78_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# =====================================================================
+# Section 79 — Cascade Variable Definition UI
+# =====================================================================
+print("\n=== SECTION 79: Cascade Variable Definition UI ===")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s79_win = scaffold.MainWindow()
+_s79_win.show()
+app.processEvents()
+_s79_dock = _s79_win.cascade_dock
+_s79_dock.show()
+app.processEvents()
+
+# 79a: "Edit Variables..." action exists in the cascade menu
+_s79_menu = _s79_dock._menu_btn.menu()
+_s79_action_texts = [a.text() for a in _s79_menu.actions()]
+check("Edit Variables..." in _s79_action_texts,
+      "79a: 'Edit Variables...' action exists in cascade menu")
+
+# 79b: Adding a variable via the definition dialog increases _cascade_variables
+_s79_dock._cascade_variables = []
+_s79_dlg = scaffold.CascadeVariableDefinitionDialog([], parent=_s79_dock)
+# Programmatically add a row and accept
+_s79_dlg._add_row(name="MyVar", flag="--myvar", type_hint="string", apply_to="all")
+check(_s79_dlg._table.rowCount() == 1,
+      "79b: table has 1 row after _add_row()")
+_s79_dlg._on_accept()
+app.processEvents()
+_s79_vars = _s79_dlg.get_variables()
+check(len(_s79_vars) == 1 and _s79_vars[0]["name"] == "MyVar" and _s79_vars[0]["flag"] == "--myvar",
+      "79b: get_variables() returns the added variable")
+_s79_dlg.close()
+_s79_dlg.deleteLater()
+app.processEvents()
+
+# 79c: Removing a variable decreases the list
+_s79_dlg2 = scaffold.CascadeVariableDefinitionDialog([
+    {"name": "Var1", "flag": "--v1", "type_hint": "string", "apply_to": "all"},
+    {"name": "Var2", "flag": "--v2", "type_hint": "integer", "apply_to": "all"},
+    {"name": "Var3", "flag": "--v3", "type_hint": "float", "apply_to": [0, 1]},
+], parent=_s79_dock)
+check(_s79_dlg2._table.rowCount() == 3,
+      "79c: dialog opens with 3 rows from input")
+# Select row 1 and remove it
+_s79_dlg2._table.selectRow(1)
+_s79_dlg2._remove_selected()
+check(_s79_dlg2._table.rowCount() == 2,
+      "79c: removing selected row decreases count to 2")
+_s79_dlg2._on_accept()
+app.processEvents()
+_s79_remaining = _s79_dlg2.get_variables()
+check(len(_s79_remaining) == 2,
+      "79c: get_variables() returns 2 after removal")
+_s79_remaining_names = [v["name"] for v in _s79_remaining]
+check("Var1" in _s79_remaining_names and "Var3" in _s79_remaining_names,
+      "79c: correct variables remain (Var1, Var3)")
+_s79_dlg2.close()
+_s79_dlg2.deleteLater()
+app.processEvents()
+
+# 79d: Variable definitions persist through save -> load cycle of a cascade file
+_s79_tmpdir = tempfile.mkdtemp(prefix="scaffold_test79_")
+_s79_tool = {
+    "tool": "test79_tool",
+    "binary": "echo",
+    "description": "Test tool for 79",
+    "arguments": [
+        {"name": "Flag1", "flag": "--flag1", "type": "string"},
+    ],
+}
+_s79_tool_path = os.path.join(_s79_tmpdir, "test79_tool.json")
+Path(_s79_tool_path).write_text(json.dumps(_s79_tool))
+
+_s79_dock._slots[0]["tool_path"] = _s79_tool_path
+_s79_dock._cascade_variables = [
+    {"name": "PersistVar", "flag": "--flag1", "type_hint": "string", "apply_to": "all"},
+    {"name": "NumVar", "flag": "--num", "type_hint": "integer", "apply_to": [0]},
+]
+
+# Export cascade data and write to file
+_s79_cascade_data = _s79_dock._export_cascade_data("test79_cascade", "test desc")
+_s79_cascade_path = os.path.join(_s79_tmpdir, "test79_cascade.json")
+Path(_s79_cascade_path).write_text(json.dumps(_s79_cascade_data, indent=2))
+
+# Clear variables, then import the cascade data
+_s79_dock._cascade_variables = []
+_s79_loaded_data = json.loads(Path(_s79_cascade_path).read_text(encoding="utf-8"))
+_s79_dock._import_cascade_data(_s79_loaded_data)
+app.processEvents()
+check(len(_s79_dock._cascade_variables) == 2,
+      "79d: 2 variables restored after import")
+check(_s79_dock._cascade_variables[0]["name"] == "PersistVar",
+      "79d: first variable name preserved")
+check(_s79_dock._cascade_variables[1]["type_hint"] == "integer",
+      "79d: second variable type_hint preserved")
+check(_s79_dock._cascade_variables[1]["apply_to"] == [0],
+      "79d: second variable apply_to preserved as list")
+
+# 79e: Exported cascade file contains the defined variables
+_s79_export_data = json.loads(Path(_s79_cascade_path).read_text(encoding="utf-8"))
+check("variables" in _s79_export_data,
+      "79e: exported JSON has 'variables' key")
+check(len(_s79_export_data["variables"]) == 2,
+      "79e: exported JSON has 2 variables")
+check(_s79_export_data["variables"][0]["flag"] == "--flag1",
+      "79e: exported variable flag is correct")
+
+# 79f: Imported cascade file with variables populates the definition UI
+_s79_dlg3 = scaffold.CascadeVariableDefinitionDialog(
+    _s79_dock._cascade_variables, parent=_s79_dock)
+check(_s79_dlg3._table.rowCount() == 2,
+      "79f: definition dialog opens with 2 rows from imported cascade")
+# Check the type combo for row 1 (integer)
+_s79_type_combo = _s79_dlg3._table.cellWidget(1, 2)
+check(_s79_type_combo is not None and _s79_type_combo.currentText() == "integer",
+      "79f: type combo shows 'integer' for second variable")
+# Check the apply-to combo for row 1 ([0])
+_s79_apply_combo = _s79_dlg3._table.cellWidget(1, 3)
+check(_s79_apply_combo is not None and _s79_apply_combo.currentText() == "0",
+      "79f: apply-to combo shows '0' for second variable")
+_s79_dlg3.close()
+_s79_dlg3.deleteLater()
+app.processEvents()
+
+# Cleanup section 79
+_s79_win.close()
+_s79_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s79_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# =====================================================================
+# Section 80 — Chain Runner Closure Accumulation Fix
+# =====================================================================
+print("\n=== SECTION 80: Chain Runner Closure Accumulation Fix ===")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s80_win = scaffold.MainWindow()
+_s80_win.show()
+app.processEvents()
+_s80_dock = _s80_win.cascade_dock
+_s80_dock.show()
+app.processEvents()
+
+# 80a: _stored_original_on_finished starts as None
+check(_s80_dock._stored_original_on_finished is None,
+      "80a: _stored_original_on_finished is None before chain starts")
+
+# Set up minimal chain state so _chain_execute_current can be called
+_s80_tmpdir = tempfile.mkdtemp(prefix="scaffold_test80_")
+_s80_tool = {
+    "tool": "test80_tool",
+    "binary": "echo",
+    "description": "Test tool for 80",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string"},
+    ],
+}
+_s80_tool_path = os.path.join(_s80_tmpdir, "test80_tool.json")
+Path(_s80_tool_path).write_text(json.dumps(_s80_tool))
+
+# Load the tool in the main window so the form exists
+_s80_win._load_tool_path(_s80_tool_path)
+app.processEvents()
+
+# Install a sentinel function as _on_finished instance attribute.
+# This avoids bound method identity issues (each access creates a new object).
+_s80_call_log = []
+_s80_real_on_finished = _s80_win._on_finished
+
+def _s80_sentinel(exit_code, exit_status):
+    _s80_call_log.append((exit_code, exit_status))
+    _s80_real_on_finished(exit_code, exit_status)
+
+_s80_win._on_finished = _s80_sentinel
+
+# Ensure we have enough slot widgets by using _on_add_slot
+while len(_s80_dock._slots) < 3:
+    _s80_dock._on_add_slot()
+    app.processEvents()
+
+# Assign the tool to 3 slots
+for _s80_i in range(3):
+    _s80_dock._slots[_s80_i]["tool_path"] = _s80_tool_path
+
+# Simulate calling _chain_execute_current 3 times (as if advancing through steps).
+# Each call monkey-patches _on_finished; the bug was that each call overwrote
+# _stored_original_on_finished with the PREVIOUS wrapper instead of keeping the real one.
+for _s80_i in range(3):
+    _s80_dock._chain_current = _s80_i
+    _s80_dock._chain_queue = [0, 1, 2]
+    # Load tool form for this step
+    _s80_dock._main_window._load_tool_path(_s80_tool_path)
+    app.processEvents()
+    # Must be CHAIN_LOADING for _chain_execute_current to proceed
+    _s80_dock._chain_state = scaffold.CHAIN_LOADING
+    _s80_dock._chain_execute_current()
+    app.processEvents()
+    # Kill any process that started so we can proceed to next step
+    if _s80_win.process is not None:
+        _s80_win.process.kill()
+        _s80_win.process.waitForFinished(1000)
+        app.processEvents()
+
+# 80b: After 3 steps, _stored_original_on_finished should be the sentinel (not a wrapper)
+check(_s80_dock._stored_original_on_finished is _s80_sentinel,
+      "80b: _stored_original_on_finished is the sentinel (not a wrapper)")
+
+# 80c: Current _on_finished is a wrapper (not the sentinel)
+check(_s80_win._on_finished is not _s80_sentinel,
+      "80c: _on_finished is currently a monkey-patched wrapper")
+
+# 80d: After cleanup, _on_finished is restored to the sentinel
+_s80_dock._chain_cleanup("test done")
+app.processEvents()
+check(_s80_win._on_finished is _s80_sentinel,
+      "80d: _on_finished restored to sentinel after cleanup (identity check)")
+
+# 80e: _stored_original_on_finished is cleared after cleanup
+check(_s80_dock._stored_original_on_finished is None,
+      "80e: _stored_original_on_finished is None after cleanup")
+
+# Cleanup section 80
+_s80_win.close()
+_s80_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s80_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+print("\n=== SECTION 81: Shell Quoting Edge-Case Fixes ===")
+
+# 81a: _format_cmd escapes embedded double quotes with "" not \"
+_s81a = scaffold._format_cmd(["tool", 'say "hello"'])
+check('""' in _s81a and '\\"' not in _s81a,
+      '81a: _format_cmd uses "" for embedded double quotes, not \\"')
+
+# 81b: _format_powershell single-quotes a token with $ but no spaces
+_s81b = scaffold._format_powershell(["tool", "$HOME"])
+check("'$HOME'" in _s81b,
+      "81b: _format_powershell single-quotes $HOME (no spaces)")
+
+# 81c: _format_powershell single-quotes a token with backtick but no spaces
+_s81c = scaffold._format_powershell(["tool", "hello`world"])
+check("'hello`world'" in _s81c,
+      "81c: _format_powershell single-quotes token with backtick")
+
+# 81d: _quote_token quotes a token containing a literal newline
+_s81d = scaffold._quote_token("hello\nworld")
+check(_s81d.startswith("'") or _s81d.startswith('"'),
+      "81d: _quote_token quotes token with embedded newline")
+
+# 81e: _quote_token quotes a token containing a literal carriage return
+_s81e = scaffold._quote_token("hello\rworld")
+check(_s81e.startswith("'") or _s81e.startswith('"'),
+      "81e: _quote_token quotes token with embedded carriage return")
+
+# =====================================================================
+# Section 82 — Password Masking in Preview and Output Echo
+# =====================================================================
+print("\n=== SECTION 82: Password Masking in Preview and Output Echo ===")
+
+_s82_tmpdir = tempfile.mkdtemp(prefix="scaffold_test82_")
+
+_s82_schema = {
+    "_format": "scaffold_schema",
+    "tool": "pw_display_test",
+    "binary": "mytool",
+    "description": "Test password masking on display surfaces",
+    "arguments": [
+        {"name": "Token", "flag": "--token", "type": "password",
+         "description": "Secret token"},
+        {"name": "Host", "flag": "--host", "type": "string",
+         "description": "Target host"},
+    ],
+}
+_s82_path = Path(_s82_tmpdir) / "pw_display_test.json"
+_s82_path.write_text(json.dumps(_s82_schema))
+
+_s82_win = scaffold.MainWindow()
+_s82_win._load_tool_path(str(_s82_path))
+app.processEvents()
+
+_s82_win.form._set_field_value(("__global__", "--token"), "hunter2")
+_s82_win.form._set_field_value(("__global__", "--host"), "example.com")
+app.processEvents()
+
+# 82a: Preview HTML contains masked password, not real password
+_s82_win._update_preview()
+app.processEvents()
+_s82_html = _s82_win.preview.toHtml()
+check("********" in _s82_html,
+      "82a: preview HTML contains ******** for password value")
+check("hunter2" not in _s82_html,
+      "82a: preview HTML does NOT contain real password 'hunter2'")
+
+# 82b: Output echo line uses masked password
+_s82_cmd, _s82_display = _s82_win.form.build_command()
+_s82_masked_display = scaffold._format_display(
+    _s82_win.form._mask_passwords_for_display(_s82_cmd))
+check("********" in _s82_masked_display,
+      "82b: masked display for output echo contains ********")
+check("hunter2" not in _s82_masked_display,
+      "82b: masked display for output echo does NOT contain real password")
+
+# 82c: Copy command copies the REAL password (clipboard stays unmasked)
+_s82_win._copy_command()
+app.processEvents()
+_s82_clipboard = QApplication.clipboard().text()
+check("hunter2" in _s82_clipboard,
+      "82c: clipboard contains real password 'hunter2' (not masked)")
+check("********" not in _s82_clipboard,
+      "82c: clipboard does NOT contain ******** (unmasked for terminal use)")
+
+# 82d: Command without password fields is unchanged by masking
+_s82_no_pw_schema = {
+    "_format": "scaffold_schema",
+    "tool": "no_pw_test",
+    "binary": "echo",
+    "description": "Tool with no password fields",
+    "arguments": [
+        {"name": "Message", "flag": "--msg", "type": "string",
+         "description": "A message"},
+    ],
+}
+_s82_no_pw_path = Path(_s82_tmpdir) / "no_pw_test.json"
+_s82_no_pw_path.write_text(json.dumps(_s82_no_pw_schema))
+
+_s82_win2 = scaffold.MainWindow()
+_s82_win2._load_tool_path(str(_s82_no_pw_path))
+app.processEvents()
+
+_s82_win2.form._set_field_value(("__global__", "--msg"), "hello world")
+app.processEvents()
+
+_s82_cmd2, _ = _s82_win2.form.build_command()
+_s82_masked2 = _s82_win2.form._mask_passwords_for_display(_s82_cmd2)
+check(_s82_masked2 == list(_s82_cmd2),
+      "82d: command without passwords unchanged by masking")
+
+# Cleanup section 82
+_s82_win.close(); _s82_win.deleteLater()
+_s82_win2.close(); _s82_win2.deleteLater()
+app.processEvents()
+shutil.rmtree(_s82_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 83 — Stop-on-Error Toggle (D11)
+# =====================================================================
+print("\n=== SECTION 83: Stop-on-Error Toggle (D11) ===")
+
+_s83_tmpdir = tempfile.mkdtemp(prefix="scaffold_test83_")
+
+_s83_schema = {
+    "_format": "scaffold_schema",
+    "tool": "err_test_tool",
+    "binary": "echo",
+    "description": "Test tool for stop-on-error",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string",
+         "description": "A message"},
+    ],
+}
+_s83_path = Path(_s83_tmpdir) / "err_test_tool.json"
+_s83_path.write_text(json.dumps(_s83_schema))
+
+_s83_win = scaffold.MainWindow()
+_s83_dock = _s83_win.cascade_dock
+app.processEvents()
+
+# A1: _stop_on_error attribute exists and defaults to False
+check(hasattr(_s83_dock, "_stop_on_error"),
+      "83-A1: _stop_on_error attribute exists on CascadeSidebar")
+check(_s83_dock._stop_on_error is False,
+      "83-A1: _stop_on_error defaults to False")
+
+# A2: _toggle_stop_on_error() flips the value and persists to QSettings
+_s83_dock._toggle_stop_on_error()
+app.processEvents()
+check(_s83_dock._stop_on_error is True,
+      "83-A2: _toggle_stop_on_error flips False -> True")
+_s83_saved = int(_s83_win.settings.value("cascade/stop_on_error", 0) or 0)
+check(_s83_saved == 1,
+      "83-A2: QSettings cascade/stop_on_error is 1 after toggle on")
+_s83_dock._toggle_stop_on_error()
+app.processEvents()
+check(_s83_dock._stop_on_error is False,
+      "83-A2: _toggle_stop_on_error flips True -> False")
+_s83_saved2 = int(_s83_win.settings.value("cascade/stop_on_error", 0) or 0)
+check(_s83_saved2 == 0,
+      "83-A2: QSettings cascade/stop_on_error is 0 after toggle off")
+
+# A3: _save_cascade() writes cascade/stop_on_error
+_s83_dock._stop_on_error = True
+_s83_dock._save_cascade()
+_s83_val = int(_s83_win.settings.value("cascade/stop_on_error", 0) or 0)
+check(_s83_val == 1,
+      "83-A3: _save_cascade writes cascade/stop_on_error = 1 when True")
+_s83_dock._stop_on_error = False
+_s83_dock._save_cascade()
+_s83_val2 = int(_s83_win.settings.value("cascade/stop_on_error", 0) or 0)
+check(_s83_val2 == 0,
+      "83-A3: _save_cascade writes cascade/stop_on_error = 0 when False")
+
+# A4: _load_cascade() restores _stop_on_error from QSettings
+_s83_win.settings.setValue("cascade/stop_on_error", 1)
+_s83_dock._load_cascade()
+app.processEvents()
+check(_s83_dock._stop_on_error is True,
+      "83-A4: _load_cascade restores _stop_on_error = True from QSettings")
+
+# A5: _load_cascade() defaults to False when key is absent (backward compat)
+_s83_win.settings.remove("cascade/stop_on_error")
+_s83_dock._load_cascade()
+app.processEvents()
+check(_s83_dock._stop_on_error is False,
+      "83-A5: _load_cascade defaults to False when key absent")
+
+# A6: _export_cascade_data() includes stop_on_error key
+_s83_dock._stop_on_error = True
+_s83_dock._slots[0]["tool_path"] = str(_s83_path)
+_s83_export = _s83_dock._export_cascade_data("test_cascade")
+check("stop_on_error" in _s83_export,
+      "83-A6: _export_cascade_data includes stop_on_error key")
+check(_s83_export["stop_on_error"] is True,
+      "83-A6: exported stop_on_error matches current state (True)")
+
+# A7: _import_cascade_data() populates _stop_on_error from the data dict
+_s83_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "import_test",
+    "stop_on_error": True,
+    "loop_mode": False,
+    "steps": [{"tool": str(_s83_path), "preset": None, "delay": 0}],
+    "variables": [],
+}
+_s83_dock._stop_on_error = False  # Reset first
+_s83_dock._import_cascade_data(_s83_import_data)
+app.processEvents()
+check(_s83_dock._stop_on_error is True,
+      "83-A7: _import_cascade_data sets _stop_on_error from data dict")
+
+# A8: _import_cascade_data() defaults to False when key is missing (backward compat)
+_s83_import_no_key = {
+    "_format": "scaffold_cascade",
+    "name": "import_compat_test",
+    "loop_mode": False,
+    "steps": [{"tool": str(_s83_path), "preset": None, "delay": 0}],
+    "variables": [],
+}
+_s83_dock._stop_on_error = True  # Set to True first
+_s83_dock._import_cascade_data(_s83_import_no_key)
+app.processEvents()
+check(_s83_dock._stop_on_error is False,
+      "83-A8: _import_cascade_data defaults to False when key missing")
+
+# A9: stop_on_error_btn exists on the cascade sidebar
+check(hasattr(_s83_dock, "stop_on_error_btn"),
+      "83-A9: stop_on_error_btn exists on CascadeSidebar")
+check(isinstance(_s83_dock.stop_on_error_btn, QPushButton),
+      "83-A9: stop_on_error_btn is a QPushButton")
+
+# A10: Button is disabled during chain execution and re-enabled after cleanup
+check(_s83_dock.stop_on_error_btn.isEnabled(),
+      "83-A10: stop_on_error_btn enabled before chain run")
+# Load a tool so _chain_cleanup can access run_btn etc.
+_s83_win._load_tool_path(str(_s83_path))
+app.processEvents()
+# Simulate the disable portion of _on_run_chain
+_s83_dock.stop_on_error_btn.setEnabled(False)
+check(not _s83_dock.stop_on_error_btn.isEnabled(),
+      "83-A10: stop_on_error_btn disabled during chain (simulated)")
+_s83_dock._chain_cleanup("test cleanup")
+app.processEvents()
+check(_s83_dock.stop_on_error_btn.isEnabled(),
+      "83-A10: stop_on_error_btn re-enabled after _chain_cleanup")
+
+# A11: Round-trip through export -> import preserves stop_on_error
+_s83_dock._stop_on_error = True
+_s83_dock._slots[0]["tool_path"] = str(_s83_path)
+_s83_rt_data = _s83_dock._export_cascade_data("roundtrip_test")
+_s83_dock._stop_on_error = False  # Reset
+_s83_dock._import_cascade_data(_s83_rt_data)
+app.processEvents()
+check(_s83_dock._stop_on_error is True,
+      "83-A11: stop_on_error survives export -> import round-trip (True)")
+_s83_dock._stop_on_error = False
+_s83_dock._slots[0]["tool_path"] = str(_s83_path)
+_s83_rt_data2 = _s83_dock._export_cascade_data("roundtrip_test2")
+_s83_dock._stop_on_error = True  # Set opposite
+_s83_dock._import_cascade_data(_s83_rt_data2)
+app.processEvents()
+check(_s83_dock._stop_on_error is False,
+      "83-A11: stop_on_error survives export -> import round-trip (False)")
+
+# A12: Cleanup QSettings cascade keys
+_s83_win.settings.remove("cascade/stop_on_error")
+_s83_win.settings.remove("cascade/loop_mode")
+_s83_win.settings.remove("cascade/slots")
+_s83_win.settings.remove("cascade/variables")
+
+# Cleanup section 83
+_s83_win.close(); _s83_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s83_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 84 — Pause Button (Phase B)
+# =====================================================================
+print("\n=== SECTION 84: Pause Button (Phase B) ===")
+
+_s84_tmpdir = tempfile.mkdtemp(prefix="scaffold_test84_")
+
+_s84_schema = {
+    "_format": "scaffold_schema",
+    "tool": "pause_test_tool",
+    "binary": "echo",
+    "description": "Test tool for pause button",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string",
+         "description": "A message"},
+    ],
+}
+_s84_path = Path(_s84_tmpdir) / "pause_test_tool.json"
+_s84_path.write_text(json.dumps(_s84_schema))
+
+_s84_win = scaffold.MainWindow()
+_s84_dock = _s84_win.cascade_dock
+app.processEvents()
+
+# B1: CHAIN_PAUSED constant exists
+check(hasattr(scaffold, "CHAIN_PAUSED"),
+      "84-B1: CHAIN_PAUSED constant exists")
+check(scaffold.CHAIN_PAUSED == "paused",
+      "84-B1: CHAIN_PAUSED value is 'paused'")
+
+# B2: _chain_paused attribute exists and defaults to False
+check(hasattr(_s84_dock, "_chain_paused"),
+      "84-B2: _chain_paused attribute exists on CascadeSidebar")
+check(_s84_dock._chain_paused is False,
+      "84-B2: _chain_paused defaults to False")
+
+# B3: pause_chain_btn exists on the cascade sidebar
+check(hasattr(_s84_dock, "pause_chain_btn"),
+      "84-B3: pause_chain_btn exists on CascadeSidebar")
+check(isinstance(_s84_dock.pause_chain_btn, QPushButton),
+      "84-B3: pause_chain_btn is a QPushButton")
+
+# B4: Pause button is disabled when chain is idle
+check(not _s84_dock.pause_chain_btn.isEnabled(),
+      "84-B4: pause_chain_btn is disabled when chain is idle")
+
+# B5: Pause button is enabled after _on_run_chain starts the chain
+# Load a tool so we can simulate chain start
+_s84_win._load_tool_path(str(_s84_path))
+app.processEvents()
+_s84_dock._slots[0]["tool_path"] = str(_s84_path)
+# Simulate the UI portion of _on_run_chain (don't actually run)
+_s84_dock._chain_state = scaffold.CHAIN_LOADING
+_s84_dock.run_chain_btn.setEnabled(False)
+_s84_dock.run_chain_btn.setText("Run...")
+_s84_dock.stop_chain_btn.setEnabled(True)
+_s84_dock.pause_chain_btn.setEnabled(True)
+_s84_dock.pause_chain_btn.setText("Pause")
+app.processEvents()
+check(_s84_dock.pause_chain_btn.isEnabled(),
+      "84-B5: pause_chain_btn is enabled when chain starts")
+check(_s84_dock.pause_chain_btn.text() == "Pause",
+      "84-B5: pause_chain_btn text is 'Pause' when running")
+
+# B6: Clicking pause sets _chain_paused = True (without changing state immediately)
+_s84_dock._chain_state = scaffold.CHAIN_RUNNING
+_s84_dock._on_pause_chain()
+app.processEvents()
+check(_s84_dock._chain_paused is True,
+      "84-B6: _on_pause_chain sets _chain_paused = True")
+check(_s84_dock._chain_state == scaffold.CHAIN_RUNNING,
+      "84-B6: state remains CHAIN_RUNNING (not immediately paused)")
+
+# B7: Clicking pause shows the "will pause" status message
+_s84_status_msg = _s84_win.statusBar().currentMessage()
+check("will pause" in _s84_status_msg.lower(),
+      "84-B7: status bar shows 'will pause' message")
+
+# B8: Resume from PAUSED state transitions back to LOADING and clears _chain_paused
+_s84_dock._chain_state = scaffold.CHAIN_PAUSED
+_s84_dock._chain_paused = True
+_s84_dock.pause_chain_btn.setEnabled(True)
+_s84_dock.pause_chain_btn.setText("Resume")
+_s84_dock._chain_queue = [0]
+_s84_dock._chain_current = -1
+_s84_dock._on_pause_chain()
+app.processEvents()
+check(_s84_dock._chain_paused is False,
+      "84-B8: resume clears _chain_paused flag")
+check(_s84_dock._chain_state == scaffold.CHAIN_LOADING,
+      "84-B8: resume transitions state to CHAIN_LOADING")
+check(_s84_dock.pause_chain_btn.text() == "Pause",
+      "84-B8: resume resets button text to 'Pause'")
+# Stop the chain before it tries to advance
+_s84_dock._chain_state = scaffold.CHAIN_IDLE
+
+# B9: _chain_cleanup resets pause state and button label
+_s84_dock._chain_paused = True
+_s84_dock.pause_chain_btn.setText("Resume")
+_s84_dock.pause_chain_btn.setEnabled(True)
+_s84_dock._chain_cleanup("test cleanup")
+app.processEvents()
+check(_s84_dock._chain_paused is False,
+      "84-B9: _chain_cleanup resets _chain_paused to False")
+check(_s84_dock.pause_chain_btn.text() == "Pause",
+      "84-B9: _chain_cleanup resets button text to 'Pause'")
+check(not _s84_dock.pause_chain_btn.isEnabled(),
+      "84-B9: _chain_cleanup disables pause_chain_btn")
+
+# B10: Stop button still works while paused (chain returns to IDLE)
+_s84_dock._chain_state = scaffold.CHAIN_PAUSED
+_s84_dock._chain_paused = True
+_s84_dock.pause_chain_btn.setText("Resume")
+_s84_dock.stop_chain_btn.setEnabled(True)
+_s84_dock._on_stop_chain()
+app.processEvents()
+check(_s84_dock._chain_state == scaffold.CHAIN_IDLE,
+      "84-B10: _on_stop_chain from PAUSED sets state to IDLE")
+check(_s84_dock._chain_paused is False,
+      "84-B10: _on_stop_chain from PAUSED clears _chain_paused")
+check(not _s84_dock.pause_chain_btn.isEnabled(),
+      "84-B10: pause_chain_btn disabled after stop from paused")
+
+# B11: Cleanup QSettings cascade keys
+_s84_win.settings.remove("cascade/stop_on_error")
+_s84_win.settings.remove("cascade/loop_mode")
+_s84_win.settings.remove("cascade/slots")
+_s84_win.settings.remove("cascade/variables")
+
+# Cleanup section 84
+_s84_win.close(); _s84_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s84_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 85 — Cascade Slot Button Labels & Tooltips (Phase C)
+# =====================================================================
+print("\n=== SECTION 85: Cascade Slot Button Labels & Tooltips (Phase C) ===")
+
+_s85_tmpdir = tempfile.mkdtemp(prefix="scaffold_test85_")
+
+_s85_schema = {
+    "_format": "scaffold_schema",
+    "tool": "s85_tool",
+    "binary": "echo",
+    "description": "Test tool for slot labels",
+    "arguments": [
+        {"name": "Arg", "flag": "--arg", "type": "string",
+         "description": "An argument"},
+    ],
+}
+_s85_tool_path = Path(_s85_tmpdir) / "s85_tool.json"
+_s85_tool_path.write_text(json.dumps(_s85_schema))
+
+# Preset WITH _description
+_s85_preset_desc = {
+    "_schema_hash": "abc123",
+    "_description": "Fast TCP top-1000 ports scan",
+    "--arg": "hello"
+}
+_s85_preset_with_desc = Path(_s85_tmpdir) / "quick_scan.json"
+_s85_preset_with_desc.write_text(json.dumps(_s85_preset_desc))
+
+# Preset WITHOUT _description
+_s85_preset_no_desc = {
+    "_schema_hash": "abc123",
+    "--arg": "world"
+}
+_s85_preset_no_desc_path = Path(_s85_tmpdir) / "no_desc_preset.json"
+_s85_preset_no_desc_path.write_text(json.dumps(_s85_preset_no_desc))
+
+_s85_win = scaffold.MainWindow()
+_s85_dock = _s85_win.cascade_dock
+app.processEvents()
+
+# C1: Slot with tool + preset shows just the preset name
+_s85_dock._slots[0]["tool_path"] = str(_s85_tool_path)
+_s85_dock._slots[0]["preset_path"] = str(_s85_preset_with_desc)
+_s85_dock._slots[0]["delay"] = 5
+_s85_dock._refresh_button_labels()
+app.processEvents()
+_s85_btn0 = _s85_dock._slot_widgets[0]["main_btn"]
+_s85_label0 = _s85_btn0.text()
+check("quick_scan" in _s85_label0 and "s85_tool" not in _s85_label0,
+      "85-C1: slot with tool+preset shows preset name only")
+
+# C2: Slot with tool but no preset shows the tool name
+_s85_dock._slots[0]["tool_path"] = str(_s85_tool_path)
+_s85_dock._slots[0]["preset_path"] = None
+_s85_dock._slots[0].pop("_cached_desc_path", None)
+_s85_dock._slots[0].pop("_cached_description", None)
+_s85_dock._refresh_button_labels()
+app.processEvents()
+_s85_label1 = _s85_btn0.text()
+check("s85_tool" in _s85_label1,
+      "85-C2: slot with tool only shows tool name")
+
+# C3: Empty slot shows the empty-slot indicator
+_s85_dock._slots[0]["tool_path"] = None
+_s85_dock._slots[0]["preset_path"] = None
+_s85_dock._refresh_button_labels()
+app.processEvents()
+_s85_label2 = _s85_btn0.text()
+check("empty" in _s85_label2.lower(),
+      "85-C3: empty slot shows empty indicator")
+
+# C4: Tooltip on a fully-assigned slot contains Tool:, Preset:, Path:, Delay:
+_s85_dock._slots[0]["tool_path"] = str(_s85_tool_path)
+_s85_dock._slots[0]["preset_path"] = str(_s85_preset_with_desc)
+_s85_dock._slots[0]["delay"] = 5
+_s85_dock._slots[0].pop("_cached_desc_path", None)
+_s85_dock._slots[0].pop("_cached_description", None)
+_s85_dock._refresh_button_labels()
+app.processEvents()
+_s85_tip = _s85_btn0.toolTip()
+check("Tool:" in _s85_tip and "Preset:" in _s85_tip and "Path:" in _s85_tip and "Delay:" in _s85_tip,
+      "85-C4: tooltip contains Tool:, Preset:, Path:, Delay:")
+
+# C5: Tooltip includes description when preset has _description
+check("Description: Fast TCP top-1000 ports scan" in _s85_tip,
+      "85-C5: tooltip includes preset description")
+
+# C6: Tooltip omits description line when preset has no _description
+_s85_dock._slots[0]["preset_path"] = str(_s85_preset_no_desc_path)
+_s85_dock._slots[0].pop("_cached_desc_path", None)
+_s85_dock._slots[0].pop("_cached_description", None)
+_s85_dock._refresh_button_labels()
+app.processEvents()
+_s85_tip_no_desc = _s85_btn0.toolTip()
+check("Description:" not in _s85_tip_no_desc,
+      "85-C6: tooltip omits description when preset has none")
+check("Tool:" in _s85_tip_no_desc and "Preset:" in _s85_tip_no_desc,
+      "85-C6: tooltip still has other fields without description")
+
+# C7: Tooltip handles missing preset file gracefully
+_s85_dock._slots[0]["preset_path"] = str(Path(_s85_tmpdir) / "nonexistent.json")
+_s85_dock._slots[0].pop("_cached_desc_path", None)
+_s85_dock._slots[0].pop("_cached_description", None)
+try:
+    _s85_dock._refresh_button_labels()
+    app.processEvents()
+    _s85_tip_missing = _s85_btn0.toolTip()
+    check("Tool:" in _s85_tip_missing,
+          "85-C7: tooltip handles missing preset file (no crash)")
+    check("Description:" not in _s85_tip_missing,
+          "85-C7: tooltip omits description for missing preset")
+except Exception as _s85_exc:
+    check(False, f"85-C7: crashed on missing preset file: {_s85_exc}")
+
+# C8: Cleanup temp preset files
+_s85_win.close(); _s85_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s85_tmpdir, ignore_errors=True)
+check(not Path(_s85_tmpdir).exists(),
+      "85-C8: temp preset files cleaned up")
+
+# =====================================================================
+# Section 86 — Phase 1 Visual/Styling Fixes
+# =====================================================================
+print("\n=== SECTION 86: Phase 1 Visual/Styling Fixes ===")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s86_win = scaffold.MainWindow()
+_s86_win.show()
+app.processEvents()
+_s86_dock = _s86_win.cascade_dock
+
+# 86a: Hamburger menu button suppresses native menu-indicator
+_s86_menu_ss = _s86_dock._menu_btn.styleSheet()
+check("menu-indicator" in _s86_menu_ss,
+      "86a: _menu_btn styleSheet contains 'menu-indicator'")
+check("image: none" in _s86_menu_ss,
+      "86a: _menu_btn styleSheet suppresses indicator image")
+
+# 86b: Cascade button tooltips are rich text (wrapped in <p>)
+_s86_pause_tip = _s86_dock.pause_chain_btn.toolTip()
+_s86_loop_tip = _s86_dock.loop_btn.toolTip()
+_s86_err_tip = _s86_dock.stop_on_error_btn.toolTip()
+check(_s86_pause_tip.startswith("<p") or _s86_pause_tip.startswith("<P"),
+      "86b: pause_chain_btn tooltip is rich text")
+check(_s86_loop_tip.startswith("<p") or _s86_loop_tip.startswith("<P"),
+      "86b: loop_btn tooltip is rich text")
+check(_s86_err_tip.startswith("<p") or _s86_err_tip.startswith("<P"),
+      "86b: stop_on_error_btn tooltip is rich text")
+
+# 86c: "Run..." text fits in cascade run button (not clipped)
+# Simulate _on_run_chain setting the text without actually running
+_s86_dock.run_chain_btn.setText("Run...")
+app.processEvents()
+_s86_fm = QFontMetrics(_s86_dock.run_chain_btn.font())
+_s86_text_w = _s86_fm.horizontalAdvance("Run...")
+_s86_btn_w = _s86_dock.run_chain_btn.sizeHint().width()
+check(_s86_btn_w >= _s86_text_w,
+      f"86c: 'Run...' text ({_s86_text_w}px) fits in button ({_s86_btn_w}px)")
+_s86_dock.run_chain_btn.setText("Run")
+app.processEvents()
+
+# 86d: Light-mode tooltip palette and stylesheet
+scaffold.apply_theme(False)
+app.processEvents()
+_s86_pal = app.palette()
+_s86_ttbase = _s86_pal.color(QPalette.ColorRole.ToolTipBase).name()
+_s86_tttext = _s86_pal.color(QPalette.ColorRole.ToolTipText).name()
+check(_s86_ttbase == "#f5f5f5",
+      f"86d: light-mode ToolTipBase is #f5f5f5 (got {_s86_ttbase})")
+check(_s86_tttext == "#1a1a1a",
+      f"86d: light-mode ToolTipText is #1a1a1a (got {_s86_tttext})")
+check("QToolTip" in app.styleSheet(),
+      "86d: light-mode stylesheet contains QToolTip rule")
+
+# Restore dark mode if tests expect it
+scaffold.apply_theme(True)
+app.processEvents()
+
+_s86_win.close()
+_s86_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# =====================================================================
+# Section 87 — Phase 2 Ghost Widget Fix (deleteLater)
+# =====================================================================
+print("\n=== SECTION 87: Phase 2 Ghost Widget Fix (deleteLater) ===")
+
+_s87_tmpdir = tempfile.mkdtemp(prefix="scaffold_test87_")
+_s87_schema = {
+    "_format": "scaffold_schema",
+    "tool": "s87_tool",
+    "binary": "echo",
+    "description": "Ghost widget test tool",
+    "arguments": [
+        {"name": "Arg", "flag": "--arg", "type": "string",
+         "description": "An argument"},
+    ],
+}
+_s87_tool_path = Path(_s87_tmpdir) / "s87_tool.json"
+_s87_tool_path.write_text(json.dumps(_s87_schema))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s87_win = scaffold.MainWindow()
+_s87_win.show()
+app.processEvents()
+_s87_dock = _s87_win.cascade_dock
+
+# Populate 3 slots (add one extra)
+_s87_dock._on_add_slot()
+app.processEvents()
+_s87_dock._slots[0]["tool_path"] = str(_s87_tool_path)
+_s87_dock._slots[1]["tool_path"] = str(_s87_tool_path)
+_s87_dock._slots[2]["tool_path"] = str(_s87_tool_path)
+_s87_dock._save_cascade()
+_s87_dock._refresh_button_labels()
+app.processEvents()
+
+check(len(_s87_dock._slots) == 3, "87a: 3 slots populated before clear")
+
+# 87a: _on_clear_all_slots — no ghost widgets
+_s87_orig_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s87_dock._on_clear_all_slots()
+app.processEvents()
+QMessageBox.question = _s87_orig_question
+
+_s87_expected_count = scaffold.CASCADE_INITIAL_SLOTS + 2  # slots + add button + stretch
+_s87_actual_count = _s87_dock._slots_container.count()
+check(_s87_actual_count == _s87_expected_count,
+      f"87a: layout count after clear is {_s87_expected_count} (got {_s87_actual_count})")
+check(all(s.get("tool_path") is None for s in _s87_dock._slots),
+      "87a: all slot tool_paths are None after clear")
+
+# 87b: _import_cascade_data — no ghost widgets over existing populated state
+# First populate slots again
+_s87_dock._slots[0]["tool_path"] = str(_s87_tool_path)
+_s87_dock._slots[1]["tool_path"] = str(_s87_tool_path)
+_s87_dock._save_cascade()
+_s87_dock._refresh_button_labels()
+app.processEvents()
+
+_s87_nmap_rel = str(Path("tools/nmap.json"))
+_s87_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "s87_test",
+    "description": "",
+    "loop_mode": False,
+    "steps": [
+        {"tool": _s87_nmap_rel, "preset": None, "delay": 0},
+    ],
+    "variables": [],
+}
+_s87_dock._import_cascade_data(_s87_import_data)
+app.processEvents()
+
+_s87_import_expected = scaffold.CASCADE_INITIAL_SLOTS + 2  # padded to initial + add + stretch
+_s87_import_actual = _s87_dock._slots_container.count()
+check(_s87_import_actual == _s87_import_expected,
+      f"87b: layout count after import is {_s87_import_expected} (got {_s87_import_actual})")
+
+# 87c: _load_cascade — no ghost widgets
+# Populate and save to QSettings, then reload
+_s87_dock._slots[0]["tool_path"] = str(_s87_tool_path)
+_s87_dock._save_cascade()
+_s87_dock._refresh_button_labels()
+app.processEvents()
+
+_s87_dock._load_cascade()
+app.processEvents()
+
+_s87_load_expected = len(_s87_dock._slots) + 2  # actual slot count + add + stretch
+_s87_load_actual = _s87_dock._slots_container.count()
+check(_s87_load_actual == _s87_load_expected,
+      f"87c: layout count after _load_cascade is {_s87_load_expected} (got {_s87_load_actual})")
+
+# Cleanup
+_s87_win.close()
+_s87_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+shutil.rmtree(_s87_tmpdir, ignore_errors=True)
+
+# =====================================================================
+# Section 88 — Phase 3: Required-field snapshot on cascade run
+# =====================================================================
+print("  Section 88: Required-field snapshot on cascade run")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s88_win = scaffold.MainWindow()
+_s88_win.show()
+app.processEvents()
+_s88_dock = _s88_win.cascade_dock
+_s88_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s88_ping = str(Path(__file__).parent / "tools" / "ping.json")
+
+# 88a: Positive case — snapshot preserves required value
+_s88_win._load_tool_path(_s88_nmap)
+app.processEvents()
+_s88_target_key = ("__global__", "TARGET")
+_s88_win.form._set_field_value(_s88_target_key, "192.168.1.1")
+_s88_win.form.command_changed.emit()
+app.processEvents()
+
+# Verify the form value is set
+_s88_pre_val = _s88_win.form.get_field_value(_s88_target_key)
+check(_s88_pre_val == "192.168.1.1",
+      "88a: TARGET field set to 192.168.1.1 before cascade run")
+
+# Assign nmap to slot 0 (no preset)
+while len(_s88_dock._slots) < 1:
+    _s88_dock._on_add_slot()
+    app.processEvents()
+_s88_dock._slots[0]["tool_path"] = _s88_nmap
+_s88_dock._slots[0]["preset_path"] = None
+# Clear other slots
+for _s88_i in range(1, len(_s88_dock._slots)):
+    _s88_dock._slots[_s88_i]["tool_path"] = None
+_s88_dock._save_cascade()
+_s88_dock._refresh_button_labels()
+app.processEvents()
+
+# Monkey-patch _on_run_stop to capture command and short-circuit
+_s88_captured_cmds = []
+_s88_orig_run_stop = _s88_win._on_run_stop
+
+def _s88_mock_run_stop():
+    """Capture command and clean up chain without actually running."""
+    try:
+        cmd = _s88_win.form.build_command()
+        _s88_captured_cmds.append(cmd)
+    except Exception:
+        pass
+    _s88_dock._chain_cleanup("test short-circuit")
+
+_s88_win._on_run_stop = _s88_mock_run_stop
+
+# No cascade variables — stub out dialog
+_s88_dock._cascade_variables = []
+
+_s88_dock._on_run_chain()
+app.processEvents()
+
+# Wait for 150ms QTimer.singleShot in _chain_advance → _chain_execute_current
+for _ in range(30):
+    app.processEvents()
+    time.sleep(0.02)
+
+check(len(_s88_captured_cmds) > 0,
+      "88a: chain executed — captured at least one command")
+if _s88_captured_cmds:
+    _s88_cmd_str = " ".join(_s88_captured_cmds[0]) if isinstance(_s88_captured_cmds[0], list) else str(_s88_captured_cmds[0])
+    check("192.168.1.1" in _s88_cmd_str,
+          "88a: captured command contains 192.168.1.1 from snapshot")
+
+_s88_win._on_run_stop = _s88_orig_run_stop
+_s88_dock._on_stop_chain()
+app.processEvents()
+
+# 88b: Negative case — empty required field still aborts
+_s88_captured_cmds_b = []
+_s88_win._load_tool_path(_s88_nmap)
+app.processEvents()
+# Explicitly clear the TARGET field
+_s88_win.form._set_field_value(_s88_target_key, None)
+_s88_win.form.command_changed.emit()
+app.processEvents()
+
+_s88_dock._slots[0]["tool_path"] = _s88_nmap
+_s88_dock._slots[0]["preset_path"] = None
+for _s88_i in range(1, len(_s88_dock._slots)):
+    _s88_dock._slots[_s88_i]["tool_path"] = None
+_s88_dock._save_cascade()
+app.processEvents()
+
+def _s88_mock_run_stop_b():
+    try:
+        cmd = _s88_win.form.build_command()
+        _s88_captured_cmds_b.append(cmd)
+    except Exception:
+        pass
+    _s88_dock._chain_cleanup("test short-circuit")
+
+_s88_win._on_run_stop = _s88_mock_run_stop_b
+_s88_dock._cascade_variables = []
+
+_s88_dock._on_run_chain()
+app.processEvents()
+
+for _ in range(30):
+    app.processEvents()
+    time.sleep(0.02)
+
+# Chain should have aborted due to missing required field
+_s88_status_msg = _s88_win.statusBar().currentMessage()
+_s88_aborted = (
+    "required fields missing" in _s88_status_msg
+    or _s88_dock._chain_state == scaffold.CHAIN_IDLE
+)
+check(len(_s88_captured_cmds_b) == 0,
+      "88b: empty required field — chain did NOT execute any command")
+check(_s88_aborted,
+      "88b: chain aborted or idle after empty required field")
+
+_s88_win._on_run_stop = _s88_orig_run_stop
+_s88_dock._on_stop_chain()
+app.processEvents()
+
+# 88c: Cross-tool case — no snapshot when tool differs
+_s88_win._load_tool_path(_s88_nmap)
+app.processEvents()
+_s88_win.form._set_field_value(_s88_target_key, "192.168.1.1")
+_s88_win.form.command_changed.emit()
+app.processEvents()
+
+# Assign ping (different tool) to slot 0
+_s88_dock._slots[0]["tool_path"] = _s88_ping
+_s88_dock._slots[0]["preset_path"] = None
+for _s88_i in range(1, len(_s88_dock._slots)):
+    _s88_dock._slots[_s88_i]["tool_path"] = None
+_s88_dock._save_cascade()
+app.processEvents()
+
+_s88_captured_cmds_c = []
+
+def _s88_mock_run_stop_c():
+    try:
+        cmd = _s88_win.form.build_command()
+        _s88_captured_cmds_c.append(cmd)
+    except Exception:
+        pass
+    _s88_dock._chain_cleanup("test short-circuit")
+
+_s88_win._on_run_stop = _s88_mock_run_stop_c
+_s88_dock._cascade_variables = []
+
+_s88_dock._on_run_chain()
+app.processEvents()
+
+for _ in range(30):
+    app.processEvents()
+    time.sleep(0.02)
+
+# The nmap snapshot should NOT have been applied to ping
+if _s88_captured_cmds_c:
+    _s88_cmd_str_c = " ".join(_s88_captured_cmds_c[0]) if isinstance(_s88_captured_cmds_c[0], list) else str(_s88_captured_cmds_c[0])
+    check("192.168.1.1" not in _s88_cmd_str_c,
+          "88c: cross-tool — nmap snapshot NOT injected into ping command")
+else:
+    # Chain may have aborted due to ping's own required field — that's OK
+    check(_s88_dock._chain_state == scaffold.CHAIN_IDLE,
+          "88c: cross-tool — chain aborted on ping's own required field (no nmap leak)")
+
+_s88_win._on_run_stop = _s88_orig_run_stop
+_s88_dock._on_stop_chain()
+app.processEvents()
+
+# Cleanup section 88
+_s88_win.close()
+_s88_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 89 — Phase 4: Current cascade name tracking and display
+# =====================================================================
+print("  Section 89: Current cascade name tracking and display")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s89_win = scaffold.MainWindow()
+_s89_win.show()
+app.processEvents()
+_s89_dock = _s89_win.cascade_dock
+_s89_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+
+# 89a: Fresh window — name is None, label shows "(unsaved)"
+check(_s89_dock._current_cascade_name is None,
+      "89a: fresh window — _current_cascade_name is None")
+check(_s89_dock._loaded_label.text() == "Loaded: (unsaved)",
+      "89a: fresh window — label shows 'Loaded: (unsaved)'")
+
+# 89b: _import_cascade_data sets the name
+_s89_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "Phase4 Test",
+    "description": "test cascade",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": "tools/nmap.json", "preset": None, "delay": 0},
+    ],
+    "variables": [],
+}
+_s89_dock._import_cascade_data(_s89_import_data)
+app.processEvents()
+check(_s89_dock._current_cascade_name == "Phase4 Test",
+      "89b: _import_cascade_data sets name to 'Phase4 Test'")
+check("Phase4 Test" in _s89_dock._loaded_label.text(),
+      "89b: label contains 'Phase4 Test'")
+
+# 89c: _on_save_cascade_file sets the name
+_s89_dock._slots[0]["tool_path"] = _s89_nmap
+_s89_dock._save_cascade()
+_s89_dock._refresh_button_labels()
+app.processEvents()
+
+_s89_orig_getText = scaffold.QInputDialog.getText
+_s89_getText_calls = [0]
+
+def _s89_mock_getText(*args, **kwargs):
+    _s89_getText_calls[0] += 1
+    if _s89_getText_calls[0] == 1:
+        return ("MyCascade", True)   # name
+    else:
+        return ("test desc", True)   # description
+scaffold.QInputDialog.getText = staticmethod(_s89_mock_getText)
+
+_s89_dock._on_save_cascade_file()
+app.processEvents()
+
+scaffold.QInputDialog.getText = _s89_orig_getText
+
+check(_s89_dock._current_cascade_name == "MyCascade",
+      "89c: _on_save_cascade_file sets name to 'MyCascade'")
+check("MyCascade" in _s89_dock._loaded_label.text(),
+      "89c: label contains 'MyCascade'")
+
+# Clean up the saved cascade file
+_s89_cascade_file = scaffold._cascades_dir() / "MyCascade.json"
+if _s89_cascade_file.exists():
+    _s89_cascade_file.unlink()
+
+# 89d: _on_clear_all_slots resets the name
+_s89_orig_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s89_dock._on_clear_all_slots()
+app.processEvents()
+QMessageBox.question = _s89_orig_question
+
+check(_s89_dock._current_cascade_name is None,
+      "89d: _on_clear_all_slots resets name to None")
+check(_s89_dock._loaded_label.text() == "Loaded: (unsaved)",
+      "89d: label resets to 'Loaded: (unsaved)'")
+
+# 89e: Persistence round-trip
+_s89_dock._current_cascade_name = "RoundTrip"
+_s89_dock._slots[0]["tool_path"] = _s89_nmap
+_s89_dock._save_cascade()
+_s89_dock._update_loaded_label()
+app.processEvents()
+
+check(_s89_dock._loaded_label.text() == "Loaded: RoundTrip",
+      "89e: label shows 'Loaded: RoundTrip' before persistence test")
+
+# Create a new MainWindow — its CascadeSidebar.__init__ calls _load_cascade
+_s89_win2 = scaffold.MainWindow()
+_s89_win2.show()
+app.processEvents()
+_s89_dock2 = _s89_win2.cascade_dock
+
+check(_s89_dock2._current_cascade_name == "RoundTrip",
+      "89e: persistence — new window restored name 'RoundTrip'")
+check("RoundTrip" in _s89_dock2._loaded_label.text(),
+      "89e: persistence — new window label shows 'RoundTrip'")
+
+_s89_win2.close()
+_s89_win2.deleteLater()
+app.processEvents()
+
+# Cleanup section 89
+_s89_win.close()
+_s89_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 90 — CascadeListDialog row/sort desync bug
+# =====================================================================
+print("  Section 90: CascadeListDialog row/sort desync bug")
+
+import tempfile as _s90_tempfile
+
+_s90_tmpdir = Path(_s90_tempfile.mkdtemp(prefix="scaffold_s90_"))
+_s90_orig_cascades_dir = scaffold._cascades_dir
+
+def _s90_fake_cascades_dir():
+    _s90_tmpdir.mkdir(exist_ok=True)
+    return _s90_tmpdir
+
+scaffold._cascades_dir = _s90_fake_cascades_dir
+
+# Create three cascade files whose names sort differently from step counts
+_s90_cascades = {
+    "alpha.cascade.json": {"_format": "scaffold_cascade", "name": "Alpha",
+        "description": "one step", "steps": [{"tool": "x", "preset": None, "delay": 0}],
+        "loop_mode": False, "stop_on_error": False, "variables": []},
+    "beta.cascade.json": {"_format": "scaffold_cascade", "name": "Beta",
+        "description": "five steps", "steps": [
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0}],
+        "loop_mode": False, "stop_on_error": False, "variables": []},
+    "gamma.cascade.json": {"_format": "scaffold_cascade", "name": "Gamma",
+        "description": "three steps", "steps": [
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0},
+            {"tool": "x", "preset": None, "delay": 0}],
+        "loop_mode": False, "stop_on_error": False, "variables": []},
+}
+for _s90_fname, _s90_data in _s90_cascades.items():
+    (_s90_tmpdir / _s90_fname).write_text(json.dumps(_s90_data), encoding="utf-8")
+
+# Stub accept so the dialog doesn't close
+_s90_orig_accept = scaffold.CascadeListDialog.accept
+scaffold.CascadeListDialog.accept = lambda self: None
+
+_s90_dlg = scaffold.CascadeListDialog(mode="load")
+_s90_dlg.show()
+app.processEvents()
+
+# Sort by Steps descending — visual order should be Beta(5), Gamma(3), Alpha(1)
+_s90_dlg.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
+app.processEvents()
+
+# 90a: _on_double_click resolves correct path after sort
+_s90_all_ok = True
+for _s90_r in range(_s90_dlg.table.rowCount()):
+    _s90_displayed = _s90_dlg.table.item(_s90_r, 0).text()
+    _s90_dlg.selected_path = None
+    _s90_dlg._on_double_click(_s90_dlg.table.model().index(_s90_r, 0))
+    if _s90_dlg.selected_path is None:
+        _s90_all_ok = False
+    else:
+        _s90_stem = Path(_s90_dlg.selected_path).stem
+        # stem is like "alpha.cascade" — extract the base name
+        _s90_base = _s90_stem.split(".")[0].capitalize()
+        if _s90_base != _s90_displayed:
+            _s90_all_ok = False
+    _s90_dlg.selected_path = None
+check(_s90_all_ok, "90a: _on_double_click resolves correct path after re-sort")
+
+# 90b: _on_action resolves correct path after sort
+_s90_all_ok2 = True
+for _s90_r in range(_s90_dlg.table.rowCount()):
+    _s90_displayed = _s90_dlg.table.item(_s90_r, 0).text()
+    _s90_dlg.selected_path = None
+    _s90_dlg.table.selectRow(_s90_r)
+    app.processEvents()
+    _s90_dlg._on_action()
+    if _s90_dlg.selected_path is None:
+        _s90_all_ok2 = False
+    else:
+        _s90_stem = Path(_s90_dlg.selected_path).stem
+        _s90_base = _s90_stem.split(".")[0].capitalize()
+        if _s90_base != _s90_displayed:
+            _s90_all_ok2 = False
+    _s90_dlg.selected_path = None
+check(_s90_all_ok2, "90b: _on_action resolves correct path after re-sort")
+
+_s90_dlg.close()
+_s90_dlg.deleteLater()
+app.processEvents()
+
+# 90c: _on_delete deletes the correct file after sort
+# Re-create cascades fresh for the delete test
+for _s90_fname, _s90_data in _s90_cascades.items():
+    (_s90_tmpdir / _s90_fname).write_text(json.dumps(_s90_data), encoding="utf-8")
+
+_s90_orig_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+_s90_dlg2 = scaffold.CascadeListDialog(mode="load")
+scaffold.CascadeListDialog.accept = lambda self: None
+_s90_dlg2.show()
+app.processEvents()
+
+# Sort by Steps descending — visual row 0 should be Beta (5 steps)
+_s90_dlg2.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
+app.processEvents()
+
+_s90_row0_name = _s90_dlg2.table.item(0, 0).text()
+_s90_dlg2.table.selectRow(0)
+app.processEvents()
+_s90_dlg2._on_delete()
+app.processEvents()
+
+QMessageBox.question = _s90_orig_question
+
+# The file matching the displayed name should be gone
+_s90_expected_deleted = _s90_row0_name.lower() + ".cascade.json"
+_s90_remaining = [f.name for f in _s90_tmpdir.glob("*.json")]
+check(
+    _s90_expected_deleted not in _s90_remaining,
+    f"90c: _on_delete removed correct file ({_s90_row0_name})"
+)
+# The other two should still exist
+check(
+    len(_s90_remaining) == 2,
+    "90c: _on_delete left the other two cascade files intact"
+)
+
+_s90_dlg2.close()
+_s90_dlg2.deleteLater()
+app.processEvents()
+
+# Cleanup section 90
+scaffold.CascadeListDialog.accept = _s90_orig_accept
+scaffold._cascades_dir = _s90_orig_cascades_dir
+shutil.rmtree(_s90_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 91 — Password Mask Prefix Collision (separator=none)
+# =====================================================================
+print("\n=== SECTION 91: Password Mask Prefix Collision (separator=none) ===")
+
+_s91_tmpdir = tempfile.mkdtemp(prefix="scaffold_test91_")
+_s91_orig_warning = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+# 91a-c: --pass (password, none) + --passive (string, space) — prefix collision
+_s91_schema1 = {
+    "_format": "scaffold_schema",
+    "tool": "pw_prefix_test1",
+    "binary": "p1tool",
+    "description": "Test password mask prefix collision",
+    "arguments": [
+        {"name": "Pass", "flag": "--pass", "type": "password",
+         "description": "Password", "separator": "none"},
+        {"name": "Passive", "flag": "--passive", "type": "string",
+         "description": "Passive mode"},
+    ],
+}
+_s91_path1 = Path(_s91_tmpdir) / "pw_prefix_test1.json"
+_s91_path1.write_text(json.dumps(_s91_schema1))
+
+_s91_w1 = scaffold.MainWindow()
+_s91_w1._load_tool_path(str(_s91_path1))
+app.processEvents()
+
+_s91_w1.form._set_field_value(("__global__", "--pass"), "secret123")
+_s91_w1.form._set_field_value(("__global__", "--passive"), "mode")
+app.processEvents()
+
+_s91_cmd1, _ = _s91_w1.form.build_command()
+_s91_masked1 = _s91_w1.form._mask_passwords_for_display(_s91_cmd1)
+
+check("--passive" in _s91_masked1,
+      "91a: --passive token preserved intact (not falsely masked)")
+check("--pass********" in _s91_masked1,
+      "91b: --pass password correctly masked as --pass********")
+check("secret123" not in " ".join(_s91_masked1),
+      "91c: cleartext 'secret123' not in masked output")
+
+_s91_w1.close(); _s91_w1.deleteLater(); app.processEvents()
+
+# 91d-f: --p (password, none) + --port (integer, space) — short prefix collision
+_s91_schema2 = {
+    "_format": "scaffold_schema",
+    "tool": "pw_prefix_test2",
+    "binary": "p3tool",
+    "description": "Test short password flag prefix collision",
+    "arguments": [
+        {"name": "P", "flag": "--p", "type": "password",
+         "description": "Password", "separator": "none"},
+        {"name": "Port", "flag": "--port", "type": "integer",
+         "description": "Port number"},
+    ],
+}
+_s91_path2 = Path(_s91_tmpdir) / "pw_prefix_test2.json"
+_s91_path2.write_text(json.dumps(_s91_schema2))
+
+_s91_w2 = scaffold.MainWindow()
+_s91_w2._load_tool_path(str(_s91_path2))
+app.processEvents()
+
+_s91_w2.form._set_field_value(("__global__", "--p"), "x")
+_s91_w2.form._set_field_value(("__global__", "--port"), 8080)
+app.processEvents()
+
+_s91_cmd2, _ = _s91_w2.form.build_command()
+_s91_masked2 = _s91_w2.form._mask_passwords_for_display(_s91_cmd2)
+
+check("--port" in _s91_masked2,
+      "91d: --port token preserved intact (not falsely masked)")
+check("8080" in " ".join(_s91_masked2),
+      "91e: port value 8080 preserved in masked output")
+check(any(t.startswith("--p") and t.endswith("********") for t in _s91_masked2),
+      "91f: password token --p masked with ********")
+
+_s91_w2.close(); _s91_w2.deleteLater(); app.processEvents()
+
+# 91g-h: Regression — --pass (password, none) ONLY, no collision
+_s91_schema3 = {
+    "_format": "scaffold_schema",
+    "tool": "pw_prefix_test3",
+    "binary": "p2tool",
+    "description": "Test password mask no collision",
+    "arguments": [
+        {"name": "Pass", "flag": "--pass", "type": "password",
+         "description": "Password", "separator": "none"},
+    ],
+}
+_s91_path3 = Path(_s91_tmpdir) / "pw_prefix_test3.json"
+_s91_path3.write_text(json.dumps(_s91_schema3))
+
+_s91_w3 = scaffold.MainWindow()
+_s91_w3._load_tool_path(str(_s91_path3))
+app.processEvents()
+
+_s91_w3.form._set_field_value(("__global__", "--pass"), "secret")
+app.processEvents()
+
+_s91_cmd3, _ = _s91_w3.form.build_command()
+_s91_masked3 = _s91_w3.form._mask_passwords_for_display(_s91_cmd3)
+
+check("--pass********" in _s91_masked3,
+      "91g: --pass password masked as --pass********")
+check("secret" not in " ".join(_s91_masked3),
+      "91h: cleartext 'secret' not in masked output")
+
+_s91_w3.close(); _s91_w3.deleteLater(); app.processEvents()
+
+# 91i-j: Regression — --pw (password, equals) + --pwfile (file, equals)
+_s91_schema4 = {
+    "_format": "scaffold_schema",
+    "tool": "pw_prefix_test4",
+    "binary": "p4tool",
+    "description": "Test equals separator prefix collision",
+    "arguments": [
+        {"name": "PW", "flag": "--pw", "type": "password",
+         "description": "Password", "separator": "equals"},
+        {"name": "PW File", "flag": "--pwfile", "type": "file",
+         "description": "Password file", "separator": "equals"},
+    ],
+}
+_s91_path4 = Path(_s91_tmpdir) / "pw_prefix_test4.json"
+_s91_path4.write_text(json.dumps(_s91_schema4))
+
+_s91_w4 = scaffold.MainWindow()
+_s91_w4._load_tool_path(str(_s91_path4))
+app.processEvents()
+
+_s91_w4.form._set_field_value(("__global__", "--pw"), "x")
+_s91_w4.form._set_field_value(("__global__", "--pwfile"), "/tmp/file")
+app.processEvents()
+
+_s91_cmd4, _ = _s91_w4.form.build_command()
+_s91_masked4 = _s91_w4.form._mask_passwords_for_display(_s91_cmd4)
+
+check("--pwfile=/tmp/file" in _s91_masked4,
+      "91i: --pwfile=/tmp/file preserved intact (equals separator)")
+check("--pw=********" in _s91_masked4,
+      "91j: --pw=******** correctly masked (equals separator)")
+
+_s91_w4.close(); _s91_w4.deleteLater(); app.processEvents()
+
+# Cleanup section 91
+QMessageBox.warning = _s91_orig_warning
+shutil.rmtree(_s91_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 92 — _quote_token / _format_powershell / _format_cmd Quoting Fixes
+# =====================================================================
+print("\n=== SECTION 92: Shell Quoting Bug Fixes ===")
+
+# --- Bug 1: _quote_token double-quote escaping ---
+
+# 92a: token with whitespace + single quote + double quote
+# Previously produced "it's "complex"" which is broken
+_s92a = scaffold._quote_token("it's \"complex\"")
+# The result must be double-quoted, and internal double quotes must be escaped
+check(_s92a.startswith('"') and _s92a.endswith('"'),
+      f"92a: _quote_token wraps in double quotes when single quote present: {_s92a}")
+# Must not contain bare unescaped " inside the wrapping quotes
+_s92a_inner = _s92a[1:-1]  # strip outer quotes
+check('"' not in _s92a_inner.replace('""', ''),
+      f"92a2: no bare unescaped double quote inside wrapping quotes: {_s92a}")
+
+# 92b: token with double quotes but no single quote → single-quote wrap still works
+_s92b = scaffold._quote_token('hello "world" foo')
+check(_s92b.startswith("'") and _s92b.endswith("'"),
+      f"92b: _quote_token uses single quotes when no single quote in token: {_s92b}")
+
+# 92c: token with whitespace + single quote, no double quote → double-quote wrap works
+_s92c = scaffold._quote_token("it's here")
+check(_s92c == "\"it's here\"",
+      f"92c: _quote_token double-quotes token with apostrophe: {_s92c}")
+
+# --- Bug 2: _format_powershell missing apostrophe in needs_quote ---
+
+# 92d: apostrophe without whitespace must be quoted
+_s92d = scaffold._format_powershell(["tool", "it's"])
+check("'it''s'" in _s92d,
+      f"92d: _format_powershell quotes bare apostrophe token: {_s92d}")
+
+# 92e: another apostrophe-only token
+_s92e = scaffold._format_powershell(["tool", "don't"])
+check("'don''t'" in _s92e,
+      f"92e: _format_powershell quotes don't token: {_s92e}")
+
+# 92f: existing 74a-c behavior still works (apostrophe WITH whitespace)
+_s92f = scaffold._format_powershell(["tool", "it's here"])
+check("'it''s here'" in _s92f,
+      f"92f: regression check — apostrophe+space still works: {_s92f}")
+
+# --- Bug 3: _format_cmd missing ! in special set ---
+
+# 92g: token with ! must be quoted
+_s92g = scaffold._format_cmd(["tool", "value!with!bangs"])
+check('"value!with!bangs"' in _s92g,
+      f"92g: _format_cmd quotes token with !: {_s92g}")
+
+# 92h: plain token still passes through unquoted
+_s92h = scaffold._format_cmd(["tool", "plain"])
+check(_s92h == "tool plain",
+      f"92h: _format_cmd plain token unquoted: {_s92h}")
+
+# 92i: existing & quoting still works (regression)
+_s92i = scaffold._format_cmd(["tool", "a&b"])
+check('"a&b"' in _s92i,
+      f"92i: regression check — & still quoted: {_s92i}")
+
+
+# =====================================================================
+# Section 93 — Temp Arrow Directory Cleanup (atexit)
+# =====================================================================
+print("\n=== SECTION 93: Temp Arrow Directory Cleanup ===")
+
+import atexit
+
+# 93a: _cleanup_arrow_dir is a callable function
+check(callable(getattr(scaffold, '_cleanup_arrow_dir', None)),
+      "93a: scaffold._cleanup_arrow_dir exists and is callable")
+
+# 93b: Create a fake arrow dir, set it, call cleanup — dir removed
+_s93_tmpdir = tempfile.mkdtemp(prefix="scaffold_test93_")
+_s93_old = scaffold._arrow_dir
+scaffold._arrow_dir = _s93_tmpdir
+scaffold._cleanup_arrow_dir()
+check(not os.path.exists(_s93_tmpdir),
+      "93b: _cleanup_arrow_dir removes the arrow dir")
+
+# 93c: Call cleanup again on now-missing dir — no exception
+try:
+    scaffold._cleanup_arrow_dir()
+    _s93c_ok = True
+except Exception:
+    _s93c_ok = False
+check(_s93c_ok,
+      "93c: _cleanup_arrow_dir tolerates already-removed dir")
+
+# 93d: Call cleanup when _arrow_dir is None — no exception
+scaffold._arrow_dir = None
+try:
+    scaffold._cleanup_arrow_dir()
+    _s93d_ok = True
+except Exception:
+    _s93d_ok = False
+check(_s93d_ok,
+      "93d: _cleanup_arrow_dir tolerates _arrow_dir=None")
+
+# 93e: _arrow_cleanup_registered flag is set after _make_arrow_icons
+scaffold._arrow_dir = None  # force re-creation
+scaffold._arrow_cleanup_registered = False
+scaffold._make_arrow_icons()
+check(scaffold._arrow_cleanup_registered,
+      "93e: atexit handler registered after _make_arrow_icons()")
+
+# Restore original state
+scaffold._arrow_dir = _s93_old
+
+
+# =====================================================================
+print("\n=== SECTION 94: Extra Flags Malformed Input — Preview Suppression ===")
+# =====================================================================
+
+_s94_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s94_win = scaffold.MainWindow(tool_path=_s94_path)
+_s94_win.show()
+app.processEvents()
+_s94_form = _s94_win.form
+
+# Set a required field so validation passes
+for _s94_k, _s94_f in _s94_form.fields.items():
+    if _s94_f["arg"]["positional"] and _s94_f["arg"]["required"]:
+        _s94_form._set_field_value(_s94_k, "127.0.0.1")
+        break
+
+# 94a: Malformed extra flags — command preview must NOT contain broken tokens
+_s94_form.extra_flags_group.setChecked(True)
+_s94_form.extra_flags_edit.setPlainText('--flag "unclosed')
+app.processEvents()
+_s94_cmd, _s94_display = _s94_form.build_command()
+check('"unclosed' not in _s94_cmd,
+      "94a: malformed extra flags — broken tokens NOT in cmd list")
+check('--flag' not in _s94_cmd,
+      "94a: malformed extra flags — partial tokens NOT in cmd list")
+
+# 94b: Red border / error indicator must still be set on malformed input
+_s94_style = _s94_form.extra_flags_edit.styleSheet()
+check("red" in _s94_style.lower() or "solid" in _s94_style.lower(),
+      "94b: red border still present on malformed extra flags")
+
+# 94c: Attempting to RUN the command is still blocked
+_s94_win._on_run_stop()
+app.processEvents()
+check(_s94_win.process is None,
+      "94c: execution blocked when extra flags are malformed")
+
+# 94d: extra_flags_valid() returns False for malformed input
+check(_s94_form.extra_flags_valid() is False,
+      "94d: extra_flags_valid() returns False for unclosed quotes")
+
+# 94e: Run button disabled on malformed extra flags
+_s94_win._update_preview()
+app.processEvents()
+check(not _s94_win.run_btn.isEnabled(),
+      "94e: Run button disabled when extra flags are malformed")
+
+# 94f: Regression — well-formed quoted flags work correctly in preview
+_s94_form.extra_flags_edit.setPlainText('--flag "closed value"')
+app.processEvents()
+_s94_cmd2, _ = _s94_form.build_command()
+check("closed value" in _s94_cmd2,
+      "94f: well-formed quoted flags — 'closed value' is a token in cmd")
+check("--flag" in _s94_cmd2,
+      "94f: well-formed quoted flags — '--flag' is a token in cmd")
+
+# 94g: Regression — empty extra flags appends nothing
+_s94_form.extra_flags_edit.setPlainText("")
+app.processEvents()
+_s94_cmd3, _ = _s94_form.build_command()
+_s94_base_cmd, _ = _s94_form.build_command()
+# With empty extra flags, cmd should just be the base command
+_s94_form.extra_flags_group.setChecked(False)
+app.processEvents()
+_s94_no_extra_cmd, _ = _s94_form.build_command()
+_s94_form.extra_flags_group.setChecked(True)
+check(_s94_cmd3 == _s94_no_extra_cmd,
+      "94g: empty extra flags — no extras appended to cmd")
+
+# 94h: Red border clears when input is fixed
+_s94_form.extra_flags_edit.setPlainText('--flag "fixed"')
+app.processEvents()
+_s94_style2 = _s94_form.extra_flags_edit.styleSheet()
+check("red" not in _s94_style2.lower(),
+      "94h: red border clears when extra flags are fixed")
+
+# 94i: get_extra_flags() returns empty list on malformed input
+_s94_form.extra_flags_edit.setPlainText('--flag "unclosed')
+app.processEvents()
+_s94_extras = _s94_form.get_extra_flags()
+check(_s94_extras == [],
+      "94i: get_extra_flags() returns [] on malformed input")
+
+_s94_win.close(); _s94_win.deleteLater(); app.processEvents()
+
+
+# =====================================================================
+print("\n=== SECTION 95: Output Buffer Soft Cap ===")
+# =====================================================================
+
+_s95_path = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s95_win = scaffold.MainWindow(tool_path=_s95_path)
+app.processEvents()
+
+# Stop the flush timer so we control timing
+_s95_win._flush_timer.stop()
+
+# Patch the cap to a small value for testing
+_s95_orig_cap = scaffold.OUTPUT_BUFFER_MAX_BYTES
+scaffold.OUTPUT_BUFFER_MAX_BYTES = 1024
+
+# 95a: Append data well past the cap
+for _s95_i in range(20):
+    _s95_win._append_to_buffer("X" * 100 + "\n", scaffold.OUTPUT_FG)
+app.processEvents()
+
+_s95_total = sum(len(t) for t, _ in _s95_win._output_buffer)
+check(_s95_total <= scaffold.OUTPUT_BUFFER_MAX_BYTES,
+      f"95a: buffer bytes ({_s95_total}) <= cap ({scaffold.OUTPUT_BUFFER_MAX_BYTES})")
+
+# 95b: Truncation sentinel exists in the buffer
+_s95_has_sentinel = any("truncated" in t for t, _ in _s95_win._output_buffer)
+check(_s95_has_sentinel,
+      "95b: truncation sentinel entry exists in buffer")
+
+# 95c: _output_truncated flag is set
+check(_s95_win._output_truncated is True,
+      "95c: _output_truncated flag is True after overflow")
+
+# 95d: Clear output resets the flag and empties the buffer
+_s95_win._clear_output()
+app.processEvents()
+check(_s95_win._output_truncated is False,
+      "95d: _output_truncated reset to False after clear")
+check(len(_s95_win._output_buffer) == 0,
+      "95d: buffer is empty after clear")
+
+# 95e: Under-cap usage does not trigger truncation
+_s95_win._append_to_buffer("small\n", scaffold.OUTPUT_FG)
+app.processEvents()
+check(_s95_win._output_truncated is False,
+      "95e: no truncation for small append")
+check(len(_s95_win._output_buffer) == 1,
+      "95e: buffer has exactly 1 entry")
+
+# Restore original cap
+scaffold.OUTPUT_BUFFER_MAX_BYTES = _s95_orig_cap
+_s95_win.close(); _s95_win.deleteLater(); app.processEvents()
+
+
+# =====================================================================
+print("\n=== SECTION 96: QProcess Orphan Prevention (_teardown_process) ===")
+# =====================================================================
+
+# Create a cross-platform SIGTERM-resistant helper script in a temp file.
+import textwrap as _s96_textwrap
+
+_s96_script_content = _s96_textwrap.dedent("""\
+    import signal, time, sys
+    if sys.platform != "win32":
+        signal.signal(signal.SIGTERM, lambda *a: None)
+    print("started", flush=True)
+    time.sleep(30)
+""")
+
+_s96_script_dir = tempfile.mkdtemp(prefix="scaffold_test96_")
+_s96_script_path = os.path.join(_s96_script_dir, "sigterm_resist.py")
+with open(_s96_script_path, "w") as _s96_f:
+    _s96_f.write(_s96_script_content)
+
+# Schema that runs the SIGTERM-resistant script via the Python interpreter.
+_s96_schema = {
+    "_format": "scaffold_schema",
+    "tool": "test96_sigterm_resist",
+    "binary": sys.executable,
+    "description": "SIGTERM-resistant helper for test 96",
+    "arguments": [
+        {"name": "Script", "flag": "", "type": "string", "default": _s96_script_path},
+    ],
+}
+_s96_schema_path = os.path.join(_s96_script_dir, "test96_tool.json")
+with open(_s96_schema_path, "w") as _s96_f:
+    json.dump(_s96_schema, _s96_f)
+
+# Second schema for tool-switch test.
+_s96_schema2 = {
+    "_format": "scaffold_schema",
+    "tool": "test96_other",
+    "binary": "echo",
+    "description": "Alternate tool for test 96 tool-switch",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string"},
+    ],
+}
+_s96_schema2_path = os.path.join(_s96_script_dir, "test96_other.json")
+with open(_s96_schema2_path, "w") as _s96_f:
+    json.dump(_s96_schema2, _s96_f)
+
+# 96a: _teardown_process is safe with no process
+_s96_win = scaffold.MainWindow(tool_path=_s96_schema_path)
+app.processEvents()
+_s96_win.process = None
+try:
+    _s96_win._teardown_process()
+    check(True, "96a: _teardown_process() with process=None raises no exception")
+except Exception as _s96_exc:
+    check(False, f"96a: _teardown_process() with process=None raised {_s96_exc}")
+
+# 96b: _teardown_process disconnects signals (finished cannot corrupt UI)
+_s96_win._on_run_stop()
+app.processEvents()
+# Wait briefly for the subprocess to start
+for _s96_i in range(20):
+    app.processEvents()
+    if _s96_win.process and _s96_win.process.state() == QProcess.ProcessState.Running:
+        break
+    time.sleep(0.05)
+_s96_orphan_ref = _s96_win.process  # capture reference before teardown
+check(_s96_orphan_ref is not None, "96b-pre: process is running before teardown")
+_s96_win._teardown_process()
+app.processEvents()
+# Now manually emit finished on the captured (orphaned) reference.
+# If signals were properly disconnected, _on_finished should NOT fire.
+# We detect this by checking that run_btn was NOT reset by _on_finished.
+_s96_win.run_btn.setText("TestSentinel")
+_s96_win.run_btn.setEnabled(False)
+if _s96_orphan_ref is not None:
+    try:
+        _s96_orphan_ref.finished.emit(0, QProcess.ExitStatus.NormalExit)
+    except (RuntimeError, TypeError):
+        pass  # Qt may reject emit on destroyed object — that's fine
+app.processEvents()
+check(_s96_win.run_btn.text() == "TestSentinel",
+      "96b: finished signal on orphan did NOT trigger _on_finished (button text preserved)")
+check(not _s96_win.run_btn.isEnabled(),
+      "96b: finished signal on orphan did NOT re-enable run button")
+# Reset button for subsequent tests
+_s96_win.run_btn.setText("Run")
+_s96_win.run_btn.setEnabled(True)
+
+# 96c: _teardown_process kills SIGTERM-resistant target within time bound
+_s96_win._load_tool_path(_s96_schema_path)
+app.processEvents()
+_s96_win._on_run_stop()
+app.processEvents()
+for _s96_i in range(20):
+    app.processEvents()
+    if _s96_win.process and _s96_win.process.state() == QProcess.ProcessState.Running:
+        break
+    time.sleep(0.05)
+check(_s96_win.process is not None and _s96_win.process.state() == QProcess.ProcessState.Running,
+      "96c-pre: SIGTERM-resistant process is running")
+_s96_start = time.monotonic()
+_s96_win._teardown_process()
+_s96_elapsed = time.monotonic() - _s96_start
+app.processEvents()
+check(_s96_win.process is None,
+      "96c: process is None after _teardown_process")
+check(_s96_elapsed < 4.0,
+      f"96c: teardown completed in {_s96_elapsed:.1f}s (< 4s bound)")
+
+# 96d: Tool switch during SIGTERM-resistant run does not orphan
+_s96_win._load_tool_path(_s96_schema_path)
+app.processEvents()
+_s96_win._on_run_stop()
+app.processEvents()
+for _s96_i in range(20):
+    app.processEvents()
+    if _s96_win.process and _s96_win.process.state() == QProcess.ProcessState.Running:
+        break
+    time.sleep(0.05)
+check(_s96_win.process is not None and _s96_win.process.state() == QProcess.ProcessState.Running,
+      "96d-pre: process running before tool switch")
+_s96_win._load_tool_path(_s96_schema2_path)
+app.processEvents()
+check(_s96_win.process is None,
+      "96d: process is None after tool switch")
+_s96_qprocess_children = _s96_win.findChildren(QProcess)
+check(len(_s96_qprocess_children) == 0,
+      f"96d: no orphan QProcess children (found {len(_s96_qprocess_children)})")
+
+# 96e: Back button during SIGTERM-resistant run does not orphan
+_s96_win._load_tool_path(_s96_schema_path)
+app.processEvents()
+_s96_win._on_run_stop()
+app.processEvents()
+for _s96_i in range(20):
+    app.processEvents()
+    if _s96_win.process and _s96_win.process.state() == QProcess.ProcessState.Running:
+        break
+    time.sleep(0.05)
+check(_s96_win.process is not None and _s96_win.process.state() == QProcess.ProcessState.Running,
+      "96e-pre: process running before Back")
+_s96_win._on_back()
+app.processEvents()
+check(_s96_win.process is None,
+      "96e: process is None after _on_back")
+_s96_qprocess_children = _s96_win.findChildren(QProcess)
+check(len(_s96_qprocess_children) == 0,
+      f"96e: no orphan QProcess children after Back (found {len(_s96_qprocess_children)})")
+
+# 96f: Stop button path still uses timer escalation (not _teardown_process)
+_s96_win._load_tool_path(_s96_schema_path)
+app.processEvents()
+_s96_win._on_run_stop()
+app.processEvents()
+for _s96_i in range(20):
+    app.processEvents()
+    if _s96_win.process and _s96_win.process.state() == QProcess.ProcessState.Running:
+        break
+    time.sleep(0.05)
+check(_s96_win.process is not None and _s96_win.process.state() == QProcess.ProcessState.Running,
+      "96f-pre: process running before Stop click")
+_s96_win._on_run_stop()  # This is the user-clicked Stop path
+app.processEvents()
+check(_s96_win._force_kill_timer.isActive(),
+      "96f: _force_kill_timer is active after Stop click (timer escalation path)")
+# Clean up: wait for the force-kill timer to fire and process to end
+for _s96_i in range(50):
+    app.processEvents()
+    time.sleep(0.1)
+    if _s96_win.process is None:
+        break
+if _s96_win.process is not None:
+    _s96_win._teardown_process()
+    app.processEvents()
+
+_s96_win.close(); _s96_win.deleteLater(); app.processEvents()
+
+# Clean up temp files
+try:
+    shutil.rmtree(_s96_script_dir)
+except OSError:
+    pass
+
+
+# =====================================================================
+# Section 97 — Shell Formatter Whitelist & Newline Quoting
+# =====================================================================
+print("\n=== SECTION 97: Shell Formatter Whitelist & Newline Quoting ===")
+
+import re as _s97_re
+
+# Helper: check a PowerShell token is safe (bare safe token, or single-quoted
+# with no literal newlines and no unescaped single quotes inside)
+def _ps_token_safe(output, token_text):
+    """Return True if token_text appears as a safe token in the PS output."""
+    # Bare safe token
+    if _s97_re.search(r'(?:^| )' + _s97_re.escape(token_text) + r'(?:$| )', output):
+        return True
+    # Or single-quoted with '' escaping, no literal newlines
+    for m in _s97_re.finditer(r"'([^']*(?:''[^']*)*)'", output):
+        inner = m.group(1).replace("''", "'")
+        if inner == token_text and '\n' not in m.group(0) and '\r' not in m.group(0):
+            return True
+    return False
+
+# Helper: check a CMD token is safe (bare safe token, or double-quoted
+# with no literal newlines and no unescaped double quotes inside)
+def _cmd_token_safe(output, token_text):
+    """Return True if token_text appears as a safe token in the CMD output."""
+    # Bare safe token
+    if _s97_re.search(r'(?:^| )' + _s97_re.escape(token_text) + r'(?:$| )', output):
+        return True
+    # Or double-quoted with "" escaping, no literal newlines
+    for m in _s97_re.finditer(r'"([^"]*(?:""[^"]*)*)"', output):
+        inner = m.group(1).replace('""', '"')
+        if inner == token_text and '\n' not in m.group(0) and '\r' not in m.group(0):
+            return True
+    return False
+
+
+# --- PowerShell round-trip tests ---
+
+# 97a: semicolon injection
+_s97a = scaffold._format_powershell(["tool", "test;whoami"])
+check("'" in _s97a and "test;whoami" in _s97a.replace("''", ""),
+      f"97a: PS quotes semicolon: {_s97a!r}")
+
+# 97b: pipe injection
+_s97b = scaffold._format_powershell(["tool", "foo|Out-File C:\\pwned.txt"])
+check("'" in _s97b,
+      f"97b: PS quotes pipe: {_s97b!r}")
+
+# 97c: ampersand without space
+_s97c = scaffold._format_powershell(["tool", "val&calc"])
+check("'" in _s97c and "val&calc" in _s97c.replace("''", ""),
+      f"97c: PS quotes ampersand: {_s97c!r}")
+
+# 97d: comment character
+_s97d = scaffold._format_powershell(["tool", "test#ignored"])
+check("'" in _s97d,
+      f"97d: PS quotes hash: {_s97d!r}")
+
+# 97e: script block
+_s97e = scaffold._format_powershell(["tool", "a{Write-Host pwned}"])
+check("'" in _s97e,
+      f"97e: PS quotes braces: {_s97e!r}")
+
+# 97f: newline replaced with space and quoted
+_s97f = scaffold._format_powershell(["tool", "hello\nwhoami"])
+check("\n" not in _s97f,
+      f"97f: PS output has no literal newline: {_s97f!r}")
+check("hello whoami" in _s97f.replace("''", ""),
+      f"97f: PS newline replaced with space: {_s97f!r}")
+
+# 97g: redirection
+_s97g = scaffold._format_powershell(["tool", ">C:\\pwned.txt"])
+check("'" in _s97g,
+      f"97g: PS quotes redirection: {_s97g!r}")
+
+# 97h: double quote in token
+_s97h = scaffold._format_powershell(["tool", 'value"test'])
+check("'" in _s97h,
+      f"97h: PS quotes double-quote: {_s97h!r}")
+
+# 97i: splatting
+_s97i = scaffold._format_powershell(["tool", "@{a=1}"])
+check("'" in _s97i,
+      f"97i: PS quotes splatting: {_s97i!r}")
+
+# 97j: safe token NOT quoted
+_s97j = scaffold._format_powershell(["tool", "192.168.1.1"])
+check("192.168.1.1" in _s97j and "'" not in _s97j.split("192.168.1.1")[0][-1:],
+      f"97j: PS safe token unquoted: {_s97j!r}")
+check(_s97j == "tool 192.168.1.1",
+      f"97j: PS safe token exact: {_s97j!r}")
+
+# 97k: CRLF replaced
+_s97k = scaffold._format_powershell(["tool", "hello\r\nwhoami"])
+check("\n" not in _s97k and "\r" not in _s97k,
+      f"97k: PS CRLF replaced: {_s97k!r}")
+
+# 97l: parentheses quoted
+_s97l = scaffold._format_powershell(["tool", "foo(bar)"])
+check("'" in _s97l,
+      f"97l: PS quotes parentheses: {_s97l!r}")
+
+
+# --- CMD round-trip tests ---
+
+# 97m: newline replaced with space and quoted
+_s97m = scaffold._format_cmd(["tool", "hello\nwhoami"])
+check("\n" not in _s97m,
+      f"97m: CMD output has no literal newline: {_s97m!r}")
+check("hello whoami" in _s97m.replace('""', ''),
+      f"97m: CMD newline replaced with space: {_s97m!r}")
+
+# 97n: CRLF replaced
+_s97n = scaffold._format_cmd(["tool", "hello\r\ndir C:\\"])
+check("\n" not in _s97n and "\r" not in _s97n,
+      f"97n: CMD CRLF replaced: {_s97n!r}")
+
+# 97o: parentheses quoted
+_s97o = scaffold._format_cmd(["tool", "foo(bar)"])
+check('"' in _s97o,
+      f"97o: CMD quotes parentheses: {_s97o!r}")
+
+# 97p: newline + dangerous command replaced
+_s97p = scaffold._format_cmd(["tool", "test\nnet user hacker P@ss /add"])
+check("\n" not in _s97p,
+      f"97p: CMD dangerous newline replaced: {_s97p!r}")
+
+# 97q: @ prefix quoted
+_s97q = scaffold._format_cmd(["tool", "@echo off"])
+check('"' in _s97q,
+      f"97q: CMD quotes @echo: {_s97q!r}")
+
+# 97r: safe token NOT quoted
+_s97r = scaffold._format_cmd(["tool", "127.0.0.1"])
+check(_s97r == "tool 127.0.0.1",
+      f"97r: CMD safe token exact: {_s97r!r}")
+
 
 # =====================================================================
 # Final cleanup

@@ -500,9 +500,9 @@ form3.extra_flags_edit.setPlainText('--flag "unclosed')
 form3.command_changed.emit()
 app.processEvents()
 
-# The extra flags should fall back to naive split
+# Malformed extra flags return empty list (no broken tokens in preview)
 extra_b4 = form3.get_extra_flags()
-check(len(extra_b4) > 0, f"B4: fallback split produces tokens: {extra_b4}")
+check(len(extra_b4) == 0, f"B4: malformed extra flags return empty list: {extra_b4}")
 
 # Build command — should not crash
 cmd_b4, display_b4 = form3.build_command()

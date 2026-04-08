@@ -3,7 +3,7 @@
   "tool": "ping",
   "binary": "ping",
   "description": "Send ICMP echo requests to verify IP-level connectivity to a network host.",
-  "elevated": null,
+  "elevated": "optional",
   "subcommands": null,
   "arguments": [
     {

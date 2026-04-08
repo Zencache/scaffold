@@ -21,8 +21,10 @@ Minimum Python version: 3.10
 
 __version__ = "2.7.8"
 
+import atexit
 import datetime
 import hashlib
+import html
 import json
 import os
 import re
@@ -89,6 +91,7 @@ MIN_WINDOW_HEIGHT = 400
 # Output panel limits
 OUTPUT_MAX_BLOCKS = 10000       # Max lines kept in the output panel
 OUTPUT_FLUSH_MS = 100           # Milliseconds between output buffer flushes
+OUTPUT_BUFFER_MAX_BYTES = 50 * 1024 * 1024  # 50 MB soft cap on _output_buffer
 OUTPUT_MIN_HEIGHT = 80          # Minimum output panel height (pixels)
 OUTPUT_MAX_HEIGHT = 800         # Maximum output panel height (pixels)
 OUTPUT_DEFAULT_HEIGHT = 150     # Default output panel height (pixels)
@@ -139,6 +142,9 @@ def validate_tool(data: dict) -> list[str]:
     """Validate a tool dict against the schema. Returns a list of error strings."""
     errors = []
 
+    if not isinstance(data, dict):
+        return [f"Tool schema must be a dict, got {type(data).__name__}"]
+
     for key in ("tool", "binary", "description", "arguments"):
         if key not in data:
             errors.append(f"Missing required top-level key: \"{key}\"")
@@ -179,6 +185,7 @@ def validate_tool(data: dict) -> list[str]:
     if "arguments" in data and isinstance(data["arguments"], list):
         _validate_args(data["arguments"], "top-level", errors)
         _check_duplicate_flags(data["arguments"], "top-level", errors)
+        _check_duplicate_flag_values(data["arguments"], "global scope", errors)
         _check_groups(data["arguments"], "top-level", errors)
         _check_dependencies(data["arguments"], "top-level", errors)
 
@@ -209,8 +216,23 @@ def validate_tool(data: dict) -> list[str]:
                         errors.append(f"subcommand \"{name}\": \"name\" has leading/trailing whitespace")
                     elif "  " in name:
                         errors.append(f"subcommand \"{name}\": \"name\" contains double spaces")
+                    elif any(c in name for c in "\n\r\t"):
+                        errors.append(f"subcommand name {name!r}: contains illegal whitespace characters")
                     else:
-                        if name in seen_sub_names:
+                        _bad_token = None
+                        for _tok in name.split():
+                            if _tok.startswith("-"):
+                                _bad_token = _tok
+                                break
+                            if any(c in _SHELL_METACHAR for c in _tok) or any(c in _tok for c in "\n\r\t"):
+                                _bad_token = _tok
+                                break
+                        if _bad_token is not None:
+                            errors.append(
+                                f"subcommand name {name!r}: token {_bad_token!r} "
+                                f"cannot start with '-' or contain shell metacharacters"
+                            )
+                        elif name in seen_sub_names:
                             errors.append(f"duplicate subcommand name \"{name}\"")
                         seen_sub_names[name] = True
                     label = f"subcommand \"{name}\""
@@ -221,6 +243,8 @@ def validate_tool(data: dict) -> list[str]:
                 else:
                     _validate_args(sub["arguments"], label, errors)
                     _check_duplicate_flags(sub["arguments"], label, errors)
+                    sub_name = sub.get("name", "?")
+                    _check_duplicate_flag_values(sub["arguments"], f"subcommand '{sub_name}'", errors)
                     _check_groups(sub["arguments"], label, errors)
                     _check_dependencies(sub["arguments"], label, errors)
 
@@ -311,6 +335,41 @@ def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
             errors.append(f"{scope}: duplicate flag \"{flag}\" (used by \"{seen[flag]}\" and \"{arg.get('name', '?')}\")")
         else:
             seen[flag] = arg.get("name", "?")
+
+
+def _check_duplicate_flag_values(args: list, scope_label: str, errors: list) -> None:
+    """Check for duplicate flag and short_flag values within a single scope.
+
+    Skips positional arguments (flag not starting with '-') and None short_flags.
+    """
+    seen_flags: dict[str, str] = {}
+    seen_shorts: dict[str, str] = {}
+    for arg in args:
+        if not isinstance(arg, dict):
+            continue
+        name = arg.get("name", "?")
+        flag = arg.get("flag")
+        if isinstance(flag, str):
+            flag = flag.strip()
+        if isinstance(flag, str) and flag.startswith("-"):
+            if flag in seen_flags:
+                errors.append(
+                    f"Duplicate flag '{flag}' in {scope_label}: "
+                    f"used by '{seen_flags[flag]}' and '{name}'"
+                )
+            else:
+                seen_flags[flag] = name
+        short = arg.get("short_flag")
+        if isinstance(short, str):
+            short = short.strip()
+        if isinstance(short, str) and short.startswith("-"):
+            if short in seen_shorts:
+                errors.append(
+                    f"Duplicate short_flag '{short}' in {scope_label}: "
+                    f"used by '{seen_shorts[short]}' and '{name}'"
+                )
+            else:
+                seen_shorts[short] = name
 
 
 def _check_groups(args: list, scope: str, errors: list) -> None:
@@ -562,7 +621,7 @@ def _elevation_label():
 from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QDoubleSpinBox, QFileDialog,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
@@ -574,21 +633,27 @@ from PySide6.QtWidgets import (  # noqa: E402
 _dark_mode = False
 _original_palette = None
 _arrow_dir = None
+_arrow_cleanup_registered = False
+
+
+def _cleanup_arrow_dir():
+    """Remove the temp arrow icon directory. Best-effort, silent."""
+    if _arrow_dir is not None:
+        shutil.rmtree(_arrow_dir, ignore_errors=True)
 
 
 def _make_arrow_icons():
     """Generate small arrow PNGs for dark mode dropdown/spinbox controls."""
-    global _arrow_dir
+    global _arrow_dir, _arrow_cleanup_registered
     if _arrow_dir is not None:
         return _arrow_dir
     app = QApplication.instance()
     if app is None:
         return None
     _arrow_dir = tempfile.mkdtemp(prefix="scaffold_arrows_")
-    try:
-        app.aboutToQuit.connect(lambda: shutil.rmtree(_arrow_dir, ignore_errors=True))
-    except Exception:
-        pass
+    if not _arrow_cleanup_registered:
+        atexit.register(_cleanup_arrow_dir)
+        _arrow_cleanup_registered = True
     color = QColor(DARK_COLORS["text"])
     for name, points in [
         ("down", [(1, 2), (5, 6), (9, 2)]),
@@ -802,7 +867,17 @@ def apply_theme(dark: bool) -> None:
         except AttributeError:
             pass
         app.setPalette(_original_palette)
-        app.setStyleSheet("")
+        # Force readable tooltip colors regardless of OS theme.
+        # On Linux with mixed-theme desktops, _original_palette can have
+        # unreadable tooltip color combinations.
+        light_palette = app.palette()
+        light_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f5f5f5"))
+        light_palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#1a1a1a"))
+        app.setPalette(light_palette)
+        app.setStyleSheet(
+            "QToolTip { background-color: #f5f5f5; color: #1a1a1a;"
+            " border: 1px solid #c0c0c0; border-radius: 3px; padding: 2px; }"
+        )
 
 
 def _invalid_style() -> str:
@@ -1074,8 +1149,8 @@ class ToolForm(QWidget):
         self.extra_flags_edit = QPlainTextEdit()
         self.extra_flags_edit.setMaximumHeight(TEXT_WIDGET_HEIGHT)
         self.extra_flags_edit.setToolTip(
-            "Raw flags appended directly to the command. "
-            "Use this for flags not covered by the form above."
+            "<p>Raw flags appended directly to the command. "
+            "Use this for flags not covered by the form above.</p>"
         )
         self.extra_flags_edit.textChanged.connect(self._validate_extra_flags)
         self.extra_flags_edit.textChanged.connect(lambda: self.command_changed.emit())
@@ -1259,7 +1334,7 @@ class ToolForm(QWidget):
         flag = arg["flag"]
         key = self._field_key(scope, flag)
         widget = self._build_widget(arg, key)
-        label_text = arg["name"]
+        label_text = html.escape(arg["name"])
         if arg["required"]:
             label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
         # Dangerous: prepend red warning symbol
@@ -1319,8 +1394,8 @@ class ToolForm(QWidget):
             traceback.print_exc(file=sys.stderr)
             w = QLineEdit()
             w._is_fallback = True
-            w.setToolTip(f"This field could not be rendered as '{arg.get('type', '?')}' "
-                         f"-- using text input as fallback")
+            w.setToolTip(f"<p>This field could not be rendered as '{html.escape(str(arg.get('type', '?')))}' "
+                         f"-- using text input as fallback</p>")
             w.textChanged.connect(lambda _: self.command_changed.emit())
             return w
 
@@ -1507,14 +1582,15 @@ class ToolForm(QWidget):
     @staticmethod
     def _build_tooltip(arg: dict) -> str:
         """Build a structured tooltip showing flag, type, description, and validation."""
+        _esc = html.escape
         warning_lines = []
         if arg.get("deprecated"):
-            warning_lines.append(f"\u26a0 DEPRECATED: {arg['deprecated']}")
+            warning_lines.append(f"\u26a0 DEPRECATED: {_esc(str(arg['deprecated']))}")
         if arg.get("dangerous"):
             warning_lines.append("\u26a0 CAUTION: This flag may have destructive or irreversible effects.")
-        parts = [arg["flag"]]
+        parts = [_esc(arg["flag"])]
         if arg.get("short_flag"):
-            parts.append(arg["short_flag"])
+            parts.append(_esc(arg["short_flag"]))
         type_info = arg["type"]
         sep = arg.get("separator", "space")
         if sep == "equals" or (sep == "none" and arg["type"] != "boolean"):
@@ -1524,9 +1600,9 @@ class ToolForm(QWidget):
         if arg.get("description") or arg.get("validation"):
             lines.append("")
         if arg.get("description"):
-            lines.append(arg["description"])
+            lines.append(_esc(arg["description"]))
         if arg.get("validation"):
-            lines.append(f"Validation: {arg['validation']}")
+            lines.append(f"Validation: {_esc(arg['validation'])}")
         return "<p>" + "<br>".join(lines) + "</p>"
 
     # ------------------------------------------------------------------
@@ -1710,6 +1786,19 @@ class ToolForm(QWidget):
             return self.sub_combo.currentData()
         return None
 
+    def extra_flags_valid(self) -> bool:
+        """Return True if extra flags are disabled, empty, or parse cleanly with shlex."""
+        if not self.extra_flags_group.isChecked():
+            return True
+        text = self.extra_flags_edit.toPlainText().strip()
+        if not text:
+            return True
+        try:
+            shlex.split(text)
+            return True
+        except ValueError:
+            return False
+
     def get_extra_flags(self) -> list[str]:
         """Return the parsed extra-flags tokens, or an empty list if the section is disabled."""
         if not self.extra_flags_group.isChecked():
@@ -1720,7 +1809,7 @@ class ToolForm(QWidget):
         try:
             return shlex.split(text)
         except ValueError:
-            return text.split()
+            return []
 
     def _read_field_value(self, key: tuple, *, respect_enabled: bool = True) -> int | str | list | None:
         """Core field-value reader used by both get_field_value and _raw_field_value.
@@ -1830,8 +1919,11 @@ class ToolForm(QWidget):
 
         return preset
 
-    def apply_values(self, preset: dict) -> None:
-        """Apply a preset dict to the form, resetting unmentioned fields to defaults."""
+    def apply_values(self, preset: dict) -> bool:
+        """Apply a preset dict to the form, resetting unmentioned fields to defaults.
+
+        Returns True if one or more password fields were skipped (not restored).
+        """
         self.blockSignals(True)
 
         # Subcommand
@@ -1855,7 +1947,11 @@ class ToolForm(QWidget):
             self.extra_flags_edit.clear()
 
         # Apply field values — reset everything first, then set from preset
+        had_passwords = False
         for key, field in self.fields.items():
+            if field["arg"]["type"] == "password":
+                had_passwords = True
+                continue
             scope, flag = key
             if scope == self.GLOBAL:
                 preset_key = flag
@@ -1866,6 +1962,7 @@ class ToolForm(QWidget):
 
         self.blockSignals(False)
         self.command_changed.emit()
+        return had_passwords
 
     def reset_to_defaults(self) -> None:
         """Reset all fields to their schema defaults."""
@@ -1928,7 +2025,11 @@ class ToolForm(QWidget):
 
         elif t == "integer":
             if value is not None:
-                w.setValue(int(value))
+                try:
+                    numeric = int(value)
+                except (ValueError, TypeError):
+                    return
+                w.setValue(numeric)
             elif arg["default"] is not None:
                 w.setValue(int(arg["default"]))
             else:
@@ -1936,7 +2037,11 @@ class ToolForm(QWidget):
 
         elif t == "float":
             if value is not None:
-                w.setValue(float(value))
+                try:
+                    numeric = float(value)
+                except (ValueError, TypeError):
+                    return
+                w.setValue(numeric)
             elif arg["default"] is not None:
                 w.setValue(float(arg["default"]))
             else:
@@ -2020,6 +2125,14 @@ class ToolForm(QWidget):
         if not pw_flags:
             return list(cmd)
 
+        # Build set of ALL flags in the schema (for prefix-collision checks)
+        all_flags = set()
+        for arg in self.data["arguments"]:
+            all_flags.add(arg["flag"])
+        for sub_data in (self.data["subcommands"] or []):
+            for arg in sub_data["arguments"]:
+                all_flags.add(arg["flag"])
+
         masked = []
         i = 0
         while i < len(cmd):
@@ -2039,6 +2152,15 @@ class ToolForm(QWidget):
                         matched = True
                         break
                     if sep == "none" and token.startswith(flag) and len(token) > len(flag):
+                        # Check if a longer non-password flag also matches
+                        longer_match = any(
+                            other != flag
+                            and token.startswith(other)
+                            and len(other) > len(flag)
+                            for other in all_flags
+                        )
+                        if longer_match:
+                            continue
                         masked.append(f"{flag}********")
                         matched = True
                         break
@@ -2166,10 +2288,10 @@ class ToolForm(QWidget):
 
 def _quote_token(token: str) -> str:
     """Shell-quote a token for display if it contains whitespace."""
-    if " " in token or "\t" in token:
+    if " " in token or "\t" in token or "\n" in token or "\r" in token:
         if "'" not in token:
             return f"'{token}'"
-        return f'"{token}"'
+        return f'"{token.replace(chr(34), chr(34)*2)}"'
     return token
 
 
@@ -2185,38 +2307,52 @@ def _format_bash(cmd: list[str]) -> str:
     return shlex.join(cmd)
 
 
+_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@%-]+$')
+
+
 def _format_powershell(cmd: list[str]) -> str:
-    """Format a command list as a PowerShell command string."""
+    """Format a command list as a PowerShell command string.
+
+    Uses a whitelist to decide safe tokens. Literal newlines and carriage
+    returns are replaced with spaces before quoting, because PowerShell
+    single-quoted strings cannot contain literal newlines.
+    """
     if not cmd:
         return ""
     parts = []
     for i, token in enumerate(cmd):
-        needs_quote = " " in token or "\t" in token
-        if i == 0 and needs_quote:
-            # Binary with spaces needs & prefix and single-quoting
-            parts.append(f"& '{token}'")
-        elif needs_quote:
-            if "'" in token:
-                parts.append(f'"{token}"')
-            else:
-                parts.append(f"'{token}'")
-        else:
+        # Replace newlines — PS single-quoted strings cannot span lines
+        token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        if _SAFE_TOKEN_RE.match(token):
             parts.append(token)
+        elif i == 0:
+            # Binary needs & prefix and single-quoting
+            escaped = token.replace("'", "''")
+            parts.append(f"& '{escaped}'")
+        else:
+            escaped = token.replace("'", "''")
+            parts.append(f"'{escaped}'")
     return " ".join(parts)
 
 
 def _format_cmd(cmd: list[str]) -> str:
-    """Format a command list as a Windows CMD command string."""
+    """Format a command list as a Windows CMD command string.
+
+    Uses a whitelist to decide safe tokens. Literal newlines and carriage
+    returns are replaced with spaces before quoting, because CMD
+    double-quoted strings cannot contain literal newlines.
+    """
     if not cmd:
         return ""
-    _cmd_special = set(' &|<>^%')
     parts = []
     for token in cmd:
-        if any(c in _cmd_special for c in token):
-            escaped = token.replace('"', '\\"')
-            parts.append(f'"{escaped}"')
-        else:
+        # Replace newlines — CMD double-quoted strings cannot span lines
+        token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        if _SAFE_TOKEN_RE.match(token):
             parts.append(token)
+        else:
+            escaped = token.replace('"', '""')
+            parts.append(f'"{escaped}"')
     return " ".join(parts)
 
 
@@ -2236,7 +2372,6 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
         extra_count: Number of tokens at the end that are extra flags.
         subcommand: The active subcommand name, if any, for distinct coloring.
     """
-    import html as _html
     colors = DARK_PREVIEW if _dark_mode else LIGHT_PREVIEW
     parts = []
     core_len = len(cmd) - extra_count
@@ -2247,7 +2382,7 @@ def _colored_preview_html(cmd: list[str], extra_count: int, subcommand: str | No
             style += "font-weight:bold;"
         if italic:
             style += "font-style:italic;"
-        return f"<span style='{style}'>{_html.escape(text)}</span>"
+        return f"<span style='{style}'>{html.escape(text)}</span>"
 
     sub_parts = subcommand.split() if subcommand else []
     sub_idx = 0
@@ -2587,8 +2722,8 @@ class ToolPicker(QWidget):
                     status_item = QTableWidgetItem("\u2716")  # X mark
                     status_item.setForeground(QColor(COLOR_ERR))
                     status_item.setToolTip(
-                        f"'{data['binary']}' not found in PATH. "
-                        "Install it or add its location to your PATH."
+                        f"<p>'{html.escape(data['binary'])}' not found in PATH. "
+                        "Install it or add its location to your PATH.</p>"
                     )
                 status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -2597,7 +2732,7 @@ class ToolPicker(QWidget):
                     desc_text = data.get("description", "")
                     desc_item = QTableWidgetItem(desc_text)
                     if desc_text:
-                        desc_item.setToolTip(f"<p style='max-width:400px;'>{desc_text}</p>")
+                        desc_item.setToolTip(f"<p style='max-width:400px;'>{html.escape(desc_text)}</p>")
                 else:
                     name_item = QTableWidgetItem(fname)
                     desc_item = QTableWidgetItem(f"[invalid] {error}")
@@ -3049,7 +3184,7 @@ class PresetPicker(QDialog):
                 pass
             desc_item = QTableWidgetItem(desc)
             if desc:
-                desc_item.setToolTip(f"<p style='max-width:400px;'>{desc}</p>")
+                desc_item.setToolTip(f"<p style='max-width:400px;'>{html.escape(desc)}</p>")
             self.table.setItem(row, 2, desc_item)
 
             # Column 3 — last modified
@@ -3677,7 +3812,6 @@ class CascadeListDialog(QDialog):
         btn_bar.addWidget(cancel_btn)
         layout.addLayout(btn_bar)
 
-        self._cascades: list[Path] = []
         self._populate()
 
     def _populate(self) -> None:
@@ -3697,12 +3831,13 @@ class CascadeListDialog(QDialog):
             except (json.JSONDecodeError, OSError):
                 continue
 
-        self._cascades = [f for f, _ in valid]
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(valid))
         for row, (f, data) in enumerate(valid):
             # Name
-            self.table.setItem(row, 0, QTableWidgetItem(data.get("name", f.stem)))
+            name_item = QTableWidgetItem(data.get("name", f.stem))
+            name_item.setData(Qt.ItemDataRole.UserRole, str(f))
+            self.table.setItem(row, 0, name_item)
             # Description
             self.table.setItem(row, 1, QTableWidgetItem(data.get("description", "")))
             # Steps count
@@ -3733,11 +3868,19 @@ class CascadeListDialog(QDialog):
         if self.delete_btn:
             self.delete_btn.setEnabled(has_sel)
 
+    def _path_for_row(self, row: int) -> Path | None:
+        """Resolve the cascade file path stored on the column-0 item for *row*."""
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        stored = item.data(Qt.ItemDataRole.UserRole)
+        return Path(stored) if stored else None
+
     def _on_double_click(self, index) -> None:
         """Accept on double-click."""
-        row = index.row()
-        if 0 <= row < len(self._cascades):
-            self.selected_path = str(self._cascades[row])
+        p = self._path_for_row(index.row())
+        if p is not None:
+            self.selected_path = str(p)
             self.accept()
 
     def _on_action(self) -> None:
@@ -3745,9 +3888,9 @@ class CascadeListDialog(QDialog):
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             return
-        row = rows[0].row()
-        if 0 <= row < len(self._cascades):
-            self.selected_path = str(self._cascades[row])
+        p = self._path_for_row(rows[0].row())
+        if p is not None:
+            self.selected_path = str(p)
             self.accept()
 
     def _on_delete(self) -> None:
@@ -3756,9 +3899,9 @@ class CascadeListDialog(QDialog):
         if not rows:
             return
         row = rows[0].row()
-        if row < 0 or row >= len(self._cascades):
+        cascade_path = self._path_for_row(row)
+        if cascade_path is None:
             return
-        cascade_path = self._cascades[row]
         name = cascade_path.stem
 
         confirm = QMessageBox.question(
@@ -3775,7 +3918,6 @@ class CascadeListDialog(QDialog):
             QMessageBox.warning(self, "Error", f"Cannot delete cascade:\n{e}")
             return
 
-        self._cascades.pop(row)
         self.table.removeRow(row)
         if self.table.rowCount() == 0:
             self.reject()
@@ -3792,6 +3934,293 @@ class CascadeListDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Cascade variable input dialog
+# ---------------------------------------------------------------------------
+
+
+class CascadeVariableDialog(QDialog):
+    """Modal dialog for entering cascade variable values before a chain run."""
+
+    def __init__(self, variables: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cascade Variables")
+        self._variables = variables
+        self._inputs: dict[str, QWidget] = {}  # flag -> value-bearing widget
+
+        layout = QVBoxLayout(self)
+
+        if not variables:
+            layout.addWidget(QLabel("No variables defined."))
+        else:
+            form = QFormLayout()
+            for var in variables:
+                name = var.get("name", "")
+                flag = var.get("flag", "")
+                type_hint = var.get("type_hint", "string")
+                description = var.get("description", "")
+                row_widget = self._build_row(flag, type_hint, description)
+                form.addRow(QLabel(name), row_widget)
+            layout.addLayout(form)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    # -- row builders -------------------------------------------------------
+
+    def _build_row(self, flag: str, type_hint: str, description: str) -> QWidget:
+        """Return the appropriate input widget for *type_hint*."""
+        if type_hint == "integer":
+            w = QSpinBox()
+            w.setRange(-999999, 999999)
+            w.setValue(0)
+            if description:
+                w.setToolTip(description)
+            self._inputs[flag] = w
+            return w
+
+        if type_hint == "float":
+            w = QDoubleSpinBox()
+            w.setRange(-999999.0, 999999.0)
+            w.setValue(0.0)
+            if description:
+                w.setToolTip(description)
+            self._inputs[flag] = w
+            return w
+
+        if type_hint in ("file", "directory"):
+            container = QWidget()
+            h = QHBoxLayout(container)
+            h.setContentsMargins(0, 0, 0, 0)
+            le = QLineEdit()
+            if description:
+                le.setPlaceholderText(description)
+            h.addWidget(le)
+            btn = QPushButton("Browse...")
+            if type_hint == "file":
+                btn.clicked.connect(lambda _, edit=le: self._browse_file(edit))
+            else:
+                btn.clicked.connect(lambda _, edit=le: self._browse_directory(edit))
+            h.addWidget(btn)
+            self._inputs[flag] = le
+            return container
+
+        # "string" or unknown — default to QLineEdit
+        w = QLineEdit()
+        if description:
+            w.setPlaceholderText(description)
+        self._inputs[flag] = w
+        return w
+
+    # -- browse helpers -----------------------------------------------------
+
+    def _browse_file(self, line_edit: QLineEdit) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Select File")
+        if path:
+            line_edit.setText(path)
+
+    def _browse_directory(self, line_edit: QLineEdit) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if path:
+            line_edit.setText(path)
+
+    # -- accept / validate --------------------------------------------------
+
+    def _on_accept(self) -> None:
+        has_error = False
+        for var in self._variables:
+            flag = var.get("flag", "")
+            type_hint = var.get("type_hint", "string")
+            if type_hint in ("string", "file", "directory"):
+                widget = self._inputs.get(flag)
+                if widget and isinstance(widget, QLineEdit):
+                    if not widget.text().strip():
+                        widget.setStyleSheet(_invalid_style())
+                        has_error = True
+                    else:
+                        widget.setStyleSheet("")
+        if not has_error:
+            self.accept()
+
+    # -- public API ---------------------------------------------------------
+
+    def get_values(self) -> dict:
+        """Return ``{flag: value}`` for every variable."""
+        result = {}
+        for var in self._variables:
+            flag = var.get("flag", "")
+            type_hint = var.get("type_hint", "string")
+            widget = self._inputs.get(flag)
+            if widget is None:
+                continue
+            if type_hint == "integer" and isinstance(widget, QSpinBox):
+                result[flag] = widget.value()
+            elif type_hint == "float" and isinstance(widget, QDoubleSpinBox):
+                result[flag] = widget.value()
+            else:
+                result[flag] = widget.text()
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Cascade variable definition dialog
+# ---------------------------------------------------------------------------
+
+
+_VAR_TYPE_CHOICES = ["string", "file", "directory", "integer", "float"]
+
+
+class CascadeVariableDefinitionDialog(QDialog):
+    """Modal dialog for defining cascade variables (name, flag, type, apply-to)."""
+
+    def __init__(self, variables: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Cascade Variables")
+        self.setMinimumWidth(560)
+        self._result_variables: list[dict] = []
+
+        layout = QVBoxLayout(self)
+
+        # --- table ---
+        self._table = QTableWidget(0, 4)
+        self._table.setHorizontalHeaderLabels(["Name", "Flag", "Type", "Apply To"])
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        layout.addWidget(self._table)
+
+        # --- add / remove buttons ---
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add Variable")
+        add_btn.clicked.connect(self._add_row)
+        btn_row.addWidget(add_btn)
+        self._remove_btn = QPushButton("Remove Selected")
+        self._remove_btn.clicked.connect(self._remove_selected)
+        btn_row.addWidget(self._remove_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        # --- ok / cancel ---
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+        # Populate from existing variables
+        for var in variables:
+            self._add_row(
+                name=var.get("name", ""),
+                flag=var.get("flag", ""),
+                type_hint=var.get("type_hint", "string"),
+                apply_to=var.get("apply_to", "all"),
+            )
+
+    # -- row management -----------------------------------------------------
+
+    def _add_row(
+        self,
+        name: str = "",
+        flag: str = "",
+        type_hint: str = "string",
+        apply_to: str | list = "all",
+    ) -> None:
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+
+        self._table.setItem(row, 0, QTableWidgetItem(name))
+        self._table.setItem(row, 1, QTableWidgetItem(flag))
+
+        type_combo = QComboBox()
+        type_combo.addItems(_VAR_TYPE_CHOICES)
+        idx = _VAR_TYPE_CHOICES.index(type_hint) if type_hint in _VAR_TYPE_CHOICES else 0
+        type_combo.setCurrentIndex(idx)
+        self._table.setCellWidget(row, 2, type_combo)
+
+        apply_combo = QComboBox()
+        apply_combo.setEditable(True)
+        apply_combo.addItems(["All"])
+        if apply_to == "all":
+            apply_combo.setCurrentText("All")
+        elif isinstance(apply_to, list):
+            apply_combo.setCurrentText(",".join(str(s) for s in apply_to))
+        else:
+            apply_combo.setCurrentText(str(apply_to))
+        self._table.setCellWidget(row, 3, apply_combo)
+
+    def _remove_selected(self) -> None:
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self._table.removeRow(row)
+
+    # -- accept / validate --------------------------------------------------
+
+    def _on_accept(self) -> None:
+        variables: list[dict] = []
+        has_error = False
+        for row in range(self._table.rowCount()):
+            name_item = self._table.item(row, 0)
+            flag_item = self._table.item(row, 1)
+            name = name_item.text().strip() if name_item else ""
+            flag = flag_item.text().strip() if flag_item else ""
+            if not name or not flag:
+                has_error = True
+                if name_item and not name:
+                    name_item.setBackground(QColor("#553333"))
+                if flag_item and not flag:
+                    flag_item.setBackground(QColor("#553333"))
+                continue
+            # Clear any previous error highlight
+            if name_item:
+                name_item.setBackground(QColor(0, 0, 0, 0))
+            if flag_item:
+                flag_item.setBackground(QColor(0, 0, 0, 0))
+
+            type_combo = self._table.cellWidget(row, 2)
+            type_hint = type_combo.currentText() if type_combo else "string"
+
+            apply_combo = self._table.cellWidget(row, 3)
+            apply_text = apply_combo.currentText().strip() if apply_combo else "All"
+            if apply_text.lower() == "all":
+                apply_to: str | list = "all"
+            else:
+                parts = [p.strip() for p in apply_text.split(",") if p.strip()]
+                try:
+                    apply_to = [int(p) for p in parts]
+                except ValueError:
+                    apply_to = "all"
+
+            variables.append({
+                "name": name,
+                "flag": flag,
+                "type_hint": type_hint,
+                "apply_to": apply_to,
+            })
+
+        if has_error:
+            return
+        self._result_variables = variables
+        self.accept()
+
+    # -- public API ---------------------------------------------------------
+
+    def get_variables(self) -> list[dict]:
+        """Return the list of variable definitions."""
+        return list(self._result_variables)
+
+
+# ---------------------------------------------------------------------------
 # Cascade sidebar dock widget
 # ---------------------------------------------------------------------------
 
@@ -3803,6 +4232,7 @@ CHAIN_IDLE = "idle"
 CHAIN_LOADING = "loading"       # Loading tool + preset into form
 CHAIN_RUNNING = "running"       # QProcess is executing
 CHAIN_FINISHED = "finished"     # Chain completed all steps
+CHAIN_PAUSED = "paused"         # Chain paused between steps
 
 
 class CascadeSidebar(QDockWidget):
@@ -3819,6 +4249,7 @@ class CascadeSidebar(QDockWidget):
         self._slot_widgets: list[dict] = []
         self._slot_buttons: list[QPushButton] = []
         self._arrow_buttons: list[QPushButton] = []
+        self._cascade_variables: list[dict] = []
 
         # Content widget
         content = QWidget()
@@ -3835,12 +4266,17 @@ class CascadeSidebar(QDockWidget):
         self._menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu_btn.setAutoRaise(True)
         self._menu_btn.setFixedSize(24, 24)
+        self._menu_btn.setStyleSheet(
+            "QToolButton::menu-indicator { image: none; width: 0; height: 0; }"
+        )
         panel_menu = QMenu(self._menu_btn)
         panel_menu.addAction("Save Cascade...", self._on_save_cascade_file)
         panel_menu.addAction("Cascade List...", self._on_load_cascade_list)
         panel_menu.addSeparator()
         panel_menu.addAction("Import Cascade...", self._on_import_cascade)
         panel_menu.addAction("Export Cascade...", self._on_export_cascade)
+        panel_menu.addSeparator()
+        panel_menu.addAction("Edit Variables...", self._on_edit_variables)
         self._menu_btn.setMenu(panel_menu)
         menu_row.addWidget(self._menu_btn)
 
@@ -3875,20 +4311,36 @@ class CascadeSidebar(QDockWidget):
         self._loop_enabled = False
         self.loop_btn = QPushButton("Loop")
         self.loop_btn.setFixedWidth(65)
-        self.loop_btn.setToolTip("Click to toggle. Loop: repeat chain until stopped.")
+        self.loop_btn.setToolTip("<p>Click to toggle. Loop: repeat chain until stopped.</p>")
         self.loop_btn.clicked.connect(self._toggle_loop)
+        self._stop_on_error = False
+        self.stop_on_error_btn = QPushButton("Err\u2717")
+        self.stop_on_error_btn.setFixedWidth(65)
+        self.stop_on_error_btn.setToolTip(
+            "<p>Stop on error: halt cascade if any step exits with non-zero code."
+            " Note: timed-out steps count as failures.</p>"
+        )
+        self.stop_on_error_btn.clicked.connect(self._toggle_stop_on_error)
         self.run_chain_btn = QPushButton("Run")
+        self.pause_chain_btn = QPushButton("Pause")
+        self.pause_chain_btn.setToolTip(
+            "<p>Pause cascade after the current step completes. Click again to resume.</p>"
+        )
         self.stop_chain_btn = QPushButton("Stop")
         self.clear_all_btn = QPushButton("Clear")
         self.stop_chain_btn.setEnabled(False)
+        self.pause_chain_btn.setEnabled(False)
         self.run_chain_btn.clicked.connect(self._on_run_chain)
+        self.pause_chain_btn.clicked.connect(self._on_pause_chain)
         self.stop_chain_btn.clicked.connect(self._on_stop_chain)
         self.clear_all_btn.clicked.connect(self._on_clear_all_slots)
 
         chain_row1.addWidget(self.run_chain_btn, 1)
+        chain_row1.addWidget(self.pause_chain_btn, 1)
         chain_row1.addWidget(self.stop_chain_btn, 1)
 
         chain_row2.addWidget(self.loop_btn)
+        chain_row2.addWidget(self.stop_on_error_btn)
         chain_row2.addWidget(self.clear_all_btn, 1)
 
         chain_controls = QVBoxLayout()
@@ -3896,6 +4348,14 @@ class CascadeSidebar(QDockWidget):
         chain_controls.addLayout(chain_row1)
         chain_controls.addLayout(chain_row2)
         content_layout.addLayout(chain_controls)
+
+        self._loaded_label = QLabel("")
+        self._loaded_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loaded_label.setStyleSheet(
+            "color: gray; font-size: 10px; padding: 2px;"
+        )
+        self._loaded_label.setWordWrap(True)
+        content_layout.addWidget(self._loaded_label)
 
         content.setFixedWidth(220)
         self.setWidget(content)
@@ -3906,12 +4366,27 @@ class CascadeSidebar(QDockWidget):
         self._chain_current = -1
         self._chain_loop_count = 0
         self._stored_original_on_finished = None
+        self._chain_variable_values: dict = {}
+        self._chain_paused = False
+        self._current_cascade_name: str | None = None
 
         # Load saved state (populates self._slots and builds widgets)
         self._load_cascade()
         self._refresh_button_labels()
         self._update_add_button_state()
         self._update_remove_button_state()
+        self._update_loaded_label()
+
+    # ------------------------------------------------------------------
+    # Cascade name label
+    # ------------------------------------------------------------------
+
+    def _update_loaded_label(self) -> None:
+        """Refresh the 'Loaded: <name>' label below the cascade controls."""
+        if self._current_cascade_name:
+            self._loaded_label.setText(f"Loaded: {self._current_cascade_name}")
+        else:
+            self._loaded_label.setText("Loaded: (unsaved)")
 
     # ------------------------------------------------------------------
     # Slot widget management
@@ -4069,6 +4544,22 @@ class CascadeSidebar(QDockWidget):
             self.loop_btn.setStyleSheet("")
             self.loop_btn.setText("Loop")
 
+    def _toggle_stop_on_error(self) -> None:
+        """Toggle stop-on-error mode on/off."""
+        self._stop_on_error = not self._stop_on_error
+        self._style_stop_on_error_btn()
+        self._save_cascade()
+
+    def _style_stop_on_error_btn(self) -> None:
+        """Update stop-on-error button appearance based on current state."""
+        if self._stop_on_error:
+            color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
+            self.stop_on_error_btn.setStyleSheet(f"border: 2px solid {color};")
+            self.stop_on_error_btn.setText("Err\u2713")
+        else:
+            self.stop_on_error_btn.setStyleSheet("")
+            self.stop_on_error_btn.setText("Err\u2717")
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
@@ -4085,6 +4576,9 @@ class CascadeSidebar(QDockWidget):
             })
         settings.setValue("cascade/slots", json.dumps(data))
         settings.setValue("cascade/loop_mode", 1 if self._loop_enabled else 0)
+        settings.setValue("cascade/stop_on_error", 1 if self._stop_on_error else 0)
+        settings.setValue("cascade/variables", json.dumps(self._cascade_variables))
+        settings.setValue("cascade/current_name", self._current_cascade_name or "")
 
     def _load_cascade(self) -> None:
         """Restore slot data from QSettings, migrating from old keys if needed."""
@@ -4120,8 +4614,11 @@ class CascadeSidebar(QDockWidget):
             loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0}
                             for _ in range(CASCADE_INITIAL_SLOTS)]
 
-        # Tear down any existing widgets
+        # Tear down any existing widgets (hide + detach synchronously to
+        # prevent ghost widgets on Linux where deleteLater timing differs)
         for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
             info["widget"].deleteLater()
         self._slot_widgets.clear()
         self._slot_buttons.clear()
@@ -4134,6 +4631,25 @@ class CascadeSidebar(QDockWidget):
         # Restore loop mode
         self._loop_enabled = int(self._main_window.settings.value("cascade/loop_mode", 0) or 0) == 1
         self._style_loop_btn()
+
+        # Restore stop-on-error mode
+        self._stop_on_error = int(self._main_window.settings.value("cascade/stop_on_error", 0) or 0) == 1
+        self._style_stop_on_error_btn()
+
+        # Restore cascade variables
+        raw_vars = settings.value("cascade/variables")
+        if raw_vars:
+            try:
+                loaded_vars = json.loads(raw_vars)
+                if isinstance(loaded_vars, list):
+                    self._cascade_variables = loaded_vars
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Restore cascade name
+        name = settings.value("cascade/current_name", "") or ""
+        self._current_cascade_name = name if name else None
+        self._update_loaded_label()
 
     # ------------------------------------------------------------------
     # Cascade file save/load/import/export
@@ -4167,7 +4683,9 @@ class CascadeSidebar(QDockWidget):
             "name": name,
             "description": description,
             "loop_mode": self._loop_enabled,
+            "stop_on_error": self._stop_on_error,
             "steps": steps,
+            "variables": list(self._cascade_variables),
         }
 
     def _import_cascade_data(self, data: dict) -> None:
@@ -4183,8 +4701,11 @@ class CascadeSidebar(QDockWidget):
 
         base = Path(__file__).parent
 
-        # Tear down existing slot widgets (same as _on_clear_all_slots sans confirmation)
+        # Tear down existing slot widgets (hide + detach synchronously to
+        # prevent ghost widgets on Linux where deleteLater timing differs)
         for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
             info["widget"].deleteLater()
         self._slot_widgets.clear()
         self._slot_buttons.clear()
@@ -4211,10 +4732,28 @@ class CascadeSidebar(QDockWidget):
 
         self._loop_enabled = bool(data.get("loop_mode", False))
         self._style_loop_btn()
+
+        self._stop_on_error = bool(data.get("stop_on_error", False))
+        self._style_stop_on_error_btn()
+
+        # Load variables, validating each entry has required keys
+        variables = []
+        for var in data.get("variables", []):
+            if not isinstance(var, dict):
+                continue
+            if "name" not in var or "flag" not in var:
+                raise ValueError(
+                    "Each cascade variable must have 'name' and 'flag' keys"
+                )
+            variables.append(var)
+        self._cascade_variables = variables
+
+        self._current_cascade_name = data.get("name") or None
         self._save_cascade()
         self._refresh_button_labels()
         self._update_add_button_state()
         self._update_remove_button_state()
+        self._update_loaded_label()
 
     def _on_save_cascade_file(self) -> None:
         """Save the current cascade slots to a named JSON file."""
@@ -4269,6 +4808,8 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage(f"Error saving cascade: {e}")
             return
         self._main_window.statusBar().showMessage(f"Cascade saved: {name}")
+        self._current_cascade_name = name
+        self._update_loaded_label()
 
     def _on_load_cascade_list(self) -> None:
         """Show the cascade list dialog and load the selected cascade."""
@@ -4339,6 +4880,18 @@ class CascadeSidebar(QDockWidget):
             return
         self._main_window.statusBar().showMessage(f"Cascade exported: {src.stem}")
 
+    def _on_edit_variables(self) -> None:
+        """Open the variable definition editor dialog."""
+        dlg = CascadeVariableDefinitionDialog(self._cascade_variables, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._cascade_variables = dlg.get_variables()
+        self._save_cascade()
+        count = len(self._cascade_variables)
+        self._main_window.statusBar().showMessage(
+            f"Cascade variables updated ({count} defined)"
+        )
+
     def _on_import_cascade(self) -> None:
         """Import a cascade JSON file into the cascades directory."""
         path, _ = QFileDialog.getOpenFileName(
@@ -4393,7 +4946,7 @@ class CascadeSidebar(QDockWidget):
     # ------------------------------------------------------------------
 
     def _refresh_button_labels(self) -> None:
-        """Update button text to reflect current slot assignments."""
+        """Update button text and tooltips to reflect current slot assignments."""
         for i, slot in enumerate(self._slots):
             info = self._slot_widgets[i]
             btn = info["main_btn"]
@@ -4401,10 +4954,12 @@ class CascadeSidebar(QDockWidget):
             remove = info["remove_btn"]
             if slot["tool_path"]:
                 tool_name = Path(slot["tool_path"]).stem
-                if slot.get("preset_path"):
-                    preset_name = Path(slot["preset_path"]).stem
-                    label = f"{tool_name} \u2014 {preset_name}"
+                preset_path = slot.get("preset_path")
+                if preset_path:
+                    preset_name = Path(preset_path).stem
+                    label = preset_name
                 else:
+                    preset_name = None
                     label = tool_name
                 fm = btn.fontMetrics()
                 # Available width for text: 220 (content) - 12 (margins) - 16 (num) - 24 (arrow)
@@ -4412,9 +4967,35 @@ class CascadeSidebar(QDockWidget):
                 max_text_width = 220 - 100
                 elided = fm.elidedText(label, Qt.TextElideMode.ElideRight, max_text_width)
                 btn.setText(elided)
+                # Build tooltip
+                delay = slot.get("delay", 0)
+                tip_lines = [f"Tool: {tool_name}"]
+                tip_lines.append(f"Preset: {preset_name if preset_name else '(none)'}")
+                if preset_path:
+                    # Cache _description in slot dict; invalidate when preset_path changes
+                    cached_path = slot.get("_cached_desc_path")
+                    if cached_path != preset_path:
+                        slot.pop("_cached_description", None)
+                        slot["_cached_desc_path"] = preset_path
+                    if "_cached_description" not in slot:
+                        desc = None
+                        try:
+                            with open(preset_path, "r", encoding="utf-8") as f:
+                                pdata = json.load(f)
+                            desc = pdata.get("_description", None)
+                        except Exception:
+                            pass
+                        slot["_cached_description"] = desc
+                    desc = slot["_cached_description"]
+                    if desc:
+                        tip_lines.append(f"Description: {desc}")
+                    tip_lines.append(f"Path: {preset_path}")
+                tip_lines.append(f"Delay: {delay}s")
+                btn.setToolTip("\n".join(tip_lines))
                 self._style_slot_button(btn, empty=False, arrow_btn=arrow, remove_btn=remove)
             else:
                 btn.setText("(empty)")
+                btn.setToolTip("Empty slot \u2014 right-click to assign")
                 self._style_slot_button(btn, empty=True, arrow_btn=arrow, remove_btn=remove)
 
     def _style_slot_button(self, btn: QPushButton, empty: bool,
@@ -4466,10 +5047,11 @@ class CascadeSidebar(QDockWidget):
         if preset_path and Path(preset_path).exists():
             try:
                 preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
-                self._main_window.form.apply_values(preset_data)
-                self._main_window.statusBar().showMessage(
-                    f"Loaded cascade step: {Path(preset_path).stem}"
-                )
+                had_pw = self._main_window.form.apply_values(preset_data)
+                msg = f"Loaded cascade step: {Path(preset_path).stem}"
+                if had_pw:
+                    msg += " \u2014 password fields were not restored"
+                self._main_window.statusBar().showMessage(msg)
             except (json.JSONDecodeError, OSError):
                 self._main_window.statusBar().showMessage("Preset file could not be loaded")
         elif preset_path:
@@ -4498,8 +5080,11 @@ class CascadeSidebar(QDockWidget):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        # Remove all slot widgets
+        # Remove all slot widgets (hide + detach synchronously to prevent
+        # ghost widgets on Linux where deleteLater timing differs)
         for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
             info["widget"].deleteLater()
         self._slot_widgets.clear()
         self._slot_buttons.clear()
@@ -4512,7 +5097,9 @@ class CascadeSidebar(QDockWidget):
         self._refresh_button_labels()
         self._update_add_button_state()
         self._update_remove_button_state()
+        self._current_cascade_name = None
         self._save_cascade()
+        self._update_loaded_label()
         self._main_window.statusBar().showMessage("All cascade slots cleared")
 
     # ------------------------------------------------------------------
@@ -4530,6 +5117,13 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage("No valid cascade steps to run")
             return
 
+        # Prompt for cascade variable values if any are defined
+        if self._cascade_variables:
+            dlg = CascadeVariableDialog(self._cascade_variables, parent=self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            self._chain_variable_values = dlg.get_values()
+
         self._chain_queue = queue
         self._chain_current = -1
         self._chain_loop_count = 0
@@ -4537,10 +5131,13 @@ class CascadeSidebar(QDockWidget):
 
         # Disable UI during chain
         self.run_chain_btn.setEnabled(False)
-        self.run_chain_btn.setText("Running...")
+        self.run_chain_btn.setText("Run...")
         self.stop_chain_btn.setEnabled(True)
+        self.pause_chain_btn.setEnabled(True)
+        self.pause_chain_btn.setText("Pause")
         self.clear_all_btn.setEnabled(False)
         self.loop_btn.setEnabled(False)
+        self.stop_on_error_btn.setEnabled(False)
         self.add_step_btn.setEnabled(False)
         for info in self._slot_widgets:
             info["main_btn"].setEnabled(False)
@@ -4556,6 +5153,8 @@ class CascadeSidebar(QDockWidget):
 
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
+        if self._chain_state == CHAIN_IDLE:
+            return
         self._chain_current += 1
 
         if self._chain_current >= len(self._chain_queue):
@@ -4604,6 +5203,20 @@ class CascadeSidebar(QDockWidget):
         if hasattr(self._main_window, '_clear_recovery_file'):
             self._main_window._clear_recovery_file()
 
+        # Snapshot in-progress form values if this slot uses the same tool
+        # currently loaded — preserves required fields the user just typed.
+        snapshot = None
+        try:
+            current_path = self._main_window.tool_path
+            if (
+                current_path
+                and self._main_window.form is not None
+                and Path(current_path).resolve() == Path(tool_path).resolve()
+            ):
+                snapshot = self._main_window.form.serialize_values()
+        except Exception:
+            snapshot = None
+
         # Load tool
         try:
             self._main_window._load_tool_path(tool_path)
@@ -4620,10 +5233,35 @@ class CascadeSidebar(QDockWidget):
         if preset_path and Path(preset_path).exists():
             try:
                 preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
+                # Return value (had_passwords) intentionally unused — chain runs
+                # are automated and cannot prompt for password re-entry.
                 self._main_window.form.apply_values(preset_data)
             except (json.JSONDecodeError, OSError) as e:
                 self._chain_cleanup(f"Cascade failed loading preset: {e}")
                 return
+
+        # Overlay snapshot AFTER preset so user edits win.
+        if snapshot is not None and self._main_window.form is not None:
+            try:
+                self._main_window.form.apply_values(snapshot)
+            except Exception:
+                pass
+
+        # Inject cascade variable values into the form
+        if self._chain_variable_values:
+            form = self._main_window.form
+            for var in self._cascade_variables:
+                apply_to = var.get("apply_to", "all")
+                if apply_to == "all" or (isinstance(apply_to, list) and slot_index in apply_to):
+                    flag = var.get("flag", "")
+                    if flag in self._chain_variable_values:
+                        value = self._chain_variable_values[flag]
+                        for key in form.fields:
+                            scope, flag_name = key
+                            pk = flag_name if scope == form.GLOBAL else f"{scope}:{flag_name}"
+                            if pk == flag:
+                                form._set_field_value(key, value)
+                                break
 
         # Small delay to let the form render before executing
         QTimer.singleShot(150, self._chain_execute_current)
@@ -4650,6 +5288,24 @@ class CascadeSidebar(QDockWidget):
             # Re-disable run_btn (original handler re-enables it)
             self._main_window.run_btn.setEnabled(False)
             if self._chain_state == CHAIN_RUNNING:
+                if self._stop_on_error and exit_code != 0:
+                    slot_idx = self._chain_queue[self._chain_current]
+                    step_num = self._chain_current + 1
+                    tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
+                    self._chain_cleanup(
+                        f"Cascade stopped: step {step_num} ({tool_name}) "
+                        f"exited with code {exit_code}"
+                    )
+                    return
+                if self._chain_paused:
+                    self._chain_state = CHAIN_PAUSED
+                    self.pause_chain_btn.setEnabled(True)
+                    self.pause_chain_btn.setText("Resume")
+                    next_step = self._chain_current + 2  # 1-indexed display
+                    self._main_window.statusBar().showMessage(
+                        f"Cascade paused before step {next_step}. Click Resume to continue."
+                    )
+                    return
                 self._chain_state = CHAIN_LOADING
                 slot_idx = self._chain_queue[self._chain_current]
                 delay_secs = self._slots[slot_idx].get("delay", 0)
@@ -4662,7 +5318,8 @@ class CascadeSidebar(QDockWidget):
                 QTimer.singleShot(delay_ms, self._chain_advance)
 
         self._main_window._on_finished = _chain_on_finished
-        self._stored_original_on_finished = original_on_finished
+        if self._stored_original_on_finished is None:
+            self._stored_original_on_finished = original_on_finished
 
         # Start the command
         self._main_window._on_run_stop()
@@ -4672,6 +5329,23 @@ class CascadeSidebar(QDockWidget):
         # Detect this and clean up.
         if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
             self._chain_cleanup("Cascade stopped: process failed to start")
+
+    def _on_pause_chain(self) -> None:
+        """Pause or resume the cascade chain."""
+        if self._chain_state == CHAIN_RUNNING:
+            # Set the flag — actual pause happens when current step finishes
+            self._chain_paused = True
+            self.pause_chain_btn.setEnabled(False)  # Re-enabled when state becomes PAUSED
+            self._main_window.statusBar().showMessage(
+                "Cascade will pause after current step completes..."
+            )
+        elif self._chain_state == CHAIN_PAUSED:
+            # Resume
+            self._chain_paused = False
+            self._chain_state = CHAIN_LOADING
+            self.pause_chain_btn.setText("Pause")
+            self._main_window.statusBar().showMessage("Cascade resumed")
+            QTimer.singleShot(100, self._chain_advance)
 
     def _on_stop_chain(self) -> None:
         """Cancel the chain and stop the current process."""
@@ -4685,8 +5359,10 @@ class CascadeSidebar(QDockWidget):
     def _chain_cleanup(self, message: str) -> None:
         """Reset chain state and re-enable UI."""
         self._chain_state = CHAIN_IDLE
+        self._chain_paused = False
         self._chain_queue = []
         self._chain_current = -1
+        self._chain_variable_values = {}
         self._main_window._chain_preserve_output = False
         self._main_window._autosave_timer.stop()
 
@@ -4698,9 +5374,12 @@ class CascadeSidebar(QDockWidget):
         # Re-enable UI
         self.run_chain_btn.setEnabled(True)
         self.run_chain_btn.setText("Run")
+        self.pause_chain_btn.setEnabled(False)
+        self.pause_chain_btn.setText("Pause")
         self.stop_chain_btn.setEnabled(False)
         self.clear_all_btn.setEnabled(True)
         self.loop_btn.setEnabled(True)
+        self.stop_on_error_btn.setEnabled(True)
         self.add_step_btn.setEnabled(len(self._slots) < CASCADE_MAX_SLOTS)
         for info in self._slot_widgets:
             info["main_btn"].setEnabled(True)
@@ -5460,9 +6139,14 @@ class MainWindow(QMainWindow):
             "Would you like to restore it?",
         )
         if btn == QMessageBox.StandardButton.Yes:
-            self.form.apply_values(recovery_data)
+            had_pw = self.form.apply_values(recovery_data)
             self._default_form_snapshot = self.form.serialize_values()
-            self.statusBar().showMessage("Form restored from auto-save")
+            if had_pw:
+                self.statusBar().showMessage(
+                    "Recovery file loaded — password fields were not saved and must be re-entered."
+                )
+            else:
+                self.statusBar().showMessage("Form restored from auto-save")
             self._autosave_form()
         else:
             self.statusBar().showMessage("Recovery discarded")
@@ -5479,15 +6163,12 @@ class MainWindow(QMainWindow):
         # Stop timers FIRST to prevent them from recreating files during teardown
         self._autosave_timer.stop()
         self._elapsed_timer.stop()
-        self._force_kill_timer.stop()
         self._clear_recovery_file()
         self.settings.setValue("window/geometry", self.saveGeometry())
         if self.tool_path:
             self.settings.setValue("session/last_tool", self.tool_path)
         # Kill any running process
-        self._stop_process()
-        if self.process:
-            self.process.waitForFinished(3000)
+        self._teardown_process()
         event.accept()
 
     # ------------------------------------------------------------------
@@ -5638,13 +6319,7 @@ class MainWindow(QMainWindow):
         """Tear down old form widgets and build fresh ones for self.data."""
         # Kill any running process
         self._elapsed_timer.stop()
-        self._run_start_time = None
-        self._stop_process()
-        if self.process:
-            self.process.waitForFinished(3000)
-        self.process = None
-        self._killed = False
-        self._timed_out = False
+        self._teardown_process()
 
         # Preserve output content during chain execution
         _preserved_output = None
@@ -5869,6 +6544,7 @@ class MainWindow(QMainWindow):
 
         # Output batching buffer — collect readyRead data and flush on a timer
         self._output_buffer: list[tuple[str, str]] = []
+        self._output_truncated = False
         self._flush_timer = QTimer(self)
         self._flush_timer.setInterval(OUTPUT_FLUSH_MS)
         self._flush_timer.timeout.connect(self._flush_output)
@@ -5898,10 +6574,7 @@ class MainWindow(QMainWindow):
     def _on_back(self) -> None:
         """Return to the tool picker, stopping any running process first."""
         # Kill any running process before going back
-        self._stop_process()
-        if self.process:
-            self.process.waitForFinished(3000)
-        self.process = None
+        self._teardown_process()
         self._show_picker()
 
     # ------------------------------------------------------------------
@@ -6023,7 +6696,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.form.apply_values(preset)
+        had_pw = self.form.apply_values(preset)
         self._default_form_snapshot = self.form.serialize_values()
 
         # Check schema hash for version mismatch
@@ -6032,6 +6705,10 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Preset loaded: {name} \u2014 Note: This preset was saved with a different "
                 "schema version. Some fields may not have loaded."
+            )
+        elif had_pw:
+            self.statusBar().showMessage(
+                f"Preset loaded: {name} \u2014 password fields contain sensitive data and were not restored."
             )
         else:
             self.statusBar().showMessage(f"Preset loaded: {name}")
@@ -6174,7 +6851,8 @@ class MainWindow(QMainWindow):
             cmd = elev_cmd
             display = _format_display(elev_cmd)
         sub = self.form.sub_combo.currentData() if self.form.sub_combo else None
-        html = _colored_preview_html(cmd, extra_count, subcommand=sub)
+        masked_cmd = self.form._mask_passwords_for_display(cmd)
+        html = _colored_preview_html(masked_cmd, extra_count, subcommand=sub)
         self.preview.setHtml(html)
         process_running = (
             self.process is not None
@@ -6192,6 +6870,8 @@ class MainWindow(QMainWindow):
             # Do NOT start _status_timer — this message must persist until fields are filled
             self._status_timer.stop()
             # Keep Stop button clickable while a process is running
+            self.run_btn.setEnabled(process_running)
+        elif not self.form.extra_flags_valid():
             self.run_btn.setEnabled(process_running)
         else:
             self.status.setText("")
@@ -6299,10 +6979,50 @@ class MainWindow(QMainWindow):
             pid = self.process.processId()
             if pid > 0:
                 try:
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                    os.kill(pid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError, OSError):
                     pass
         self.process.kill()
+
+    def _teardown_process(self) -> None:
+        """Synchronous full teardown of the current QProcess.
+
+        Used by _build_form_view, _on_back, and closeEvent — call sites that
+        must guarantee the process is dead before proceeding.  Unlike
+        _stop_process (which relies on the force-kill timer for escalation),
+        this method disconnects all signals, terminates, waits, and kills
+        inline so no orphan QProcess can later corrupt UI state.
+        """
+        if self.process is None:
+            return
+        # Stop the force-kill timer — we handle escalation ourselves.
+        self._force_kill_timer.stop()
+        # Disconnect all signals so the orphan can never call back.
+        for sig in (
+            self.process.finished,
+            self.process.errorOccurred,
+            self.process.readyReadStandardOutput,
+            self.process.readyReadStandardError,
+        ):
+            try:
+                sig.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        # Terminate → wait → kill → wait.
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            self.process.terminate()
+            if not self.process.waitForFinished(2000):
+                self.process.kill()
+                self.process.waitForFinished(1000)
+        # Remove from Qt parent-child tree so it cannot linger as a child
+        # of MainWindow, then schedule C++ destruction.
+        self.process.setParent(None)
+        self.process.deleteLater()
+        # Reset state (no UI updates — callers handle that).
+        self.process = None
+        self._killed = False
+        self._timed_out = False
+        self._run_start_time = None
 
     def _on_timeout_fired(self) -> None:
         """Kill the running process because the timeout expired."""
@@ -6334,6 +7054,14 @@ class MainWindow(QMainWindow):
         if missing:
             return
 
+        # Block execution when extra flags have unmatched quotes
+        if not self.form.extra_flags_valid():
+            self._show_status(
+                "Fix extra flags before running \u2014 unmatched quotes detected",
+                DARK_COLORS["error"] if _dark_mode else "red",
+            )
+            return
+
         cmd, display = self.form.build_command()
         if not cmd:
             return
@@ -6360,8 +7088,9 @@ class MainWindow(QMainWindow):
         self.process.finished.connect(self._on_finished)
         self.process.errorOccurred.connect(self._on_error)
 
-        # Show what we're running
-        self._append_output(f"$ {display}\n", COLOR_CMD)
+        # Show what we're running (mask passwords in display output)
+        masked_display = _format_display(self.form._mask_passwords_for_display(cmd))
+        self._append_output(f"$ {masked_display}\n", COLOR_CMD)
         self._update_output_search_visibility()
 
         # Capture history data at run start (before user can change the form)
@@ -6381,13 +7110,29 @@ class MainWindow(QMainWindow):
             self._timeout_timer.start(timeout_secs * 1000)
         self.process.start()
 
+    def _append_to_buffer(self, text: str, color: str) -> None:
+        """Append to _output_buffer with soft byte-cap enforcement."""
+        self._output_buffer.append((text, color))
+        total = sum(len(t) for t, _ in self._output_buffer)
+        if total > OUTPUT_BUFFER_MAX_BYTES:
+            if not self._output_truncated:
+                self._output_buffer.insert(
+                    0,
+                    ("[output truncated — buffer cap reached]\n", COLOR_WARN),
+                )
+                self._output_truncated = True
+            # Drop oldest entries (after the sentinel) until under cap
+            while (sum(len(t) for t, _ in self._output_buffer) > OUTPUT_BUFFER_MAX_BYTES
+                   and len(self._output_buffer) > 1):
+                self._output_buffer.pop(1)
+
     def _on_stdout_ready(self) -> None:
         """Buffer available stdout data for the next flush cycle."""
         if not self.process:
             return
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._output_buffer.append((text, OUTPUT_FG))
+        self._append_to_buffer(text, OUTPUT_FG)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
 
@@ -6397,7 +7142,7 @@ class MainWindow(QMainWindow):
             return
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._output_buffer.append((text, COLOR_WARN))
+        self._append_to_buffer(text, COLOR_WARN)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
 
@@ -6541,9 +7286,15 @@ class MainWindow(QMainWindow):
             return
         dlg = HistoryDialog(self.data["tool"], history, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_entry is not None:
-            self.form.apply_values(dlg.selected_entry["preset_data"])
+            had_pw = self.form.apply_values(dlg.selected_entry["preset_data"])
             self._default_form_snapshot = self.form.serialize_values()
-            self._show_status("Form restored from history")
+            if had_pw:
+                self._show_status(
+                    "Form restored — password fields contain sensitive data and were not restored.",
+                    DARK_COLORS["success"] if _dark_mode else "green",
+                )
+            else:
+                self._show_status("Form restored from history")
 
     def _append_output(self, text: str, color: str) -> None:
         """Append text to the output panel in the given hex color string."""
@@ -6558,6 +7309,8 @@ class MainWindow(QMainWindow):
     def _clear_output(self) -> None:
         """Clear all text from the output panel."""
         self.output.clear()
+        self._output_buffer.clear()
+        self._output_truncated = False
         self._update_output_search_visibility()
 
     def _save_output(self, path: str | None = None) -> None:
@@ -6612,15 +7365,15 @@ def print_prompt() -> None:
 
 
 def print_preset_prompt() -> None:
-    """Print the LLM preset-generation prompt from PROMPT_PRESET.txt to stdout."""
-    prompt_path = Path(__file__).parent / "PROMPT_PRESET.txt"
+    """Print the LLM preset-generation prompt from PRESET_PROMPT.txt to stdout."""
+    prompt_path = Path(__file__).parent / "PRESET_PROMPT.txt"
     if not prompt_path.exists():
-        print("Error: PROMPT_PRESET.txt not found alongside scaffold.py", file=sys.stderr)
+        print("Error: PRESET_PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
         sys.exit(1)
     try:
         text = prompt_path.read_text(encoding="utf-8")
     except OSError as e:
-        print(f"Error reading PROMPT_PRESET.txt: {e}", file=sys.stderr)
+        print(f"Error reading PRESET_PROMPT.txt: {e}", file=sys.stderr)
         sys.exit(1)
     try:
         print(text)
