@@ -12,15 +12,13 @@ Cascade variable editor rework, smarter output panel sizing, keyboard shortcuts,
 - **Cascade Guide** — new Help menu entry with a plain-language walkthrough of cascade features (slots, variables, loop mode, pause/resume, stop-on-error).
 - **"None" scope for cascade variables** — variables can now be scoped to "none", disabling injection entirely while keeping the variable defined for later use.
 
-### Changed
+### Fixed
 
+- **Cascade import rejects invalid apply_to values** — non-string, non-list values now fall back to "all" instead of crashing or being silently accepted.
 - **Cascade variable "Apply To" selector** — replaced the free-text combo box with a checkbox dropdown listing all cascade slots, preventing typos and invalid slot references.
 - **Variable editor column layout** — columns are now resizable with the Flag column bounded between 80–280 px; the Apply To column stretches to fill remaining space.
 - **Output panel drag limit** — the drag handle now calculates available height from actual sibling widget sizes instead of a fixed half-window cap, preventing the output panel from overlapping the form.
 
-### Fixed
-
-- **Cascade import rejects invalid apply_to values** — non-string, non-list values now fall back to "all" instead of crashing or being silently accepted.
 
 #### Full suite results
 
