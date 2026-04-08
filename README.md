@@ -620,7 +620,7 @@ To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 
 Most of the code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) with some minor edits from the author — but this was a collaboration, not delegation. The project was designed, directed, tested, and iterated by a human who manually audited every line of code and every command, and made direct edits where needed. This wasn't a one-shot generation.
 
-Scaffold was built the way a real team would build software, just with an AI writing the code instead of a second person:
+Scaffold was built the way a real team would build software, just with an AI writing most of the code instead of a person:
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
@@ -631,7 +631,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-**Methodology: plain-English bug hunting.** Most of the bugs fixed in recent releases were found the same way: write a focused diagnostic prompt in plain English describing what's suspected, run it against the full codebase in a fresh context window, collect real measurements and code traces back, then write a targeted fix prompt grounded in the confirmed findings. No fix prompt is written from assumption. Every non-obvious bug gets a diagnostic pass first. It is slower than guessing, and it ships working code on the first try more often than not.
+**Methodology: plain-English bug hunting.** Most of the bugs fixed in recent releases were found the same way: write a focused diagnostic prompt in plain English describing what's the bug or whats suspected, run it against the full codebase in a fresh context window, collect real measurements and code traces back, then write a targeted fix prompt grounded in the confirmed findings. No fix prompt is written from assumption. Every non-obvious bug gets a diagnostic pass first. It is slower than guessing, and it ships working code on the first try more often than not.
 
 **Context switching and iteration.** Each Claude Code prompt runs in its own fresh context window. Large feature work is split across multiple windows by risk and theme — tests first, data layer second, small code changes third, UI last. Prompts include explicit "what NOT to do" guardrails and bootstrap context so the next window can orient itself from the files. This release rolled in 13 user-visible bugfixes across the cascade system, preset handling, and UI, each one discovered, diagnosed, and fixed in its own pass.
 
