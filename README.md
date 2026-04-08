@@ -2,25 +2,27 @@
 
 **Stop memorizing flags. Start clicking them.**
 
-Scaffold turns command-line tools into native desktop GUIs. Any tool - public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done. It is secure by design and is written in 100% Python 3. Scaffold has a strict global NO SHELL policy with a 100+ test security suite verifying this. (The security test suite is also available for the user to run at any time!) Scaffold strictly uses PySide6's QProcess to pass flags and arguments as literal strings directly to the target binary, making it immune to shell injection, and leaves no shell history!
+Scaffold turns command-line tools into native desktop GUIs. Any tool - public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done. It is secure by design and is written in 100% Python 3. Scaffold has a strict global NO SHELL policy with a dedicated security test suite (158 assertions) verifying this. (The security test suite is also available for the user to run at any time!) Scaffold strictly uses PySide6's QProcess to pass flags and arguments as literal strings directly to the target binary, making it immune to shell injection, and leaves no shell history!
 
 This works with *any CLI tool* — not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags that nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
 Presets are what really make this powerful though. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use.
 
-Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview — all from a single schema that describes your tool's arguments. No custom UI code needed. Hand a tool's man page or official documentation to an LLM with the bundled `PROMPT.txt` and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable. Simple. Powerful. Secure by design.
+Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview — all from a single schema that describes your tool's arguments. No custom UI code needed. Hand a tool's man page or official documentation to an LLM with the bundled `SCHEMA_PROMPT.txt` and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable. Simple. Powerful. Secure by design.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![Single File](https://img.shields.io/badge/single%20file-5%2C112%20lines-orange)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
+![Single File](https://img.shields.io/badge/single%20file-7%2C485%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** This is an early-stage hobby project. Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. While it has an automated test suite (1,243 assertions across 6 suites), it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (1,799 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+>
+> **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line and is handy for edge cases or flags the schema doesn't model perfectly.
 
 ---
 
@@ -32,7 +34,7 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **pip** — should come with Python; update it with `pip install --upgrade pip`
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 15 tools (nmap, curl, git, ansible, aircrack-ng, and more) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 18 tools (nmap, curl, git, ansible, docker, aircrack-ng, and more) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 
@@ -68,7 +70,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder (in
 - **Presets** — save, name, reload, and share form configurations
 - **Immune to shell injection** — QProcess with list args, no shell
 - **Typed input constraints** — widgets validate values at entry
-- **LLM-powered schema generation** — paste PROMPT.txt + docs, get a schema
+- **LLM-powered schema generation** — paste SCHEMA_PROMPT.txt + docs, get a schema
 - **Syntax-colored command preview** — live preview with color-coded tokens
 - **Process execution** — run, stop, search output, copy or save results
 - **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
@@ -82,6 +84,8 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder (in
 - **Validation** — regex patterns and required field checking
 - **Drag and drop** — drop a .json schema to load it
 - **Portable mode** — run from USB with local settings
+- **Cascade preset chaining** — chain multiple tool runs with per-step delays, loop mode, and saveable named cascade files. Same secure QProcess pipeline as regular execution
+- **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
 - **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
 - **Single Python file** — one file, one dependency (PySide6), fully offline
 
@@ -120,9 +124,9 @@ Each CLI tool is described by a JSON file placed in the `tools/` folder. Scaffol
 
 ### The Easy Way: Use an LLM
 
-The included `PROMPT.txt` file contains a detailed prompt that teaches any LLM (ChatGPT, Claude, Gemini, etc.) to generate schemas for you:
+The included `SCHEMA_PROMPT.txt` file contains a detailed prompt that teaches any LLM (ChatGPT, Claude, Gemini, etc.) to generate schemas for you:
 
-1. Copy the contents of `PROMPT.txt`
+1. Copy the contents of `SCHEMA_PROMPT.txt`
 2. Paste it into your LLM of choice
 3. Then say: *"Generate a Scaffold schema for [tool name]"* and paste the tool's man page, official documentation, or other detailed reference. `--help` output alone is usually not enough — it provides flag names and brief summaries, but lacks the detail an LLM needs to infer correct types, write meaningful descriptions, populate example values, or identify dependencies between flags. The richer the input documentation, the better the schema. Use `--help` afterward to verify the generated schema covers all available flags
 4. Save the JSON response as `tools/toolname.json`
@@ -418,6 +422,10 @@ The codebase contains no `eval()`, no `exec()`, and no dynamic imports. Schema f
 
 Scaffold makes zero network calls. No telemetry, no update checks, no analytics, no external API dependencies. The application runs entirely offline.
 
+### Verify it yourself
+
+Scaffold ships with a dedicated security test suite (`test_security.py`) that any user can run at any time: static analysis for `shell=True`/`eval`/`exec`/`os.system`/`subprocess.*` patterns, shell metacharacter passthrough verification across every widget type, binary validation hardening, preset and extra-flags injection resistance, path traversal checks, recovery file safety, and direct QProcess contract verification. Run `python test_security.py` to confirm the no-shell claim and the rest of the hardening holds on your machine, with your Python, on your OS. Security here is a structural property of the code, not a promise — and it is testable.
+
 ## Detailed Features
 
 ### Works with any CLI tool
@@ -445,7 +453,7 @@ Every argument passes through a typed widget (checkbox, spinbox, dropdown, file 
 
 ### LLM-powered schema generation
 
-Paste the included `PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON. Complex tools with many flags work best with frontier-level models (Claude Opus, GPT-4, Gemini Pro).
+Paste the included `SCHEMA_PROMPT.txt` into any LLM along with a tool's man page or official documentation, and get a working schema back. Use `--help` output to verify flag coverage. Works with any model that can output JSON. Complex tools with many flags work best with frontier-level models (Claude Opus, GPT-4, Gemini Pro).
 
 ### Syntax-colored command preview
 
@@ -471,13 +479,23 @@ Every executed command is automatically recorded. Browse recent runs per tool vi
 
 Form state is automatically saved 2 seconds after each change. If the app crashes, the next launch offers to restore your work. Unchanged forms are not saved.
 
+### Cascade preset chaining
+
+Chain multiple tool runs into sequential workflows from the cascade sidebar (`Ctrl+G`). Each cascade holds up to 20 numbered slots, each assignable to any loaded tool and an optional preset. Configure per-step delays (0–3600 seconds) to pace the chain, enable loop mode to repeat the full sequence indefinitely, or use stop-on-error mode to halt on the first non-zero exit code. Cascade variables let you define named parameters (with type hints: `string`, `file`, `directory`, `integer`, `float`) that are prompted at run time and injected into form fields across steps — useful for target IPs, output directories, or any value that changes between runs.
+
+Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State (slots, loop mode, stop-on-error, variables, and cascade name) persists across sessions. Cascades run through the same `QProcess` list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees as the rest of the app. Three example cascade files are bundled: an nmap reconnaissance chain, a curl API testing chain, and an aircrack-ng capture-to-analysis chain.
+
+### LLM-powered preset generation
+
+Generate presets from natural language using `--preset-prompt` and `PRESET_PROMPT.txt`, mirroring the existing schema-generation workflow. Run `python scaffold.py --preset-prompt` to print the generation prompt, paste it alongside the target tool's schema into any frontier LLM (Claude, GPT-4, Gemini, etc.), describe the preset you want in plain English, and drop the returned JSON file into `presets/<tool>/`. Reload the tool to see it in the preset picker. This is especially useful for tools with many flags where manually configuring a preset would be tedious — describe the intent and let the LLM figure out the right flag combination.
+
 ### Collapsible display groups
 
 Visually group related arguments into collapsible sections to tame tools with hundreds of flags. Arguments sharing the same `display_group` value are rendered together inside a titled, clickable group box.
 
 ### Field search
 
-Ctrl+F to instantly find any field by name or flag in large forms. The search bar highlights matching fields and scrolls them into view.
+Ctrl+F to instantly find any field by name, flag, or description in large forms. The search bar highlights matching fields and scrolls them into view.
 
 ### Mutual exclusivity and dependencies
 
@@ -497,7 +515,7 @@ Regex patterns on string fields give immediate visual feedback (red border) for 
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
-- **Bundled tool schemas (testing)** — schemas for aircrack-ng, ansible (4 tools), curl, git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, and ping. Some are mostly untested — contributions and bug reports welcome
+- **Bundled tool schemas (testing)** — 18 schemas for aircrack-ng, ansible (4 tools), curl, docker (3 tools), git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, and ping. Some are mostly untested — contributions and bug reports welcome
 
 ## Presets
 
@@ -531,6 +549,7 @@ Presets handle schema changes gracefully:
 | **Ctrl+F** | Focus field search bar (type to find fields by name or flag) |
 | **Ctrl+Shift+F** | Search within output panel (highlights matches, Enter/Shift+Enter to navigate) |
 | **Ctrl+D** | Toggle dark mode |
+| **Ctrl+G** | Toggle cascade panel |
 | **Ctrl+B** | Tool list |
 | **Ctrl+Q** | Quit |
 
@@ -548,6 +567,9 @@ python scaffold.py --validate tools/mytool.json
 
 # Print the LLM prompt for schema generation
 python scaffold.py --prompt
+
+# Print the LLM prompt for preset generation
+python scaffold.py --preset-prompt
 
 # Show version and exit
 python scaffold.py --version
@@ -576,7 +598,7 @@ To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 | `tools/ansible/ansible-vault.json` | ansible-vault | Vault subcommands (encrypt, decrypt, edit, view, rekey) |
 | `tools/curl.json` | curl | HTTP client, string/boolean/file/integer fields |
 | `tools/example.json` | example | **Reference schema** — every Scaffold feature in one file. Copy and modify for your own tools |
-| `tools/ffmpegv2.json` | FFmpeg | 123 arguments, string+examples for codecs/formats, equals separators |
+| `tools/ffmpeg.json` | FFmpeg | 123 arguments, string+examples for codecs/formats, equals separators |
 | `tools/git.json` | git | 4 subcommands, scoped arguments, equals separators |
 | `tools/gobuster.json` | gobuster | 7 subcommands with scoped flags, repeatable headers, file types |
 | `tools/hashcat.json` | hashcat | Positional arg ordering, examples vs enum (-m vs -a), equals separators |
@@ -584,6 +606,9 @@ To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 | `tools/nmap.json` | nmap | 7 widget types, groups, dependencies, validation, repeatable flags |
 | `tools/openclaw.json` | openclaw | AI agent platform, 10+ subcommands, gateway with auth/tailscale options |
 | `tools/ping.json` | ping | Simple tool, mutual exclusivity group (IPv4/IPv6) |
+| `tools/docker_test/docker.json` | docker | Container management, subcommands (run, build, exec, etc.) — mostly untested |
+| `tools/docker_test/docker-buildx.json` | docker buildx | Extended build capabilities with BuildKit — mostly untested |
+| `tools/docker_test/docker-compose.json` | docker compose | Multi-container orchestration, service management — mostly untested |
 
 ## Requirements
 
@@ -599,14 +624,22 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,243 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,799 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
 
 The author has 15 years of professional IT experience and holds certifications in IT support, cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Building this required real architectural thinking, problem decomposition, and knowing when the output was wrong. Claude Code is a powerful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-The project has 1,243 passing test assertions across 6 suites, but should still be considered early-stage software. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+**Methodology: plain-English bug hunting.** Most of the bugs fixed in recent releases were found the same way: write a focused diagnostic prompt in plain English describing what's suspected, run it against the full codebase in a fresh context window, collect real measurements and code traces back, then write a targeted fix prompt grounded in the confirmed findings. No fix prompt is written from assumption. Every non-obvious bug gets a diagnostic pass first. It is slower than guessing, and it ships working code on the first try more often than not.
+
+**Context switching and iteration.** Each Claude Code prompt runs in its own fresh context window. Large feature work is split across multiple windows by risk and theme — tests first, data layer second, small code changes third, UI last. Prompts include explicit "what NOT to do" guardrails and bootstrap context so the next window can orient itself from the files. This release rolled in 13 user-visible bugfixes across the cascade system, preset handling, and UI, each one discovered, diagnosed, and fixed in its own pass.
+
+**Multi-model distillation.** External audits from Copilot, ChatGPT, and MiniMax M2.7 surface candidate findings, which are then fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering. The best fixes in recent releases came from this distillation loop — one model finds the lead, another model sanity-checks it, and Opus decides what actually ships.
+
+**What's new in this release.** v2.8.0 adds cascade preset chaining (the big one — chain tool runs with delays, loops, and saveable named cascade files, all through the same QProcess pipeline as single runs) and LLM-powered preset generation (`--preset-prompt` + `PRESET_PROMPT.txt`, mirroring the existing schema-generation workflow). It also rolls in 13 bugfixes found through the plain-English diagnostic process described above.
+
+The project has 1,799 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 
@@ -628,4 +661,4 @@ This project was built as a hobby by one person and an LLM with a lot of patienc
 
 ## License
 
-MIT — free to use, modify, and distribute. See [LICENSE](LICENSE) for details.
+PolyForm Noncommercial 1.0.0 — free for personal and noncommercial use. For commercial licensing, contact kev@gurutechnology.services. See [LICENSE](LICENSE) for details.

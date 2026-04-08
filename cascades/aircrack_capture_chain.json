@@ -1,0 +1,25 @@
+{
+  "_format": "scaffold_cascade",
+  "name": "Aircrack Capture Chain",
+  "description": "Wireless audit workflow: interface scan, packet capture, then key analysis. Requires a compatible wireless adapter in monitor mode and appropriate authorization for the target network.",
+  "loop_mode": false,
+  "stop_on_error": true,
+  "steps": [
+    {
+      "tool": "tools/aircrack-ng.json",
+      "preset": null,
+      "delay": 5
+    },
+    {
+      "tool": "tools/aircrack-ng.json",
+      "preset": null,
+      "delay": 10
+    },
+    {
+      "tool": "tools/aircrack-ng.json",
+      "preset": null,
+      "delay": 5
+    }
+  ],
+  "variables": []
+}

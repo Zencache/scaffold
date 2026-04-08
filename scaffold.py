@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.7.8"
+__version__ = "2.8.0"
 
 import atexit
 import datetime
@@ -5660,7 +5660,8 @@ class MainWindow(QMainWindow):
             self,
             "About Scaffold",
             f"<b>Scaffold {__version__}</b><br><br>"
-            "Dynamic GUI form generator for CLI tools.<br><br>"
+            "Dynamic GUI form generator for CLI tools.<br>"
+            "License: PolyForm Noncommercial 1.0.0<br><br>"
             "<a href='https://github.com/Zencache/scaffold'>github.com/Zencache/scaffold</a>",
         )
 

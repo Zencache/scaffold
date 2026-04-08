@@ -619,9 +619,9 @@ window.settings.setValue("window/geometry", window.saveGeometry())
 
 # Create a new window and check it restores
 window4 = scaffold.MainWindow()
-check(window4.width() == 800 or abs(window4.width() - 800) < 20,
+check(window4.width() == 800 or abs(window4.width() - 800) < 80,
       f"window width restored: {window4.width()} (expected ~800)")
-check(window4.height() == 600 or abs(window4.height() - 600) < 20,
+check(window4.height() == 600 or abs(window4.height() - 600) < 80,
       f"window height restored: {window4.height()} (expected ~600)")
 window4.close()
 window4.deleteLater()

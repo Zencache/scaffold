@@ -2,6 +2,68 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.0] — 2026-04-07
+
+Cascade chaining, LLM-powered preset generation, license change, and a broad hardening pass across validation, security, output handling, and UI consistency.
+
+### Added
+
+- **Cascade panel** — a new right-side dock panel (`Ctrl+G`) for chaining multiple tool runs into sequential workflows. Each cascade holds up to 20 numbered slots, each assignable to a tool and optional preset. Per-step delays (0–3600 s), loop mode (repeat the full chain indefinitely), and stop-on-error mode (halt on non-zero exit). Cascades use the same QProcess execution pipeline as regular runs — no shortcuts, same security model (`CascadeSidebar`).
+- **Cascade file management** — save, load, import, export, and delete named cascade files. Cascade state (slots, loop mode, stop-on-error, variables, name) persists across sessions via QSettings (`_on_save_cascade_file`, `CascadeListDialog`, `_on_import_cascade`, `_on_export_cascade`).
+- **Cascade variables** — define named variables with a type hint (`string`, `file`, `directory`, `integer`, `float`) and an apply-to scope (all steps or specific slot indices). Before each chain run, a dialog prompts for values; those values are injected into form fields across steps at run time (`CascadeVariableDialog`, `CascadeVariableDefinitionDialog`).
+- **Example cascade files** — `cascades/nmap_recon_chain.json` (ping sweep → full port scan → stealth recon), `cascades/curl_api_chain.json` (health check → GET → POST), `cascades/aircrack_capture_chain.json` (interface scan → capture → key analysis).
+- **LLM-powered preset generation** — new `--preset-prompt` CLI flag prints the contents of `PRESET_PROMPT.txt` to stdout. Workflow: paste the prompt alongside a tool schema into an LLM, describe the preset you want, paste the returned JSON into `presets/<tool>/` (`print_preset_prompt`).
+- **Password masking in command preview and output** — password-type field values are replaced with `********` in the command preview widget, the run line printed to the output panel, and in history entries (`_mask_passwords_for_display`).
+- **Preset save overwrite warning** — saving a preset whose filename already exists now asks for confirmation and pre-fills the description field from the existing preset (`_on_save_preset`).
+- **Preset picker filter bar** — a live text filter at the top of the preset picker dialog with Enter/Shift+Enter cycling through matches (`PresetPicker`).
+- **Tool picker keyboard navigation** — Enter in the tool picker filter bar now selects the next matching row; Shift+Enter goes to the previous (`ToolPicker`).
+- **Field search matches descriptions** — `Ctrl+F` field search now matches against the argument's `description` text in addition to name and flag (`ToolForm._on_search`).
+- **50 MB output buffer cap** — when buffered output exceeds 50 MB, oldest entries are dropped and a truncation notice is prepended to the buffer (`_append_to_buffer`, `OUTPUT_BUFFER_MAX_BYTES`).
+- **Extra flags validation** — unmatched quotes in the Extra Flags box now disable the Run button and show an error status, instead of silently falling back to `text.split()` (`extra_flags_valid`, `_update_preview`).
+- **Docker tool schemas** — `tools/docker_test/docker.json`, `tools/docker_test/docker-buildx.json`, `tools/docker_test/docker-compose.json`.
+- **Cascade file drag rejection** — dragging a `.json` file with `_format: scaffold_cascade` onto the app now shows a clear dialog instead of silently failing (`_load_tool_path_from_data`).
+
+### Changed
+
+- **License changed from MIT to PolyForm Noncommercial 1.0.0** — free for personal and noncommercial use; commercial use requires a separate license.
+- **FFmpeg schema renamed** — `tools/ffmpegv2.json` renamed to `tools/ffmpeg.json`.
+- **Ping schema elevation** — `tools/ping.json` now declares `elevated: "optional"` instead of `null`.
+- **Tooltip HTML escaping** — all user-supplied strings (flag, short_flag, description, validation, arg name, binary name, preset description) are now passed through `html.escape()` before injection into tooltip HTML, preventing rendering glitches from `<`, `>`, `&` in field content (`_build_tooltip`, `_add_form_row`).
+- **Light-theme tooltip colors forced** — switching to light mode now explicitly sets tooltip background/foreground colors, preventing unreadable tooltips on Linux mixed-theme desktops (`apply_theme`).
+- **Command preview: negative numbers** — tokens like `-1` or `-3.5` are now colored as values rather than flags in the preview (`_colored_preview_html`).
+- **PowerShell and CMD copy formatting hardened** — both formatters now use a safe-character whitelist and strip literal newlines before quoting. PS escaping uses `''` (correct PS syntax); CMD escaping uses `""` (`_format_powershell`, `_format_cmd`).
+- **Label decorations update on theme change** — `dangerous` (red warning prefix) and `deprecated` (strikethrough + amber suffix) labels now rebuild correctly when toggling themes (`ToolForm.update_theme`).
+- **Process teardown centralized** — a dedicated `_teardown_process` method disconnects all signals before killing the process, preventing orphaned QProcess callbacks into destroyed UI state (`_teardown_process`).
+- **Force kill uses `os.kill` instead of `os.killpg`** — avoids `ProcessLookupError` on macOS/Linux when the process group has already exited (`_on_force_kill`).
+- **Arrow icon temp directory cleaned up on exit** — `atexit.register` deletes the temp `scaffold_arrows_*` directory when the process exits (`_cleanup_arrow_dir`).
+- **Dependency changes emit `command_changed`** — toggling a parent field now updates the command preview for dependent child fields (`_on_dependency_changed`).
+
+### Fixed
+
+- **Duplicate flag values within a scope not detected** — `--validate` now catches two arguments sharing the same `--flag` or `-x` short flag value (`_check_duplicate_flag_values`).
+- **Non-string `flag` field crashes validator** — if `flag` is an integer or other non-string type in JSON, a clear error is now reported instead of a crash (`_validate_args`).
+- **Flag leading/trailing whitespace bypasses duplicate detection** — flags with whitespace are now rejected by the validator; `normalize_tool` strips them silently (`_validate_args`, `normalize_tool`).
+- **Subcommand names with control characters or shell metacharacters accepted** — subcommand names containing `\n`, `\r`, `\t`, or shell metacharacters now fail validation (`validate_tool`).
+- **`schema_hash` crashes on non-string flags or non-dict subcommands** — added `isinstance` guards (`schema_hash`).
+- **`validate_tool` crashes on non-dict input** — now returns a clear error if passed a JSON array or other non-dict type (`validate_tool`).
+- **Non-numeric preset values crash integer/float fields** — `_set_field_value` now wraps `int()`/`float()` in try/except, silently skipping invalid values instead of crashing (`_set_field_value`).
+- **Extra flags tooltip truncated on some platforms** — wrapped tooltip text in `<p>` tags for consistent rendering (`extra_flags_edit`).
+- **Clearing output did not flush pending buffer** — `_clear_output` now also clears `_output_buffer`, preventing buffered text from reappearing on the next flush cycle (`_clear_output`).
+- **Stdout/stderr handlers crash when process is None** — both handlers now guard against `self.process is None` during cascade step transitions (`_on_stdout_ready`, `_on_stderr_ready`).
+- **Recovery dialog shown during cascade chain loading** — suppressed when a cascade chain is loading the next step (`_check_for_recovery`).
+- **Spinbox button misalignment in dark mode** — up/down buttons now use explicit `subcontrol-origin: border` with correct positions (`apply_theme`).
+- **Warning bar missing rounded corners** — added `border-radius: 4px` to the warning bar in both themes (`_set_warning_bar_style`).
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,799/1,799 assertions, 0 failures**
+  - Functional: 1,437/1,437
+  - Security: 158/158
+  - Smoke: 68/68
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.7.8] — 2026-04-04
 
 Collapsible folder groups in the tool picker and run button sizing fix.
