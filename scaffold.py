@@ -931,11 +931,29 @@ class DragHandle(QWidget):
             event.accept()
 
     def _effective_max_height(self) -> int:
-        """Return the effective maximum output height, capped to half the window."""
+        """Return the effective maximum output height, accounting for visible sibling widgets."""
         win = self._target.window()
-        if win:
+        if win is None:
+            return OUTPUT_MAX_HEIGHT
+        parent = self._target.parentWidget()
+        if parent is None:
             return min(OUTPUT_MAX_HEIGHT, win.height() // 2)
-        return OUTPUT_MAX_HEIGHT
+        layout = parent.layout()
+        sibling_total = 0
+        if layout is not None:
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                w = item.widget() if item is not None else None
+                if w is None or w is self._target:
+                    continue
+                if not w.isVisible():
+                    continue
+                sibling_total += w.height() if w.height() > 0 else w.sizeHint().height()
+        margin = 24  # safety for window chrome, status bar, layout spacing
+        available = win.height() - sibling_total - margin
+        if available < OUTPUT_MIN_HEIGHT:
+            available = OUTPUT_MIN_HEIGHT
+        return min(OUTPUT_MAX_HEIGHT, available)
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging:
@@ -4073,15 +4091,114 @@ class CascadeVariableDialog(QDialog):
 
 _VAR_TYPE_CHOICES = ["string", "file", "directory", "integer", "float"]
 
+_FLAG_COL_MIN = 80
+_FLAG_COL_MAX = 280
+
+
+class ApplyToButton(QToolButton):
+    """Dropdown button for selecting which cascade slots a variable applies to."""
+
+    def __init__(self, value: str | list = "all", slot_count: int = 20, parent=None):
+        super().__init__(parent)
+        self._value: str | list = "all"
+        self._slot_count = max(1, slot_count)
+        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._menu = QMenu(self)
+        self.setMenu(self._menu)
+        self._all_action = self._menu.addAction("All")
+        self._all_action.setCheckable(True)
+        self._none_action = self._menu.addAction("None")
+        self._none_action.setCheckable(True)
+        self._menu.addSeparator()
+        self._slot_actions: list[QAction] = []
+        for i in range(self._slot_count):
+            act = self._menu.addAction(f"Slot {i + 1}")
+            act.setCheckable(True)
+            act.triggered.connect(self._on_slot_toggled)
+            self._slot_actions.append(act)
+        self._all_action.triggered.connect(self._on_all)
+        self._none_action.triggered.connect(self._on_none)
+        self.set_value(value)
+
+    def _on_all(self) -> None:
+        for act in self._slot_actions:
+            act.setChecked(False)
+        self._none_action.setChecked(False)
+        self._all_action.setChecked(True)
+        self._value = "all"
+        self._update_label()
+
+    def _on_none(self) -> None:
+        for act in self._slot_actions:
+            act.setChecked(False)
+        self._all_action.setChecked(False)
+        self._none_action.setChecked(True)
+        self._value = "none"
+        self._update_label()
+
+    def _on_slot_toggled(self) -> None:
+        self._all_action.setChecked(False)
+        self._none_action.setChecked(False)
+        selected = [i for i, act in enumerate(self._slot_actions) if act.isChecked()]
+        if not selected:
+            self._all_action.setChecked(True)
+            self._value = "all"
+        else:
+            self._value = selected
+        self._update_label()
+
+    def set_value(self, value: str | list) -> None:
+        for act in self._slot_actions:
+            act.setChecked(False)
+        self._all_action.setChecked(False)
+        self._none_action.setChecked(False)
+        if value == "none":
+            self._none_action.setChecked(True)
+            self._value = "none"
+        elif isinstance(value, list):
+            valid = sorted(set(i for i in value if isinstance(i, int) and 0 <= i < self._slot_count))
+            if valid:
+                for i in valid:
+                    self._slot_actions[i].setChecked(True)
+                self._value = valid
+            else:
+                self._all_action.setChecked(True)
+                self._value = "all"
+        else:
+            self._all_action.setChecked(True)
+            self._value = "all"
+        self._update_label()
+
+    def value(self) -> str | list:
+        return self._value
+
+    def _update_label(self) -> None:
+        if self._value == "all":
+            self.setText("All")
+        elif self._value == "none":
+            self.setText("None")
+        elif isinstance(self._value, list):
+            self.setText(", ".join(str(i + 1) for i in self._value))
+        else:
+            self.setText("All")
+
 
 class CascadeVariableDefinitionDialog(QDialog):
     """Modal dialog for defining cascade variables (name, flag, type, apply-to)."""
 
-    def __init__(self, variables: list[dict], parent=None):
+    def __init__(self, variables: list[dict], parent=None, slot_count: int | None = None):
         super().__init__(parent)
         self.setWindowTitle("Edit Cascade Variables")
         self.setMinimumWidth(560)
         self._result_variables: list[dict] = []
+
+        # Determine slot count from parent CascadeSidebar or fall back
+        if slot_count is not None:
+            self._slot_count = slot_count
+        elif parent is not None and hasattr(parent, "_slots"):
+            self._slot_count = len(parent._slots)
+        else:
+            self._slot_count = CASCADE_MAX_SLOTS
 
         layout = QVBoxLayout(self)
 
@@ -4089,10 +4206,14 @@ class CascadeVariableDefinitionDialog(QDialog):
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(["Name", "Flag", "Type", "Apply To"])
         header = self._table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.resizeSection(0, 120)
+        header.resizeSection(1, 160)
+        header.resizeSection(2, 110)
+        header.sectionResized.connect(self._on_section_resized)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -4148,21 +4269,22 @@ class CascadeVariableDefinitionDialog(QDialog):
         type_combo.setCurrentIndex(idx)
         self._table.setCellWidget(row, 2, type_combo)
 
-        apply_combo = QComboBox()
-        apply_combo.setEditable(True)
-        apply_combo.addItems(["All"])
-        if apply_to == "all":
-            apply_combo.setCurrentText("All")
-        elif isinstance(apply_to, list):
-            apply_combo.setCurrentText(",".join(str(s) for s in apply_to))
-        else:
-            apply_combo.setCurrentText(str(apply_to))
-        self._table.setCellWidget(row, 3, apply_combo)
+        apply_btn = ApplyToButton(value=apply_to, slot_count=self._slot_count)
+        self._table.setCellWidget(row, 3, apply_btn)
 
     def _remove_selected(self) -> None:
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()}, reverse=True)
         for row in rows:
             self._table.removeRow(row)
+
+    def _on_section_resized(self, idx: int, _old: int, new: int) -> None:
+        """Clamp the Flag column (1) width within bounds."""
+        if idx == 1:
+            header = self._table.horizontalHeader()
+            if new < _FLAG_COL_MIN:
+                header.resizeSection(1, _FLAG_COL_MIN)
+            elif new > _FLAG_COL_MAX:
+                header.resizeSection(1, _FLAG_COL_MAX)
 
     # -- accept / validate --------------------------------------------------
 
@@ -4190,16 +4312,8 @@ class CascadeVariableDefinitionDialog(QDialog):
             type_combo = self._table.cellWidget(row, 2)
             type_hint = type_combo.currentText() if type_combo else "string"
 
-            apply_combo = self._table.cellWidget(row, 3)
-            apply_text = apply_combo.currentText().strip() if apply_combo else "All"
-            if apply_text.lower() == "all":
-                apply_to: str | list = "all"
-            else:
-                parts = [p.strip() for p in apply_text.split(",") if p.strip()]
-                try:
-                    apply_to = [int(p) for p in parts]
-                except ValueError:
-                    apply_to = "all"
+            apply_btn = self._table.cellWidget(row, 3)
+            apply_to: str | list = apply_btn.value() if isinstance(apply_btn, ApplyToButton) else "all"
 
             variables.append({
                 "name": name,
@@ -4745,6 +4859,16 @@ class CascadeSidebar(QDockWidget):
                 raise ValueError(
                     "Each cascade variable must have 'name' and 'flag' keys"
                 )
+            # Sanitize apply_to
+            at = var.get("apply_to", "all")
+            if at in ("all", "none"):
+                var["apply_to"] = at
+            elif isinstance(at, list):
+                var["apply_to"] = [x for x in at if isinstance(x, int)]
+                if not var["apply_to"]:
+                    var["apply_to"] = "all"
+            else:
+                var["apply_to"] = "all"
             variables.append(var)
         self._cascade_variables = variables
 
@@ -5252,6 +5376,8 @@ class CascadeSidebar(QDockWidget):
             form = self._main_window.form
             for var in self._cascade_variables:
                 apply_to = var.get("apply_to", "all")
+                if apply_to == "none":
+                    continue
                 if apply_to == "all" or (isinstance(apply_to, list) and slot_index in apply_to):
                     flag = var.get("flag", "")
                     if flag in self._chain_variable_values:
@@ -5612,6 +5738,8 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("Help")
         act_about = help_menu.addAction("About Scaffold")
         act_about.triggered.connect(self._on_about)
+        act_cascade_guide = help_menu.addAction("Cascade Guide")
+        act_cascade_guide.triggered.connect(self._on_show_cascade_guide)
         act_shortcuts = help_menu.addAction("Keyboard Shortcuts")
         act_shortcuts.triggered.connect(self._on_keyboard_shortcuts)
 
@@ -5665,6 +5793,83 @@ class MainWindow(QMainWindow):
             "<a href='https://github.com/Zencache/scaffold'>github.com/Zencache/scaffold</a>",
         )
 
+    def _on_show_cascade_guide(self) -> None:
+        """Show the Cascade Guide dialog explaining cascade features."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Cascade Guide")
+        dlg.setMinimumWidth(600)
+        dlg.resize(640, 520)
+        layout = QVBoxLayout(dlg)
+
+        content = QLabel()
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setWordWrap(True)
+        content.setText(
+            "<h2>What is a Cascade?</h2>"
+            "<p>A cascade chains multiple tools together to run in sequence. Each step "
+            "uses its own tool and preset configuration. Steps run one after another, but "
+            "the output of one step is <b>not</b> automatically fed into the next — each "
+            "step operates independently with its own configured arguments.</p>"
+
+            "<h3>Slots</h3>"
+            "<p>The cascade panel shows up to 20 numbered slots. To add a tool to a slot, "
+            "click an empty slot button or right-click and choose from available tools. Each "
+            "slot can optionally have a preset applied. To clear a slot, click the arrow "
+            "button next to it and select the clear option, or click the remove button.</p>"
+
+            "<h3>Delays</h3>"
+            "<p>Each slot has a delay spinner (in seconds) that controls how long the "
+            "cascade waits after that step completes before starting the next one. "
+            "Set to 0 for no delay.</p>"
+
+            "<h3>Loop Mode</h3>"
+            "<p>The Loop button makes the cascade repeat the entire chain continuously "
+            "until you stop it. After the last step finishes, the chain restarts from "
+            "the first step. This is useful for monitoring or repeated batch operations.</p>"
+
+            "<h3>Stop on Error</h3>"
+            "<p>When enabled, the cascade halts if any step exits with a non-zero exit "
+            "code. Timed-out steps count as errors. When disabled, the cascade continues "
+            "to the next step regardless of exit codes.</p>"
+
+            "<h3>Pause / Resume</h3>"
+            "<p>Clicking Pause requests the cascade to pause after the <b>current</b> step "
+            "finishes — it does not interrupt a running step mid-execution. The button "
+            "changes to Resume so you can continue. The Stop button and Clear All both "
+            "fully reset the cascade state.</p>"
+
+            "<h3>Cascade Variables</h3>"
+            "<p>Variables are runtime values prompted before the chain runs. Each variable "
+            "has a name, a target flag, and an optional scope (all slots or specific slot "
+            "numbers). When the chain starts, you enter values for each variable, and they "
+            "are injected into matching field flags across the selected slots. Use the "
+            "Edit Variables button in the cascade panel to define them.</p>"
+
+            "<h3>Save / Load / Import / Export</h3>"
+            "<p>Named cascade configurations can be saved and loaded from the cascade "
+            "menu. Import and export allow sharing cascade files between machines or "
+            "users.</p>"
+        )
+
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.close)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        if _dark_mode:
+            dlg.setStyleSheet(
+                f"QDialog {{ background-color: {DARK_COLORS['widget']}; color: {DARK_COLORS['text']}; }}"
+            )
+
+        dlg.exec()
+
     def _on_keyboard_shortcuts(self) -> None:
         """Show a list of keyboard shortcuts."""
         shortcuts = (
@@ -5682,6 +5887,8 @@ class MainWindow(QMainWindow):
             "Ctrl+F          Find Field\n"
             "Ctrl+Shift+F    Search Output\n"
             "Ctrl+Enter      Run Command\n"
+            "Enter           Run Command (when not typing)\n"
+            "Shift+Enter     Run Cascade (when not typing)\n"
             "Escape          Stop Process / Close Search"
         )
         QMessageBox.information(self, "Keyboard Shortcuts", shortcuts)
@@ -5846,6 +6053,55 @@ class MainWindow(QMainWindow):
         output_find_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
         output_find_shortcut.activated.connect(self._shortcut_output_find)
 
+        # Bare Enter — run command (suppressed when typing in text inputs)
+        self._shortcut_run_enter = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
+        self._shortcut_run_enter.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._shortcut_run_enter.activated.connect(self._shortcut_run_if_safe)
+
+        self._shortcut_run_enter_num = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
+        self._shortcut_run_enter_num.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._shortcut_run_enter_num.activated.connect(self._shortcut_run_if_safe)
+
+        # Shift+Enter — run cascade (suppressed when typing in text inputs)
+        self._shortcut_run_cascade = QShortcut(QKeySequence("Shift+Return"), self)
+        self._shortcut_run_cascade.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._shortcut_run_cascade.activated.connect(self._shortcut_run_cascade_if_safe)
+
+        self._shortcut_run_cascade_num = QShortcut(QKeySequence("Shift+Enter"), self)
+        self._shortcut_run_cascade_num.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._shortcut_run_cascade_num.activated.connect(self._shortcut_run_cascade_if_safe)
+
+    def _focus_is_in_text_input(self) -> bool:
+        """Return True if the currently focused widget is a text input that should consume Enter."""
+        fw = QApplication.focusWidget()
+        if fw is None:
+            return False
+        if isinstance(fw, QComboBox):
+            return fw.isEditable()
+        return isinstance(fw, (QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox))
+
+    def _shortcut_run_if_safe(self) -> None:
+        """Trigger Run via bare Enter when focus is not in a text input and no process is running."""
+        if self._focus_is_in_text_input():
+            return
+        if self.data and self.stack.currentIndex() == 1:
+            if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
+                self._on_run_stop()
+
+    def _shortcut_run_cascade_if_safe(self) -> None:
+        """Trigger cascade Run via Shift+Enter when focus is not in a text input."""
+        if self._focus_is_in_text_input():
+            return
+        if not hasattr(self, 'cascade_dock') or not self.cascade_dock.isVisible():
+            return
+        # Only fire if at least one slot has a valid tool assigned
+        has_slot = any(
+            s.get("tool_path") and Path(s["tool_path"]).exists()
+            for s in self.cascade_dock._slots
+        )
+        if has_slot:
+            self.cascade_dock._on_run_chain()
+
     def _shortcut_run(self) -> None:
         """Trigger Run via Ctrl+Enter when the form view is active and no process is running."""
         if self.data and self.stack.currentIndex() == 1:
@@ -6007,7 +6263,7 @@ class MainWindow(QMainWindow):
 
     def _clamp_output_height(self) -> None:
         """Ensure the output panel height fits within the current window."""
-        max_h = min(OUTPUT_MAX_HEIGHT, self.height() // 2)
+        max_h = self.output_handle._effective_max_height()
         cur_h = self.output.height()
         if cur_h > max_h:
             clamped = max(OUTPUT_MIN_HEIGHT, max_h)

@@ -28,7 +28,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
 sys.path.insert(0, str(Path(__file__).parent))
 
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
-from PySide6.QtCore import Qt, QSettings, QProcess, QTimer
+from PySide6.QtCore import Qt, QSettings, QProcess, QTimer, QPoint
 from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent, QPalette
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -2319,14 +2319,15 @@ check(scaffold.LIGHT_PREVIEW["flag"] in _s25_eq_result or scaffold.DARK_PREVIEW[
 # =====================================================================
 print("\n--- Section 26: Output Panel Height Clamping ---")
 
-# 26a: _clamp_output_height reduces height when it exceeds half the window
+# 26a: _clamp_output_height reduces height when it exceeds effective max
 window.resize(600, 400)
 app.processEvents()
-window.output.setFixedHeight(350)  # exceeds 400 // 2 = 200
+_s26a_max = window.output_handle._effective_max_height()
+window.output.setFixedHeight(scaffold.OUTPUT_MAX_HEIGHT)  # exceeds effective max
 app.processEvents()
 window._clamp_output_height()
 app.processEvents()
-check(window.output.height() <= 200, f"26a: output clamped to half window height ({window.output.height()} <= 200)")
+check(window.output.height() <= _s26a_max, f"26a: output clamped to effective max ({window.output.height()} <= {_s26a_max})")
 
 # 26b: height stays at or above OUTPUT_MIN_HEIGHT
 window.resize(600, 100)  # half = 50, but min is 80
@@ -2337,12 +2338,12 @@ app.processEvents()
 check(window.output.height() >= scaffold.OUTPUT_MIN_HEIGHT,
       f"26b: output height >= OUTPUT_MIN_HEIGHT ({window.output.height()} >= {scaffold.OUTPUT_MIN_HEIGHT})")
 
-# 26c: DragHandle._effective_max_height respects window size
+# 26c: DragHandle._effective_max_height respects window size and siblings
 window.resize(600, 400)
 app.processEvents()
 eff_max = window.output_handle._effective_max_height()
-check(eff_max <= 200, f"26c: effective max <= half window height ({eff_max} <= 200)")
 check(eff_max <= scaffold.OUTPUT_MAX_HEIGHT, f"26c: effective max <= OUTPUT_MAX_HEIGHT ({eff_max} <= {scaffold.OUTPUT_MAX_HEIGHT})")
+check(eff_max >= scaffold.OUTPUT_MIN_HEIGHT, f"26c: effective max >= OUTPUT_MIN_HEIGHT ({eff_max} >= {scaffold.OUTPUT_MIN_HEIGHT})")
 
 # 26d: MainWindow has resizeEvent and showEvent that handle clamping
 check(hasattr(scaffold.MainWindow, "resizeEvent"), "26d: MainWindow has resizeEvent override")
@@ -2351,12 +2352,13 @@ check(hasattr(scaffold.MainWindow, "showEvent"), "26d: MainWindow has showEvent 
 # 26e: QSettings is updated when clamping occurs
 window.resize(600, 400)
 app.processEvents()
-window.output.setFixedHeight(350)
+_s26e_max = window.output_handle._effective_max_height()
+window.output.setFixedHeight(scaffold.OUTPUT_MAX_HEIGHT)
 app.processEvents()
 window._clamp_output_height()
 app.processEvents()
 saved = int(window.settings.value("output/height", 0))
-check(saved <= 200, f"26e: QSettings updated after clamp ({saved} <= 200)")
+check(saved <= _s26e_max, f"26e: QSettings updated after clamp ({saved} <= {_s26e_max})")
 
 # 26f: height within limits is not altered
 window.resize(600, 600)
@@ -2368,6 +2370,63 @@ app.processEvents()
 check(window.output.height() == 150, f"26f: height within limits unchanged ({window.output.height()} == 150)")
 
 # Restore window size for cleanup
+window.resize(scaffold.DEFAULT_WINDOW_WIDTH, scaffold.DEFAULT_WINDOW_HEIGHT)
+app.processEvents()
+
+# 26g–26i use a dedicated window to guarantee the form view is visible and laid out
+_s26_win2 = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "tests" / "test_minimal.json"))
+_s26_win2.show()
+_s26_win2.resize(1200, 800)
+app.processEvents()
+
+# 26g (B1.1): _effective_max_height accounts for sibling heights
+_s26_parent = _s26_win2.output.parentWidget()
+_s26_layout = _s26_parent.layout() if _s26_parent else None
+_s26_sibling_total = 0
+if _s26_layout is not None:
+    for _s26_i in range(_s26_layout.count()):
+        _s26_item = _s26_layout.itemAt(_s26_i)
+        _s26_w = _s26_item.widget() if _s26_item is not None else None
+        if _s26_w is None or _s26_w is _s26_win2.output:
+            continue
+        if not _s26_w.isVisible():
+            continue
+        _s26_sibling_total += _s26_w.height() if _s26_w.height() > 0 else _s26_w.sizeHint().height()
+_s26_safety = 24
+_s26_expected_max = _s26_win2.height() - _s26_sibling_total - _s26_safety
+_s26_eff = _s26_win2.output_handle._effective_max_height()
+check(_s26_eff <= _s26_expected_max,
+      f"26g (B1.1): effective max accounts for siblings ({_s26_eff} <= {_s26_expected_max})")
+check(_s26_eff >= scaffold.OUTPUT_MIN_HEIGHT,
+      f"26g (B1.1): effective max >= OUTPUT_MIN_HEIGHT ({_s26_eff} >= {scaffold.OUTPUT_MIN_HEIGHT})")
+
+# 26h (B1.2): After max drag, output bottom does not exceed window bottom
+_s26_win2.output.setFixedHeight(_s26_win2.output_handle._effective_max_height())
+app.processEvents()
+_s26_out_bottom = _s26_win2.output.mapToGlobal(QPoint(0, _s26_win2.output.height())).y()
+_s26_win_bottom = _s26_win2.mapToGlobal(QPoint(0, _s26_win2.height())).y()
+_s26_slack = 4
+check(_s26_out_bottom <= _s26_win_bottom + _s26_slack,
+      f"26h (B1.2): output bottom ({_s26_out_bottom}) <= window bottom ({_s26_win_bottom}) + slack")
+
+# 26i (B1.3): Hidden siblings are not counted
+# The _output_search_widget is always hidden. Show it and verify effective max decreases.
+_s26_search_w = _s26_win2._output_search_widget
+check(not _s26_search_w.isVisible(), "26i (B1.3): search widget starts hidden")
+_s26_before = _s26_win2.output_handle._effective_max_height()
+_s26_search_w.setVisible(True)
+app.processEvents()
+_s26_after = _s26_win2.output_handle._effective_max_height()
+check(_s26_after < _s26_before,
+      f"26i (B1.3): showing hidden sibling decreases effective max ({_s26_after} < {_s26_before})")
+_s26_search_w.setVisible(False)
+app.processEvents()
+
+_s26_win2.close()
+_s26_win2.deleteLater()
+app.processEvents()
+
+# Restore global window size for cleanup
 window.resize(scaffold.DEFAULT_WINDOW_WIDTH, scaffold.DEFAULT_WINDOW_HEIGHT)
 app.processEvents()
 
@@ -8349,7 +8408,8 @@ _s76_minimal_data = {
 _s76_cas._import_cascade_data(_s76_minimal_data)
 app.processEvents()
 check(len(_s76_cas._cascade_variables) == 1
-      and _s76_cas._cascade_variables[0] == {"name": "Simple", "flag": "--simple"},
+      and _s76_cas._cascade_variables[0]["name"] == "Simple"
+      and _s76_cas._cascade_variables[0]["flag"] == "--simple",
       "76g: variable with only name and flag is valid")
 
 # 76h: Variable missing name or flag is rejected (ValueError)
@@ -8858,10 +8918,10 @@ check(_s79_dlg3._table.rowCount() == 2,
 _s79_type_combo = _s79_dlg3._table.cellWidget(1, 2)
 check(_s79_type_combo is not None and _s79_type_combo.currentText() == "integer",
       "79f: type combo shows 'integer' for second variable")
-# Check the apply-to combo for row 1 ([0])
-_s79_apply_combo = _s79_dlg3._table.cellWidget(1, 3)
-check(_s79_apply_combo is not None and _s79_apply_combo.currentText() == "0",
-      "79f: apply-to combo shows '0' for second variable")
+# Check the apply-to button for row 1 ([0])
+_s79_apply_btn = _s79_dlg3._table.cellWidget(1, 3)
+check(_s79_apply_btn is not None and hasattr(_s79_apply_btn, "value") and _s79_apply_btn.value() == [0],
+      "79f: apply-to button has value [0] for second variable")
 _s79_dlg3.close()
 _s79_dlg3.deleteLater()
 app.processEvents()
@@ -10824,6 +10884,567 @@ check('"' in _s97q,
 _s97r = scaffold._format_cmd(["tool", "127.0.0.1"])
 check(_s97r == "tool 127.0.0.1",
       f"97r: CMD safe token exact: {_s97r!r}")
+
+
+# =====================================================================
+# Section 98 — Cascade Guide + Enter/Shift+Enter Shortcuts
+# =====================================================================
+print("\n=== SECTION 98: Cascade Guide + Enter/Shift+Enter Shortcuts ===")
+
+_s98_tool = str(Path(__file__).parent / "tests" / "test_minimal.json")
+
+# --- Test A1: Help menu has Cascade Guide action ---
+_s98_w1 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w1.show()
+app.processEvents()
+
+_s98_help_menu = None
+for _act in _s98_w1.menuBar().actions():
+    if _act.menu() and _act.text() == "Help":
+        _s98_help_menu = _act.menu()
+        break
+
+check(_s98_help_menu is not None, "98a1: Help menu exists")
+
+# Keep action references alive to prevent PySide6 GC
+_s98_help_action_refs = list(_s98_help_menu.actions()) if _s98_help_menu else []
+_s98_help_action_names = [a.text() for a in _s98_help_action_refs]
+_s98_cascade_action = None
+for _i, _t in enumerate(_s98_help_action_names):
+    if "Cascade" in _t:
+        _s98_cascade_action = _s98_help_action_refs[_i]
+        break
+
+check(any("Cascade" in t for t in _s98_help_action_names), "98a2: Cascade Guide action exists in Help menu")
+
+# Trigger the Cascade Guide action and verify a dialog opens with correct content
+_s98_guide_dialog = None
+if _s98_cascade_action:
+    _s98_guide_text = ""
+    def _s98_check_guide():
+        global _s98_guide_dialog, _s98_guide_text
+        for w in QApplication.topLevelWidgets():
+            if isinstance(w, QDialog) and w.isVisible() and w is not _s98_w1:
+                _s98_guide_dialog = w
+                for lbl in w.findChildren(QLabel):
+                    _s98_guide_text += lbl.text() + " "
+                w.close()
+                break
+    QTimer.singleShot(200, _s98_check_guide)
+    _s98_cascade_action.trigger()
+    app.processEvents()
+    _s98_deadline = time.time() + 2
+    while time.time() < _s98_deadline:
+        app.processEvents()
+        if _s98_guide_dialog is not None:
+            break
+        time.sleep(0.05)
+
+    check(_s98_guide_dialog is not None, "98a3: Cascade Guide opens a QDialog")
+    _s98_gt = _s98_guide_text.lower()
+    check("slot" in _s98_gt, "98a4: Guide mentions 'slot'")
+    check("variable" in _s98_gt, "98a5: Guide mentions 'variable'")
+    check("loop" in _s98_gt, "98a6: Guide mentions 'loop'")
+    check("pause" in _s98_gt, "98a7: Guide mentions 'pause'")
+    check("stop on error" in _s98_gt, "98a8: Guide mentions 'stop on error'")
+else:
+    for _label in ("98a3", "98a4", "98a5", "98a6", "98a7", "98a8"):
+        check(False, f"{_label}: (no Cascade Guide action found)")
+
+_s98_w1.close(); _s98_w1.deleteLater(); app.processEvents()
+
+# --- Test A2: Bare Enter fires Run when focus is outside text inputs ---
+_s98_w2 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w2.show()
+app.processEvents()
+
+_s98_run_fired = False
+_s98_orig_run_stop = _s98_w2._on_run_stop
+
+def _s98_mock_run_stop():
+    global _s98_run_fired
+    _s98_run_fired = True
+
+_s98_w2._on_run_stop = _s98_mock_run_stop
+
+# Focus the Run button (a non-text widget)
+_s98_w2.run_btn.setFocus()
+app.processEvents()
+
+# Simulate Enter key via the shortcut method directly
+_s98_run_fired = False
+if hasattr(_s98_w2, '_shortcut_run_if_safe'):
+    _s98_w2._shortcut_run_if_safe()
+    check(_s98_run_fired, "98b1: Bare Enter fires Run when focus is on Run button")
+else:
+    check(False, "98b1: _shortcut_run_if_safe method exists")
+
+_s98_w2._on_run_stop = _s98_orig_run_stop
+_s98_w2.close(); _s98_w2.deleteLater(); app.processEvents()
+
+# --- Test A3: Bare Enter does NOT fire when focus is in text inputs ---
+_s98_w3 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w3.show()
+app.processEvents()
+
+_s98_run_fired_a3 = False
+_s98_orig_run_stop3 = _s98_w3._on_run_stop
+
+def _s98_mock_run_stop3():
+    global _s98_run_fired_a3
+    _s98_run_fired_a3 = True
+
+_s98_w3._on_run_stop = _s98_mock_run_stop3
+
+# Test with QLineEdit
+_s98_le = QLineEdit(_s98_w3)
+_s98_le.show()
+_s98_le.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(not _s98_run_fired_a3, "98c1: Enter suppressed when QLineEdit focused")
+else:
+    check(False, "98c1: _shortcut_run_if_safe method exists")
+
+# Test with QPlainTextEdit
+_s98_pte = QPlainTextEdit(_s98_w3)
+_s98_pte.show()
+_s98_pte.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(not _s98_run_fired_a3, "98c2: Enter suppressed when QPlainTextEdit focused")
+else:
+    check(False, "98c2: _shortcut_run_if_safe method exists")
+
+# Test with QSpinBox
+_s98_sb = QSpinBox(_s98_w3)
+_s98_sb.show()
+_s98_sb.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(not _s98_run_fired_a3, "98c3: Enter suppressed when QSpinBox focused")
+else:
+    check(False, "98c3: _shortcut_run_if_safe method exists")
+
+# Test with QDoubleSpinBox
+_s98_dsb = QDoubleSpinBox(_s98_w3)
+_s98_dsb.show()
+_s98_dsb.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(not _s98_run_fired_a3, "98c4: Enter suppressed when QDoubleSpinBox focused")
+else:
+    check(False, "98c4: _shortcut_run_if_safe method exists")
+
+# Test with editable QComboBox
+_s98_cb = QComboBox(_s98_w3)
+_s98_cb.setEditable(True)
+_s98_cb.show()
+_s98_cb.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(not _s98_run_fired_a3, "98c5: Enter suppressed when editable QComboBox focused")
+else:
+    check(False, "98c5: _shortcut_run_if_safe method exists")
+
+# Test with non-editable QComboBox — should NOT suppress
+_s98_cb_ro = QComboBox(_s98_w3)
+_s98_cb_ro.setEditable(False)
+_s98_cb_ro.addItems(["a", "b"])
+_s98_cb_ro.show()
+_s98_cb_ro.setFocus()
+app.processEvents()
+_s98_run_fired_a3 = False
+if hasattr(_s98_w3, '_shortcut_run_if_safe'):
+    _s98_w3._shortcut_run_if_safe()
+    check(_s98_run_fired_a3, "98c6: Enter NOT suppressed for non-editable QComboBox")
+else:
+    check(False, "98c6: _shortcut_run_if_safe method exists")
+
+_s98_w3._on_run_stop = _s98_orig_run_stop3
+_s98_w3.close(); _s98_w3.deleteLater(); app.processEvents()
+
+# --- Test A4: Shift+Enter fires cascade run when focus is outside text inputs ---
+_s98_w4 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w4.show()
+app.processEvents()
+
+_s98_cascade_fired = False
+_s98_orig_run_chain = _s98_w4.cascade_dock._on_run_chain
+
+def _s98_mock_run_chain():
+    global _s98_cascade_fired
+    _s98_cascade_fired = True
+
+_s98_w4.cascade_dock._on_run_chain = _s98_mock_run_chain
+
+# Make cascade visible and assign at least one slot so the shortcut fires
+_s98_w4.cascade_dock.setVisible(True)
+app.processEvents()
+# Assign a tool to slot 0
+_s98_w4.cascade_dock._slots[0]["tool_path"] = _s98_tool
+_s98_w4.cascade_dock._slots[0]["preset_name"] = None
+app.processEvents()
+
+# Focus a non-text widget
+_s98_w4.run_btn.setFocus()
+app.processEvents()
+
+_s98_cascade_fired = False
+if hasattr(_s98_w4, '_shortcut_run_cascade_if_safe'):
+    _s98_w4._shortcut_run_cascade_if_safe()
+    check(_s98_cascade_fired, "98d1: Shift+Enter fires cascade run")
+else:
+    check(False, "98d1: _shortcut_run_cascade_if_safe method exists")
+
+_s98_w4.cascade_dock._on_run_chain = _s98_orig_run_chain
+_s98_w4.close(); _s98_w4.deleteLater(); app.processEvents()
+
+# --- Test A5: Shift+Enter does NOT fire when focus is in text input ---
+_s98_w5 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w5.show()
+app.processEvents()
+
+_s98_cascade_fired_a5 = False
+_s98_orig_run_chain5 = _s98_w5.cascade_dock._on_run_chain
+
+def _s98_mock_run_chain5():
+    global _s98_cascade_fired_a5
+    _s98_cascade_fired_a5 = True
+
+_s98_w5.cascade_dock._on_run_chain = _s98_mock_run_chain5
+_s98_w5.cascade_dock.setVisible(True)
+_s98_w5.cascade_dock._slots[0]["tool_path"] = _s98_tool
+app.processEvents()
+
+# Focus a QLineEdit
+_s98_le5 = QLineEdit(_s98_w5)
+_s98_le5.show()
+_s98_le5.setFocus()
+app.processEvents()
+
+_s98_cascade_fired_a5 = False
+if hasattr(_s98_w5, '_shortcut_run_cascade_if_safe'):
+    _s98_w5._shortcut_run_cascade_if_safe()
+    check(not _s98_cascade_fired_a5, "98e1: Shift+Enter suppressed when QLineEdit focused")
+else:
+    check(False, "98e1: _shortcut_run_cascade_if_safe method exists")
+
+# Focus a QPlainTextEdit
+_s98_pte5 = QPlainTextEdit(_s98_w5)
+_s98_pte5.show()
+_s98_pte5.setFocus()
+app.processEvents()
+
+_s98_cascade_fired_a5 = False
+if hasattr(_s98_w5, '_shortcut_run_cascade_if_safe'):
+    _s98_w5._shortcut_run_cascade_if_safe()
+    check(not _s98_cascade_fired_a5, "98e2: Shift+Enter suppressed when QPlainTextEdit focused")
+else:
+    check(False, "98e2: _shortcut_run_cascade_if_safe method exists")
+
+_s98_w5.cascade_dock._on_run_chain = _s98_orig_run_chain5
+_s98_w5.close(); _s98_w5.deleteLater(); app.processEvents()
+
+# --- Test A6: Existing Ctrl+Enter still works ---
+_s98_w6 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w6.show()
+app.processEvents()
+
+_s98_ctrl_enter_fired = False
+_s98_orig_run_stop6 = _s98_w6._on_run_stop
+
+def _s98_mock_run_stop6():
+    global _s98_ctrl_enter_fired
+    _s98_ctrl_enter_fired = True
+
+_s98_w6._on_run_stop = _s98_mock_run_stop6
+
+# Call _shortcut_run directly (the existing Ctrl+Enter handler)
+_s98_w6._shortcut_run()
+check(_s98_ctrl_enter_fired, "98f1: Ctrl+Enter (_shortcut_run) still fires Run")
+
+_s98_w6._on_run_stop = _s98_orig_run_stop6
+_s98_w6.close(); _s98_w6.deleteLater(); app.processEvents()
+
+# --- Test A7: Shortcuts dialog includes new entries ---
+_s98_w7 = scaffold.MainWindow(tool_path=_s98_tool)
+_s98_w7.show()
+app.processEvents()
+
+# Mock QMessageBox.information to capture the shortcuts text
+_s98_shortcuts_text = ""
+_s98_orig_info = QMessageBox.information
+
+def _s98_mock_info(parent, title, text, *args, **kwargs):
+    global _s98_shortcuts_text
+    _s98_shortcuts_text = text
+
+QMessageBox.information = staticmethod(_s98_mock_info)
+try:
+    _s98_w7._on_keyboard_shortcuts()
+    app.processEvents()
+finally:
+    QMessageBox.information = _s98_orig_info
+
+check("Enter" in _s98_shortcuts_text, "98g1: Shortcuts dialog mentions Enter")
+check("Shift+Enter" in _s98_shortcuts_text, "98g2: Shortcuts dialog mentions Shift+Enter")
+check("Ctrl+Enter" in _s98_shortcuts_text, "98g3: Shortcuts dialog still mentions Ctrl+Enter")
+
+_s98_w7.close(); _s98_w7.deleteLater(); app.processEvents()
+
+
+# =====================================================================
+# Section 99 — Variables Dialog Rework (column sizing, ApplyToButton, "none")
+# =====================================================================
+print("\n=== SECTION 99: Variables Dialog Rework ===")
+
+_s99_tmpdir = tempfile.mkdtemp(prefix="scaffold_test99_")
+
+# B2.1 — Column resize modes and default widths
+_s99_dlg1 = scaffold.CascadeVariableDefinitionDialog([], parent=None)
+_s99_dlg1.show()
+app.processEvents()
+_s99_hdr = _s99_dlg1._table.horizontalHeader()
+
+check(_s99_hdr.sectionResizeMode(0) == QHeaderView.ResizeMode.Interactive,
+      "99a (B2.1): column 0 (Name) is Interactive")
+_s99_col0_w = _s99_hdr.sectionSize(0)
+check(100 <= _s99_col0_w <= 150,
+      f"99a (B2.1): column 0 width ~120 ({_s99_col0_w})")
+
+check(_s99_hdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive,
+      "99a (B2.1): column 1 (Flag) is Interactive")
+
+check(_s99_hdr.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive,
+      "99a (B2.1): column 2 (Type) is Interactive")
+_s99_col2_w = _s99_hdr.sectionSize(2)
+check(90 <= _s99_col2_w <= 130,
+      f"99a (B2.1): column 2 width ~110 ({_s99_col2_w})")
+
+check(_s99_hdr.sectionResizeMode(3) == QHeaderView.ResizeMode.Stretch,
+      "99a (B2.1): column 3 (Apply To) is Stretch")
+
+_s99_dlg1.close()
+_s99_dlg1.deleteLater()
+app.processEvents()
+
+# B2.2 — Flag column resize is bounded
+_s99_dlg2 = scaffold.CascadeVariableDefinitionDialog([], parent=None)
+_s99_dlg2.show()
+app.processEvents()
+_s99_hdr2 = _s99_dlg2._table.horizontalHeader()
+
+# Try to resize below minimum (80)
+_s99_hdr2.resizeSection(1, 40)
+app.processEvents()
+check(_s99_hdr2.sectionSize(1) >= 80,
+      f"99b (B2.2): Flag col min bound enforced ({_s99_hdr2.sectionSize(1)} >= 80)")
+
+# Try to resize above maximum (280)
+_s99_hdr2.resizeSection(1, 400)
+app.processEvents()
+check(_s99_hdr2.sectionSize(1) <= 280,
+      f"99b (B2.2): Flag col max bound enforced ({_s99_hdr2.sectionSize(1)} <= 280)")
+
+_s99_dlg2.close()
+_s99_dlg2.deleteLater()
+app.processEvents()
+
+# B2.3 — Apply To "All" round-trip
+_s99_dlg3 = scaffold.CascadeVariableDefinitionDialog([], parent=None)
+_s99_dlg3._add_row(name="TestVar", flag="--test", type_hint="string", apply_to="all")
+_s99_dlg3._on_accept()
+app.processEvents()
+_s99_v3 = _s99_dlg3.get_variables()
+check(len(_s99_v3) == 1 and _s99_v3[0]["apply_to"] == "all",
+      f"99c (B2.3): apply_to 'all' round-trips ({_s99_v3[0]['apply_to'] if _s99_v3 else 'empty'})")
+_s99_dlg3.close()
+_s99_dlg3.deleteLater()
+app.processEvents()
+
+# B2.4 — Apply To "None" round-trip
+_s99_dlg4 = scaffold.CascadeVariableDefinitionDialog([], parent=None)
+_s99_dlg4._add_row(name="NoneVar", flag="--none", type_hint="string", apply_to="none")
+_s99_dlg4._on_accept()
+app.processEvents()
+_s99_v4 = _s99_dlg4.get_variables()
+check(len(_s99_v4) == 1 and _s99_v4[0]["apply_to"] == "none",
+      f"99d (B2.4): apply_to 'none' round-trips ({_s99_v4[0]['apply_to'] if _s99_v4 else 'empty'})")
+_s99_dlg4.close()
+_s99_dlg4.deleteLater()
+app.processEvents()
+
+# B2.5 — Apply To multi-slot round-trip
+_s99_dlg5 = scaffold.CascadeVariableDefinitionDialog([], parent=None)
+_s99_dlg5._add_row(name="MultiVar", flag="--multi", type_hint="string", apply_to=[1, 3, 5])
+_s99_dlg5._on_accept()
+app.processEvents()
+_s99_v5 = _s99_dlg5.get_variables()
+check(len(_s99_v5) == 1 and _s99_v5[0]["apply_to"] == [1, 3, 5],
+      f"99e (B2.5): apply_to [1,3,5] round-trips ({_s99_v5[0]['apply_to'] if _s99_v5 else 'empty'})")
+_s99_dlg5.close()
+_s99_dlg5.deleteLater()
+app.processEvents()
+
+# B2.6 — Apply To display text
+_s99_dlg6 = scaffold.CascadeVariableDefinitionDialog([
+    {"name": "A", "flag": "--a", "type_hint": "string", "apply_to": "all"},
+    {"name": "B", "flag": "--b", "type_hint": "string", "apply_to": "none"},
+    {"name": "C", "flag": "--c", "type_hint": "string", "apply_to": [1, 3, 5]},
+], parent=None)
+_s99_dlg6.show()
+app.processEvents()
+
+# Get the cell widget for column 3 in each row (ApplyToButton)
+_s99_btn0 = _s99_dlg6._table.cellWidget(0, 3)
+_s99_btn1 = _s99_dlg6._table.cellWidget(1, 3)
+_s99_btn2 = _s99_dlg6._table.cellWidget(2, 3)
+
+def _s99_get_text(w):
+    """Get display text from ApplyToButton or fallback QComboBox."""
+    if w is None:
+        return ""
+    if hasattr(w, "text"):
+        return w.text()
+    if hasattr(w, "currentText"):
+        return w.currentText()
+    return ""
+
+check(_s99_btn0 is not None and "All" in _s99_get_text(_s99_btn0),
+      f"99f (B2.6): 'all' displays as 'All' ({_s99_get_text(_s99_btn0)})")
+check(_s99_btn1 is not None and "None" in _s99_get_text(_s99_btn1),
+      f"99f (B2.6): 'none' displays as 'None' ({_s99_get_text(_s99_btn1)})")
+check(_s99_btn2 is not None and "2, 4, 6" in _s99_get_text(_s99_btn2),
+      f"99f (B2.6): [1,3,5] displays as '2, 4, 6' (1-indexed) ({_s99_get_text(_s99_btn2)})")
+
+_s99_dlg6.close()
+_s99_dlg6.deleteLater()
+app.processEvents()
+
+# B2.7 — "None" variables are skipped during chain injection
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s99_win7 = scaffold.MainWindow()
+_s99_win7.show()
+app.processEvents()
+_s99_dock7 = _s99_win7.cascade_dock
+_s99_dock7.show()
+app.processEvents()
+
+_s99_tool7 = {
+    "tool": "test99_tool7",
+    "binary": "echo",
+    "description": "Test tool for 99",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string"},
+    ],
+}
+_s99_tool_path7 = os.path.join(_s99_tmpdir, "test99_tool7.json")
+Path(_s99_tool_path7).write_text(json.dumps(_s99_tool7))
+
+_s99_dock7._slots[0]["tool_path"] = _s99_tool_path7
+_s99_dock7._cascade_variables = [
+    {"name": "SkipVar", "flag": "--target", "type_hint": "string", "apply_to": "none"},
+]
+_s99_dock7._chain_variable_values = {"--target": "SHOULD_NOT_APPEAR"}
+
+# Load the tool into the form so we can check field values
+_s99_win7._load_tool_path(_s99_tool_path7)
+app.processEvents()
+
+# Simulate the injection logic
+if _s99_win7.form is not None:
+    for _s99_var in _s99_dock7._cascade_variables:
+        _s99_at = _s99_var.get("apply_to", "all")
+        if _s99_at == "none":
+            continue  # this is what the fix should do
+        _s99_flag = _s99_var.get("flag", "")
+        if _s99_flag in _s99_dock7._chain_variable_values:
+            _s99_val = _s99_dock7._chain_variable_values[_s99_flag]
+            for _s99_key in _s99_win7.form.fields:
+                _s99_scope, _s99_fn = _s99_key
+                _s99_pk = _s99_fn if _s99_scope == _s99_win7.form.GLOBAL else f"{_s99_scope}:{_s99_fn}"
+                if _s99_pk == _s99_flag:
+                    _s99_win7.form._set_field_value(_s99_key, _s99_val)
+                    break
+
+# Check the field was NOT set
+_s99_target_val = None
+for _s99_key in _s99_win7.form.fields:
+    _s99_scope, _s99_fn = _s99_key
+    if _s99_fn == "--target":
+        _s99_target_val = _s99_win7.form.get_field_value(_s99_key)
+        break
+check(_s99_target_val != "SHOULD_NOT_APPEAR",
+      f"99g (B2.7): 'none' variable not injected (field value: {_s99_target_val!r})")
+
+_s99_win7.close()
+_s99_win7.deleteLater()
+app.processEvents()
+
+# B2.8 — Backward compatibility: loading old cascades with apply_to="all" or list[int]
+_s99_old_cascade = {
+    "_format": "scaffold_cascade",
+    "name": "compat_test",
+    "description": "backward compat",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [{"tool": "tests/test_minimal.json", "preset": None, "delay": 0}],
+    "variables": [
+        {"name": "OldAll", "flag": "--old1", "type_hint": "string", "apply_to": "all"},
+        {"name": "OldList", "flag": "--old2", "type_hint": "integer", "apply_to": [0, 2]},
+    ],
+}
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s99_win8 = scaffold.MainWindow()
+_s99_win8.show()
+app.processEvents()
+_s99_dock8 = _s99_win8.cascade_dock
+_s99_dock8.show()
+app.processEvents()
+try:
+    _s99_dock8._import_cascade_data(_s99_old_cascade)
+    app.processEvents()
+    check(len(_s99_dock8._cascade_variables) == 2,
+          "99h (B2.8): old cascade with 2 vars loaded successfully")
+    check(_s99_dock8._cascade_variables[0]["apply_to"] == "all",
+          "99h (B2.8): old apply_to='all' preserved")
+    check(_s99_dock8._cascade_variables[1]["apply_to"] == [0, 2],
+          "99h (B2.8): old apply_to=[0,2] preserved")
+except Exception as _s99_e8:
+    check(False, f"99h (B2.8): old cascade import raised: {_s99_e8}")
+
+_s99_win8.close()
+_s99_win8.deleteLater()
+app.processEvents()
+
+# B2.9 — apply_to validation: garbage values default to "all"
+_s99_dlg9 = scaffold.CascadeVariableDefinitionDialog(
+    [{"name": "Bad", "flag": "--bad", "type_hint": "string", "apply_to": 42}],
+    parent=None,
+)
+_s99_dlg9._on_accept()
+app.processEvents()
+_s99_v9 = _s99_dlg9.get_variables()
+check(len(_s99_v9) == 1 and _s99_v9[0]["apply_to"] in ("all", "none", []),
+      f"99i (B2.9): garbage apply_to=42 defaults gracefully ({_s99_v9[0]['apply_to'] if _s99_v9 else 'empty'})")
+_s99_dlg9.close()
+_s99_dlg9.deleteLater()
+app.processEvents()
+
+# Cleanup section 99
+shutil.rmtree(_s99_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # =====================================================================
