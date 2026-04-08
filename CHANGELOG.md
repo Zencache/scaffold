@@ -26,7 +26,6 @@ Cascade chaining, LLM-powered preset generation, license change, and a broad har
 ### Changed
 
 - **License changed from MIT to PolyForm Noncommercial 1.0.0** — free for personal and noncommercial use; commercial use requires a separate license.
-- **FFmpeg schema renamed** — `tools/ffmpegv2.json` renamed to `tools/ffmpeg.json`.
 - **Ping schema elevation** — `tools/ping.json` now declares `elevated: "optional"` instead of `null`.
 - **Tooltip HTML escaping** — all user-supplied strings (flag, short_flag, description, validation, arg name, binary name, preset description) are now passed through `html.escape()` before injection into tooltip HTML, preventing rendering glitches from `<`, `>`, `&` in field content (`_build_tooltip`, `_add_form_row`).
 - **Light-theme tooltip colors forced** — switching to light mode now explicitly sets tooltip background/foreground colors, preventing unreadable tooltips on Linux mixed-theme desktops (`apply_theme`).
