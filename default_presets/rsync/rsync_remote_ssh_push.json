@@ -1,0 +1,15 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Remote push over SSH with compression and resumable partial transfers",
+  "--archive": true,
+  "--compress": true,
+  "--human-readable": true,
+  "--progress": true,
+  "--partial": true,
+  "--stats": true,
+  "--rsh": "ssh",
+  "SRC": "/local/path/",
+  "DEST": "user@host:/remote/path/"
+}

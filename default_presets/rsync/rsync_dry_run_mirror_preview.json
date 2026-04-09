@@ -1,0 +1,14 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Dry-run mirror preview — see exactly what would transfer and delete before doing it for real",
+  "--archive": true,
+  "--verbose": 1,
+  "--dry-run": true,
+  "--human-readable": true,
+  "--itemize-changes": true,
+  "--delete": true,
+  "SRC": "/path/to/source/",
+  "DEST": "/path/to/destination/"
+}

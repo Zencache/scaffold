@@ -1,0 +1,14 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Move files — transfer then delete source, useful for migrating data off a disk",
+  "--archive": true,
+  "--verbose": 1,
+  "--human-readable": true,
+  "--progress": true,
+  "--stats": true,
+  "--remove-source-files": true,
+  "SRC": "/old/location/",
+  "DEST": "/new/location/"
+}

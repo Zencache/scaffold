@@ -1,0 +1,14 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Selective copy excluding VCS/build artifacts and common junk files",
+  "--archive": true,
+  "--verbose": 1,
+  "--human-readable": true,
+  "--progress": true,
+  "--cvs-exclude": true,
+  "--exclude": ["node_modules/", "*.log", "*.tmp", ".DS_Store", "__pycache__/"],
+  "SRC": "/path/to/project/",
+  "DEST": "/path/to/destination/"
+}

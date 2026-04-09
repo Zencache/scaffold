@@ -1,0 +1,14 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Incremental snapshot backup using --link-dest for space-efficient hard-linked history",
+  "--archive": true,
+  "--verbose": 1,
+  "--human-readable": true,
+  "--delete": true,
+  "--stats": true,
+  "--link-dest": "/mnt/backup/previous/",
+  "SRC": "/home/user/",
+  "DEST": "/mnt/backup/current/"
+}

@@ -10,6 +10,7 @@ Elevation helper tests, cascade example files, variable injection documentation,
 
 - **Elevation helper test coverage** — new test section verifying tool detection, caching, platform-dependent error messages, command wrapping, and label text for the elevation system.
 - **Cascade example files** — two educational cascades bundled in `cascades/`: a basic two-step nmap chain and a ping-then-nmap workflow demonstrating cascade variables with per-step flag injection.
+- **rsync tool schema and presets** — 129-argument schema with 6 bundled presets (local backup, remote SSH push, dry-run mirror, incremental snapshot, move files, selective copy with excludes). Most features should work but the schema is still mostly untested.
 
 ### Changed
 

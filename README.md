@@ -36,7 +36,7 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **pip** — should come with Python; update it with `pip install --upgrade pip`
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 18 tools (nmap, curl, git, ansible, docker, aircrack-ng, and more) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 19 tools (nmap, curl, git, rsync, ansible, docker, aircrack-ng, and more) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 

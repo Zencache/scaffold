@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Local backup — archive mode with progress and stats, no deletion",
+  "--archive": true,
+  "--verbose": 1,
+  "--human-readable": true,
+  "--progress": true,
+  "--stats": true,
+  "SRC": "/home/user/documents/",
+  "DEST": "/mnt/backup/documents/"
+}
