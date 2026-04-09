@@ -12,6 +12,7 @@ Bug fixes for cascade import overflow, BOM-prefixed JSON files, chain cleanup ru
 - **BOM-prefixed preset and cascade files load correctly** — added `_read_json_file` helper that strips UTF-8 BOM before parsing; applied at 12 user-facing JSON file-load call sites. Windows tools (Notepad, PowerShell) that write BOM-prefixed UTF-8 no longer cause `JSONDecodeError`.
 - **Run button re-evaluated after cascade cleanup** — `_chain_cleanup` now calls `_update_preview()` (guarded) at the end, so the Run button is correctly disabled when the last cascade step left required fields unfilled.
 - **Timer leak in `_on_error` fixed** — `_flush_timer` and `_timeout_timer` are now stopped in `_on_error`, matching the cleanup in `_on_finished`. Previously, both timers could remain active after a `FailedToStart` error.
+- **Ghost widget prevention on tool switch and slot removal** — widget teardown in `_build_form_view` and `_on_remove_slot` now calls `hide()` → `setParent(None)` → `deleteLater()` instead of bare `deleteLater()`, preventing briefly-visible stale widgets on Linux where `deleteLater` timing differs.
 
 #### Full suite results
 
