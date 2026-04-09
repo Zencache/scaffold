@@ -11448,6 +11448,313 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # =====================================================================
+print("\n=== SECTION 100: Ghost Widget Prevention ===")
+# =====================================================================
+# Validates that hide()+setParent(None)+deleteLater() prevents ghost
+# widgets in the layout after clear/rebuild operations.
+
+# 100a — _build_form_view: no ghost widgets after switching tools
+_s100_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s100_curl = str(Path(__file__).parent / "tools" / "curl.json")
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s100_win = scaffold.MainWindow()
+_s100_win.show()
+app.processEvents()
+
+# Load first tool and record widget ids
+_s100_win._load_tool_path(_s100_nmap)
+app.processEvents()
+_s100_layout = _s100_win.form_container_layout
+_s100_pre_ids = set()
+for _s100_i in range(_s100_layout.count()):
+    _s100_item = _s100_layout.itemAt(_s100_i)
+    if _s100_item and _s100_item.widget():
+        _s100_pre_ids.add(id(_s100_item.widget()))
+_s100_pre_count = _s100_layout.count()
+
+# Switch to second tool — triggers _build_form_view rebuild
+_s100_win._load_tool_path(_s100_curl)
+app.processEvents()
+
+_s100_post_count = _s100_layout.count()
+_s100_post_ids = set()
+_s100_ghost_count = 0
+for _s100_i in range(_s100_layout.count()):
+    _s100_item = _s100_layout.itemAt(_s100_i)
+    if _s100_item and _s100_item.widget():
+        _s100_wid = id(_s100_item.widget())
+        _s100_post_ids.add(_s100_wid)
+        if _s100_wid in _s100_pre_ids:
+            _s100_ghost_count += 1
+
+check(_s100_post_count == _s100_pre_count,
+      f"100a: form layout count stable after tool switch ({_s100_pre_count} -> {_s100_post_count})")
+check(_s100_ghost_count == 0,
+      f"100a: no ghost widgets from previous tool in layout (found {_s100_ghost_count})")
+check(len(_s100_post_ids & _s100_pre_ids) == 0,
+      f"100a: no widget id overlap between old and new form ({len(_s100_post_ids & _s100_pre_ids)} shared)")
+
+_s100_win.close()
+_s100_win.deleteLater()
+app.processEvents()
+
+# 100b — _on_remove_slot: removed widget absent from layout
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s100_win2 = scaffold.MainWindow()
+_s100_win2.show()
+app.processEvents()
+_s100_dock = _s100_win2.cascade_dock
+_s100_dock.show()
+app.processEvents()
+
+# Start with 3 slots
+while len(_s100_dock._slots) < 3:
+    _s100_dock._slots.append({"tool_path": None, "preset_path": None, "delay": 0})
+    _s100_dock._add_slot_widget(len(_s100_dock._slots) - 1)
+app.processEvents()
+
+check(len(_s100_dock._slot_widgets) == 3,
+      f"100b: start with 3 slot widgets (have {len(_s100_dock._slot_widgets)})")
+
+# Record the id of the middle slot widget before removal
+_s100_mid_id = id(_s100_dock._slot_widgets[1]["widget"])
+_s100_pre_container_count = _s100_dock._slots_container.count()
+
+# Remove the middle slot (index 1)
+_s100_dock._on_remove_slot(1)
+app.processEvents()
+
+# Expected: 2 slot widgets + Add Step button + stretch = 4
+_s100_post_container_count = _s100_dock._slots_container.count()
+check(_s100_post_container_count == 4,
+      f"100b: layout count after remove is 4 (got {_s100_post_container_count})")
+check(len(_s100_dock._slot_widgets) == 2,
+      f"100b: 2 slot widgets remain (have {len(_s100_dock._slot_widgets)})")
+
+# Verify removed widget's id is NOT in the layout
+_s100_found_ghost = False
+for _s100_i in range(_s100_dock._slots_container.count()):
+    _s100_item = _s100_dock._slots_container.itemAt(_s100_i)
+    if _s100_item and _s100_item.widget() and id(_s100_item.widget()) == _s100_mid_id:
+        _s100_found_ghost = True
+        break
+check(not _s100_found_ghost,
+      "100b: removed slot widget id absent from layout (no ghost)")
+
+_s100_win2.close()
+_s100_win2.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 101 — Cascade Import Clamp, BOM Tolerance, Chain Cleanup
+#                Run-Button State, Timer Stops in _on_error
+# =====================================================================
+print("\n--- Section 101: Cascade Import Clamp, BOM Tolerance, Chain Cleanup Run-Btn, Timer Stops ---")
+
+# --- 101a: Cascade import clamps to CASCADE_MAX_SLOTS ---
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s101_win = scaffold.MainWindow()
+_s101_win.show()
+app.processEvents()
+_s101_dock = _s101_win.cascade_dock
+_s101_dock.show()
+app.processEvents()
+
+_s101_base = Path(scaffold.__file__).parent
+_s101_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s101_rel = str(Path(_s101_minimal).relative_to(_s101_base))
+
+# Build a cascade dict with CASCADE_MAX_SLOTS + 5 = 25 steps
+_s101_oversized = {
+    "_format": "scaffold_cascade",
+    "name": "Oversize Test",
+    "steps": [{"tool": _s101_rel, "preset": None, "delay": 0}
+              for _ in range(scaffold.CASCADE_MAX_SLOTS + 5)],
+}
+
+# Capture statusBar messages
+_s101_status_msgs = []
+_s101_orig_showMsg = _s101_win.statusBar().showMessage
+_s101_win.statusBar().showMessage = lambda msg, *a, **kw: (
+    _s101_status_msgs.append(msg), _s101_orig_showMsg(msg, *a, **kw))
+
+_s101_dock._import_cascade_data(_s101_oversized)
+app.processEvents()
+
+check(len(_s101_dock._slots) == scaffold.CASCADE_MAX_SLOTS,
+      f"101a: import clamped to CASCADE_MAX_SLOTS (got {len(_s101_dock._slots)})")
+check(len(_s101_dock._slot_widgets) == scaffold.CASCADE_MAX_SLOTS,
+      f"101a: slot widgets clamped to CASCADE_MAX_SLOTS (got {len(_s101_dock._slot_widgets)})")
+check(not _s101_dock.add_step_btn.isEnabled(),
+      "101a: add_step_btn disabled at max slots")
+check(any("truncated" in m.lower() for m in _s101_status_msgs),
+      f"101a: statusBar mentions 'truncated' (got {_s101_status_msgs})")
+
+_s101_win.statusBar().showMessage = _s101_orig_showMsg
+_s101_win.close()
+_s101_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# --- 101b: BOM tolerance (_read_json_file helper) ---
+_s101_bom_dir = Path(tempfile.mkdtemp(prefix="s101_bom_"))
+
+# 101b1: _read_json_file handles BOM-prefixed JSON
+_s101_bom_json = _s101_bom_dir / "bom_test.json"
+_s101_bom_json.write_bytes(b"\xef\xbb\xbf" + json.dumps(
+    {"_description": "bom test", "key": "value"}).encode("utf-8"))
+try:
+    _s101_parsed = scaffold._read_json_file(_s101_bom_json)
+    check(_s101_parsed.get("key") == "value",
+          "101b1: _read_json_file parsed BOM-prefixed JSON correctly")
+except Exception as _s101_e:
+    check(False, f"101b1: _read_json_file failed on BOM-prefixed JSON: {_s101_e}")
+
+# 101b2: BOM-prefixed preset loads without error
+_s101_bom_preset = _s101_bom_dir / "bom_preset.json"
+_s101_bom_preset.write_bytes(b"\xef\xbb\xbf" + json.dumps(
+    {"_description": "BOM preset test"}).encode("utf-8"))
+try:
+    _s101_pdata = scaffold._read_json_file(_s101_bom_preset)
+    check(_s101_pdata.get("_description") == "BOM preset test",
+          "101b2: BOM-prefixed preset parsed correctly")
+except Exception as _s101_e:
+    check(False, f"101b2: BOM-prefixed preset failed: {_s101_e}")
+
+# 101b3: BOM-prefixed cascade file loads without error
+_s101_bom_cascade = _s101_bom_dir / "bom_cascade.json"
+_s101_bom_cascade.write_bytes(b"\xef\xbb\xbf" + json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "BOM Cascade",
+    "steps": [{"tool": "tools/ping.json", "preset": None, "delay": 0}],
+}).encode("utf-8"))
+try:
+    _s101_cdata = scaffold._read_json_file(_s101_bom_cascade)
+    check(_s101_cdata.get("_format") == "scaffold_cascade",
+          "101b3: BOM-prefixed cascade parsed correctly")
+except Exception as _s101_e:
+    check(False, f"101b3: BOM-prefixed cascade failed: {_s101_e}")
+
+# 101b4: Non-BOM JSON still works through _read_json_file
+_s101_clean_json = _s101_bom_dir / "clean.json"
+_s101_clean_json.write_text(json.dumps({"clean": True}), encoding="utf-8")
+try:
+    _s101_clean = scaffold._read_json_file(_s101_clean_json)
+    check(_s101_clean.get("clean") is True,
+          "101b4: non-BOM JSON works through _read_json_file")
+except Exception as _s101_e:
+    check(False, f"101b4: non-BOM JSON failed: {_s101_e}")
+
+# 101b5: _read_json_file raises on invalid JSON
+_s101_bad_json = _s101_bom_dir / "bad.json"
+_s101_bad_json.write_text("{invalid json", encoding="utf-8")
+try:
+    scaffold._read_json_file(_s101_bad_json)
+    check(False, "101b5: should have raised on invalid JSON")
+except json.JSONDecodeError:
+    check(True, "101b5: _read_json_file raises JSONDecodeError on invalid JSON")
+except AttributeError:
+    check(False, "101b5: _read_json_file not yet defined")
+
+shutil.rmtree(_s101_bom_dir, ignore_errors=True)
+
+# --- 101c: _chain_cleanup re-evaluates run_btn via _update_preview ---
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s101_win2 = scaffold.MainWindow()
+_s101_win2.show()
+app.processEvents()
+_s101_dock2 = _s101_win2.cascade_dock
+_s101_dock2.show()
+app.processEvents()
+
+# Load nmap.json which has a required positional target
+_s101_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s101_win2._load_tool_path(_s101_nmap)
+app.processEvents()
+
+# Confirm required field exists and is empty
+_s101_missing = _s101_win2.form.validate_required()
+check(len(_s101_missing) > 0,
+      f"101c: nmap has {len(_s101_missing)} missing required field(s)")
+
+# _update_preview should have disabled run_btn
+_s101_win2._update_preview()
+app.processEvents()
+check(not _s101_win2.run_btn.isEnabled(),
+      "101c: run_btn disabled when required fields missing (before cleanup)")
+
+# Call _chain_cleanup — this is the regression test
+_s101_dock2._chain_cleanup("Test cleanup")
+app.processEvents()
+
+# After fix: run_btn should be DISABLED (required fields still missing)
+check(not _s101_win2.run_btn.isEnabled(),
+      "101c: run_btn disabled after _chain_cleanup with missing required fields")
+_s101_still_missing = _s101_win2.form.validate_required()
+check(len(_s101_still_missing) > 0,
+      "101c: required fields still reported missing after cleanup")
+
+# 101c2: Edge case — _chain_cleanup with no tool loaded
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s101_win3 = scaffold.MainWindow()
+app.processEvents()
+_s101_dock3 = _s101_win3.cascade_dock
+# Force data to None to simulate no tool loaded
+_s101_win3.data = None
+try:
+    _s101_dock3._chain_cleanup("Edge case test")
+    app.processEvents()
+    check(True, "101c2: _chain_cleanup with data=None does not raise")
+except AttributeError as _s101_e:
+    check(False, f"101c2: _chain_cleanup with data=None raised AttributeError: {_s101_e}")
+_s101_win3.close()
+_s101_win3.deleteLater()
+app.processEvents()
+
+_s101_win2.close()
+_s101_win2.deleteLater()
+app.processEvents()
+
+# --- 101d: Timer stops in _on_error (sibling assertions for Section 41) ---
+_s101_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s101_win4 = scaffold.MainWindow()
+_s101_win4._load_tool_path(_s101_ping)
+app.processEvents()
+
+# Set required positional so validation passes
+for _s101_k, _s101_f in _s101_win4.form.fields.items():
+    if _s101_f["arg"]["positional"] and _s101_f["arg"]["required"]:
+        _s101_win4.form._set_field_value(_s101_k, "127.0.0.1")
+        break
+
+# Point binary at something that doesn't exist
+_s101_win4.data["binary"] = "___nonexistent_binary_101___"
+_s101_win4.form.data["binary"] = "___nonexistent_binary_101___"
+_s101_win4.form.command_changed.emit()
+app.processEvents()
+
+_s101_win4._on_run_stop()
+# Give Qt time to fire errorOccurred(FailedToStart)
+app.processEvents()
+for _ in range(10):
+    app.processEvents()
+    time.sleep(0.05)
+
+check(not _s101_win4._flush_timer.isActive(),
+      "101d: _flush_timer stopped after FailedToStart error")
+check(not _s101_win4._timeout_timer.isActive(),
+      "101d: _timeout_timer stopped after FailedToStart error")
+check(_s101_win4.process is None,
+      "101d: process is None after FailedToStart")
+
+_s101_win4.close()
+_s101_win4.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

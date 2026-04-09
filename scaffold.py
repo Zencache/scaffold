@@ -138,6 +138,19 @@ def load_tool(path: str | Path) -> dict:
         raise RuntimeError(f"Invalid JSON in {p} — {e}")
 
 
+def _read_json_file(path) -> dict:
+    """Read a JSON file, stripping UTF-8 BOM if present.
+
+    Accepts str or Path. Raises OSError on read failure and
+    json.JSONDecodeError on parse failure. Callers handle errors.
+    """
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return json.loads(text)
+
+
 def validate_tool(data: dict) -> list[str]:
     """Validate a tool dict against the schema. Returns a list of error strings."""
     errors = []
@@ -3196,7 +3209,7 @@ class PresetPicker(QDialog):
             # Column 2 — description (read _description from JSON)
             desc = ""
             try:
-                pdata = json.loads(p.read_text(encoding="utf-8"))
+                pdata = _read_json_file(p)
                 desc = pdata.get("_description", "") or ""
             except (json.JSONDecodeError, OSError):
                 pass
@@ -3340,8 +3353,7 @@ class PresetPicker(QDialog):
 
         # Read current preset
         try:
-            text = preset_path.read_text(encoding="utf-8")
-            data = json.loads(text)
+            data = _read_json_file(preset_path)
         except (OSError, json.JSONDecodeError) as e:
             QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
             return
@@ -3840,7 +3852,7 @@ class CascadeListDialog(QDialog):
         valid = []
         for f in cascade_files:
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
+                data = _read_json_file(f)
                 if not isinstance(data, dict):
                     continue
                 if data.get("_format") != "scaffold_cascade":
@@ -4615,7 +4627,12 @@ class CascadeSidebar(QDockWidget):
         info = self._slot_widgets.pop(index)
         self._slot_buttons.pop(index)
         self._arrow_buttons.pop(index)
-        info["widget"].deleteLater()
+        # Hide + reparent before deleteLater to prevent ghost widgets on
+        # Linux where deleteLater timing differs
+        w = info["widget"]
+        w.hide()
+        w.setParent(None)
+        w.deleteLater()
         self._renumber_slots()
         self._save_cascade()
         self._update_add_button_state()
@@ -4813,6 +4830,13 @@ class CascadeSidebar(QDockWidget):
         if not steps or not isinstance(steps, list):
             raise ValueError("Cascade data must contain a non-empty 'steps' list")
 
+        if len(steps) > CASCADE_MAX_SLOTS:
+            original_len = len(steps)
+            steps = steps[:CASCADE_MAX_SLOTS]
+            self._main_window.statusBar().showMessage(
+                f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
+            )
+
         base = Path(__file__).parent
 
         # Tear down existing slot widgets (hide + detach synchronously to
@@ -4910,7 +4934,7 @@ class CascadeSidebar(QDockWidget):
             if answer != QMessageBox.StandardButton.Yes:
                 return
             try:
-                existing_data = json.loads(cascade_path.read_text(encoding="utf-8"))
+                existing_data = _read_json_file(cascade_path)
                 existing_desc = existing_data.get("description", "")
             except (json.JSONDecodeError, OSError):
                 pass
@@ -4953,7 +4977,7 @@ class CascadeSidebar(QDockWidget):
 
         cascade_path = Path(dlg.selected_path)
         try:
-            data = json.loads(cascade_path.read_text(encoding="utf-8"))
+            data = _read_json_file(cascade_path)
         except (json.JSONDecodeError, OSError) as e:
             self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
             return
@@ -5026,8 +5050,7 @@ class CascadeSidebar(QDockWidget):
         src = Path(path)
 
         try:
-            raw = src.read_text(encoding="utf-8")
-            data = json.loads(raw)
+            data = _read_json_file(src)
         except (json.JSONDecodeError, OSError) as e:
             QMessageBox.critical(self, "Import Failed", f"Invalid JSON file:\n{e}")
             return
@@ -5104,8 +5127,7 @@ class CascadeSidebar(QDockWidget):
                     if "_cached_description" not in slot:
                         desc = None
                         try:
-                            with open(preset_path, "r", encoding="utf-8") as f:
-                                pdata = json.load(f)
+                            pdata = _read_json_file(preset_path)
                             desc = pdata.get("_description", None)
                         except Exception:
                             pass
@@ -5170,7 +5192,7 @@ class CascadeSidebar(QDockWidget):
 
         if preset_path and Path(preset_path).exists():
             try:
-                preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
+                preset_data = _read_json_file(preset_path)
                 had_pw = self._main_window.form.apply_values(preset_data)
                 msg = f"Loaded cascade step: {Path(preset_path).stem}"
                 if had_pw:
@@ -5356,7 +5378,7 @@ class CascadeSidebar(QDockWidget):
         # Apply preset
         if preset_path and Path(preset_path).exists():
             try:
-                preset_data = json.loads(Path(preset_path).read_text(encoding="utf-8"))
+                preset_data = _read_json_file(preset_path)
                 # Return value (had_passwords) intentionally unused — chain runs
                 # are automated and cannot prompt for password re-entry.
                 self._main_window.form.apply_values(preset_data)
@@ -5522,6 +5544,10 @@ class CascadeSidebar(QDockWidget):
 
         self._clear_slot_highlights()
         self._main_window.statusBar().showMessage(message)
+
+        # Re-evaluate run button state based on required fields
+        if hasattr(self._main_window, 'form') and self._main_window.form:
+            self._main_window._update_preview()
 
     def _highlight_active_slot(self, index: int) -> None:
         """Highlight the currently executing slot button."""
@@ -6583,12 +6609,16 @@ class MainWindow(QMainWindow):
         if self._chain_preserve_output and hasattr(self, 'output'):
             _preserved_output = self.output.document().toHtml()
 
-        # Clear old contents
+        # Clear old contents (hide + detach synchronously to prevent
+        # ghost widgets on Linux where deleteLater timing differs)
         layout = self.form_container_layout
         while layout.count():
             child = layout.takeAt(0)
             if child.widget():
-                child.widget().deleteLater()
+                w = child.widget()
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
         # Warning banner (non-blocking, at top)
         self.warning_bar = QLabel("")
@@ -6870,7 +6900,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
             try:
-                existing_data = json.loads(preset_path.read_text(encoding="utf-8"))
+                existing_data = _read_json_file(preset_path)
                 existing_desc = existing_data.get("_description", "")
             except (json.JSONDecodeError, OSError):
                 pass
@@ -6925,7 +6955,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            preset = json.loads(preset_path.read_text(encoding="utf-8"))
+            preset = _read_json_file(preset_path)
         except (json.JSONDecodeError, OSError) as e:
             self.statusBar().showMessage(f"Error loading preset: {e}")
             return
@@ -7008,8 +7038,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            raw = src.read_text(encoding="utf-8")
-            data = json.loads(raw)
+            data = _read_json_file(src)
         except (json.JSONDecodeError, OSError) as e:
             self.statusBar().showMessage(f"Import failed: invalid JSON — {e}")
             return
@@ -7486,6 +7515,8 @@ class MainWindow(QMainWindow):
         self._update_preview()
         # Clean up timers and process — needed for FailedToStart where
         # _on_finished() is never called.  Harmless double-set for Crashed.
+        self._timeout_timer.stop()
+        self._flush_output()
         self._elapsed_timer.stop()
         self._force_kill_timer.stop()
         self._run_start_time = None

@@ -2,6 +2,27 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.2] — 2026-04-08
+
+Bug fixes for cascade import overflow, BOM-prefixed JSON files, chain cleanup run-button state, and timer leak in error handler.
+
+### Fixed
+
+- **Cascade import clamps to max slots** — `_import_cascade_data` now truncates oversized step lists to `CASCADE_MAX_SLOTS` (20) and shows a status bar message when truncated, matching the `_on_add_slot` UX pattern.
+- **BOM-prefixed preset and cascade files load correctly** — added `_read_json_file` helper that strips UTF-8 BOM before parsing; applied at 12 user-facing JSON file-load call sites. Windows tools (Notepad, PowerShell) that write BOM-prefixed UTF-8 no longer cause `JSONDecodeError`.
+- **Run button re-evaluated after cascade cleanup** — `_chain_cleanup` now calls `_update_preview()` (guarded) at the end, so the Run button is correctly disabled when the last cascade step left required fields unfilled.
+- **Timer leak in `_on_error` fixed** — `_flush_timer` and `_timeout_timer` are now stopped in `_on_error`, matching the cleanup in `_on_finished`. Previously, both timers could remain active after a `FailedToStart` error.
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,869/1,869 assertions, 0 failures**
+  - Functional: 1,507/1,507
+  - Security: 158/158
+  - Smoke: 68/68
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.1] — 2026-04-08
 
 Cascade variable editor rework, smarter output panel sizing, keyboard shortcuts, and a cascade guide.
