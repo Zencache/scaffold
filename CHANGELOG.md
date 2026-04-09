@@ -2,6 +2,30 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.3] — 2026-04-09
+
+Elevation helper tests, cascade example files, variable injection documentation, and a delete-confirmation UX tweak.
+
+### Added
+
+- **Elevation helper test coverage** — new test section verifying tool detection, caching, platform-dependent error messages, command wrapping, and label text for the elevation system.
+- **Cascade example files** — two educational cascades bundled in `cascades/`: a basic two-step nmap chain and a ping-then-nmap workflow demonstrating cascade variables with per-step flag injection.
+
+### Changed
+
+- **Delete tool confirmation defaults to No** — the confirmation dialog when deleting a tool schema without presets now defaults to No and uses a shorter, clearer message.
+- **Variable injection documented** — added an inline comment block explaining that cascade variables match by flag name and inject into only the first matching field.
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,889/1,889 assertions, 0 failures**
+  - Functional: 1,527/1,527
+  - Security: 158/158
+  - Smoke: 68/68
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.2] — 2026-04-08
 
 Bug fixes for cascade import overflow, BOM-prefixed JSON files, chain cleanup run-button state, and timer leak in error handler.

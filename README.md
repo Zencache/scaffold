@@ -15,14 +15,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
-![Single File](https://img.shields.io/badge/single%20file-7%2C741%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-7%2C777%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (1,845 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (1,889 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line and is handy for edge cases or flags the schema doesn't model perfectly.
 
@@ -485,7 +485,7 @@ Form state is automatically saved 2 seconds after each change. If the app crashe
 
 Chain multiple tool runs into sequential workflows from the cascade sidebar (`Ctrl+G`). Each cascade holds up to 20 numbered slots, each assignable to any loaded tool and an optional preset. Configure per-step delays (0–3600 seconds) to pace the chain, enable loop mode to repeat the full sequence indefinitely, or use stop-on-error mode to halt on the first non-zero exit code. Cascade variables let you define named parameters (with type hints: `string`, `file`, `directory`, `integer`, `float`) that are prompted at run time and injected into form fields across steps — useful for target IPs, output directories, or any value that changes between runs.
 
-Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State (slots, loop mode, stop-on-error, variables, and cascade name) persists across sessions. Cascades run through the same `QProcess` list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees as the rest of the app. Three example cascade files are bundled: an nmap reconnaissance chain, a curl API testing chain, and an aircrack-ng capture-to-analysis chain.
+Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State (slots, loop mode, stop-on-error, variables, and cascade name) persists across sessions. Cascades run through the same `QProcess` list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees as the rest of the app. Two example cascade files are bundled: a basic nmap reconnaissance chain (`recon_basic.json`) and a ping-then-nmap workflow demonstrating cascade variables (`ping_then_nmap.json`).
 
 ### LLM-powered preset generation
 
@@ -628,7 +628,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,845 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,889 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
@@ -643,7 +643,7 @@ The author has 15 years of professional IT experience and holds certifications i
 
 **What's new in this release.** v2.8.0 adds cascade preset chaining (the big one — chain tool runs with delays, loops, and saveable named cascade files, all through the same QProcess pipeline as single runs) and LLM-powered preset generation (`--preset-prompt` + `PRESET_PROMPT.txt`, mirroring the existing schema-generation workflow). It also rolls in 13 bugfixes found through the plain-English diagnostic process described above.
 
-The project has 1,845 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 1,889 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 

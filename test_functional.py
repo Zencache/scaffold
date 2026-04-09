@@ -11755,6 +11755,253 @@ app.processEvents()
 
 
 # =====================================================================
+print("\n=== SECTION 102: Elevation Helpers ===")
+# =====================================================================
+
+_s102_orig_which = scaffold.shutil.which
+_s102_orig_platform = scaffold.sys.platform
+
+# --- 102a: _find_elevation_tool returns "" when shutil.which returns None ---
+scaffold._elevation_tool = None
+scaffold._already_elevated = None
+scaffold.shutil.which = lambda name: None
+_s102_result_a = scaffold._find_elevation_tool()
+check(_s102_result_a == "", "102a: _find_elevation_tool returns '' when no tool found")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+scaffold._already_elevated = None
+
+# --- 102b: _find_elevation_tool returns fake path when shutil.which returns one ---
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: "/usr/bin/fake_pkexec"
+_s102_result_b = scaffold._find_elevation_tool()
+check(_s102_result_b == "/usr/bin/fake_pkexec",
+      "102b: _find_elevation_tool returns path when tool found")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102c: Result is cached — second call does not re-invoke shutil.which ---
+_s102_call_count = 0
+def _s102_counting_which(name):
+    global _s102_call_count
+    _s102_call_count += 1
+    return "/fake/tool"
+
+scaffold._elevation_tool = None
+scaffold.shutil.which = _s102_counting_which
+scaffold._find_elevation_tool()
+scaffold._find_elevation_tool()  # second call — should use cache
+check(_s102_call_count == 1, "102c: shutil.which called only once (result cached)")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102d: get_elevation_command with no tool returns original list and non-None error ---
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: None
+_s102_cmd_d = ["nmap", "-sS", "target"]
+_s102_result_d, _s102_error_d = scaffold.get_elevation_command(_s102_cmd_d)
+check(_s102_result_d == _s102_cmd_d,
+      "102d: returns original list when no tool available")
+check(_s102_error_d is not None,
+      "102d: returns non-None error string when no tool")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102e: Error string mentions gsudo on win32 and pkexec on linux ---
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: None
+scaffold.sys.platform = "win32"
+_, _s102_err_win = scaffold.get_elevation_command(["test"])
+check("gsudo" in _s102_err_win, "102e1: error mentions 'gsudo' on win32")
+scaffold.sys.platform = _s102_orig_platform
+scaffold._elevation_tool = None
+
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: None
+scaffold.sys.platform = "linux"
+_, _s102_err_lin = scaffold.get_elevation_command(["test"])
+check("pkexec" in _s102_err_lin, "102e2: error mentions 'pkexec' on linux")
+scaffold.sys.platform = _s102_orig_platform
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102f: With tool available, returns [tool_path] + cmd and None error ---
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: "/usr/bin/fake_tool"
+_s102_cmd_f = ["nmap", "-sS", "target"]
+_s102_result_f, _s102_error_f = scaffold.get_elevation_command(_s102_cmd_f)
+check(_s102_result_f == ["/usr/bin/fake_tool", "nmap", "-sS", "target"],
+      "102f: returns [tool] + cmd when tool available")
+check(_s102_error_f is None, "102f: returns None error when tool available")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102g: Returned list is a NEW list, not the original (mutation safety) ---
+scaffold._elevation_tool = None
+scaffold.shutil.which = lambda name: "/usr/bin/fake_tool"
+_s102_original_g = ["nmap", "-sS", "target"]
+_s102_result_g, _ = scaffold.get_elevation_command(_s102_original_g)
+check(_s102_result_g is not _s102_original_g,
+      "102g: returned list is a new object (mutation safety)")
+scaffold.shutil.which = _s102_orig_which
+scaffold._elevation_tool = None
+
+# --- 102h: _elevation_label returns "Run as Administrator" on win32 ---
+scaffold.sys.platform = "win32"
+_s102_label_h = scaffold._elevation_label()
+check(_s102_label_h == "Run as Administrator",
+      "102h: label is 'Run as Administrator' on win32")
+scaffold.sys.platform = _s102_orig_platform
+
+# --- 102i: _elevation_label contains "sudo" on non-win32 ---
+scaffold.sys.platform = "linux"
+_s102_label_i = scaffold._elevation_label()
+check("sudo" in _s102_label_i, "102i: label contains 'sudo' on non-win32")
+scaffold.sys.platform = _s102_orig_platform
+
+# --- 102j: _check_already_elevated returns bool and is cached ---
+scaffold._already_elevated = None
+_s102_result_j = scaffold._check_already_elevated()
+check(isinstance(_s102_result_j, bool),
+      "102j1: _check_already_elevated returns a bool")
+# Force a known cached value and verify it's returned
+scaffold._already_elevated = True
+_s102_result_j2 = scaffold._check_already_elevated()
+check(_s102_result_j2 is True, "102j2: cached value returned on subsequent call")
+scaffold._already_elevated = None
+
+# Restore all monkey-patches
+scaffold.shutil.which = _s102_orig_which
+scaffold.sys.platform = _s102_orig_platform
+scaffold._elevation_tool = None
+scaffold._already_elevated = None
+
+
+# =====================================================================
+print("\n=== SECTION 103: Cascade Example Files ===")
+# =====================================================================
+
+# Recreate cascades dir and example files (Section 67 cleanup removes them)
+_s103_cascade_dir = Path(__file__).parent / "cascades"
+_s103_cascade_dir.mkdir(exist_ok=True)
+
+_s103_recon_data = {
+    "_format": "scaffold_cascade",
+    "name": "Recon Basic",
+    "description": "Two sequential nmap scans.",
+    "steps": [
+        {"tool": "tools/nmap.json", "preset": None, "delay": 0},
+        {"tool": "tools/nmap.json", "preset": None, "delay": 0}
+    ],
+    "variables": [],
+    "loop_mode": False,
+    "stop_on_error": True
+}
+(_s103_cascade_dir / "recon_basic.json").write_text(
+    json.dumps(_s103_recon_data, indent=4), encoding="utf-8")
+
+_s103_ping_data = {
+    "_format": "scaffold_cascade",
+    "name": "Ping then Nmap",
+    "description": "Ping then nmap with two variables for different positional flags.",
+    "steps": [
+        {"tool": "tools/ping.json", "preset": None, "delay": 0},
+        {"tool": "tools/nmap.json", "preset": None, "delay": 0}
+    ],
+    "variables": [
+        {"name": "Target (ping)", "flag": "DESTINATION", "type_hint": "string",
+         "apply_to": [0]},
+        {"name": "Target (nmap)", "flag": "TARGET", "type_hint": "string",
+         "apply_to": [1]}
+    ],
+    "loop_mode": False,
+    "stop_on_error": True
+}
+(_s103_cascade_dir / "ping_then_nmap.json").write_text(
+    json.dumps(_s103_ping_data, indent=4), encoding="utf-8")
+
+_s103_win = scaffold.MainWindow()
+app.processEvents()
+_s103_dock = _s103_win.cascade_dock
+
+# --- 103a: recon_basic.json loads and populates slots ---
+with open(_s103_cascade_dir / "recon_basic.json", "r", encoding="utf-8") as _s103_f:
+    _s103_loaded1 = json.load(_s103_f)
+_s103_dock._import_cascade_data(_s103_loaded1)
+app.processEvents()
+check(len(_s103_dock._slots) >= 2,
+      "103a: recon_basic.json populates at least 2 slots")
+check(_s103_dock._cascade_variables == [],
+      "103a: recon_basic.json has no variables")
+
+# --- 103b: ping_then_nmap.json loads and populates slots + variables ---
+with open(_s103_cascade_dir / "ping_then_nmap.json", "r", encoding="utf-8") as _s103_f:
+    _s103_loaded2 = json.load(_s103_f)
+_s103_dock._import_cascade_data(_s103_loaded2)
+app.processEvents()
+check(len(_s103_dock._slots) >= 2,
+      "103b: ping_then_nmap.json populates at least 2 slots")
+check(len(_s103_dock._cascade_variables) == 2,
+      "103b: ping_then_nmap.json has 2 variables")
+
+_s103_win.close()
+_s103_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+print("\n=== SECTION 104: Delete Confirmation in Tool Picker ===")
+# =====================================================================
+
+_s104_tmpdir = Path(tempfile.mkdtemp())
+_s104_schema = _s104_tmpdir / "test_tool_104.json"
+_s104_schema.write_text(json.dumps({
+    "_format": "scaffold_schema",
+    "tool": "test_tool_104",
+    "binary": "echo",
+    "description": "Throwaway tool for delete confirmation test",
+    "arguments": []
+}), encoding="utf-8")
+
+_s104_orig_tools_dir = scaffold._tools_dir
+scaffold._tools_dir = lambda: _s104_tmpdir
+
+_s104_win = scaffold.MainWindow()
+_s104_win.picker.scan()
+app.processEvents()
+
+# Select the tool
+for _s104_tr, _s104_ei in enumerate(_s104_win.picker._row_map):
+    if _s104_ei is not None:
+        _, _s104_d, _, _ = _s104_win.picker._entries[_s104_ei]
+        if _s104_d and _s104_d["tool"] == "test_tool_104":
+            _s104_win.picker.table.selectRow(_s104_tr)
+            break
+app.processEvents()
+
+# --- 104a: Declining confirmation keeps the file ---
+_s104_orig_question = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.No)
+_s104_win.picker._on_delete_tool()
+app.processEvents()
+check(_s104_schema.exists(), "104a: file still exists after declining delete")
+
+# --- 104b: Accepting confirmation deletes the file ---
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+_s104_win.picker._on_delete_tool()
+app.processEvents()
+check(not _s104_schema.exists(), "104b: file deleted after confirming delete")
+
+QMessageBox.question = _s104_orig_question
+scaffold._tools_dir = _s104_orig_tools_dir
+_s104_win.close()
+_s104_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s104_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

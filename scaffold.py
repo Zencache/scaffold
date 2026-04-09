@@ -3014,12 +3014,11 @@ class ToolPicker(QWidget):
                 return
         else:
             confirm = QMessageBox.question(
-                self, "Delete Tool",
-                f"Delete tool schema '{tool_name}'?\n\n"
-                f"This will permanently remove {filename} from the tools directory.\n\n"
-                "Tip: Bundled schemas can be restored with:\n"
-                f"  git checkout -- tools/{filename}",
+                self, "Delete Tool Schema",
+                f"Delete schema '{tool_name}'?\n\n"
+                f"The file {filename} will be permanently removed.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
             if confirm != QMessageBox.StandardButton.Yes:
                 return
@@ -5396,6 +5395,12 @@ class CascadeSidebar(QDockWidget):
         # Inject cascade variable values into the form
         if self._chain_variable_values:
             form = self._main_window.form
+            # Variable injection matches by flag name against the form's fields.
+            # Only the FIRST matching field in iteration order receives the value
+            # (note the ``break`` below).  If a form has the same flag in both
+            # global scope and a subcommand scope, only one will be set — whichever
+            # key appears first in form.fields.  This is intentional: variables
+            # target a single logical field, not every occurrence of the flag.
             for var in self._cascade_variables:
                 apply_to = var.get("apply_to", "all")
                 if apply_to == "none":

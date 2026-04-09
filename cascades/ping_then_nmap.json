@@ -1,0 +1,37 @@
+{
+    "_format": "scaffold_cascade",
+    "name": "Ping then Nmap",
+    "description": "Ping then nmap with two variables for different positional flags.",
+    "steps": [
+        {
+            "tool": "tools/ping.json",
+            "preset": null,
+            "delay": 0
+        },
+        {
+            "tool": "tools/nmap.json",
+            "preset": null,
+            "delay": 0
+        }
+    ],
+    "variables": [
+        {
+            "name": "Target (ping)",
+            "flag": "DESTINATION",
+            "type_hint": "string",
+            "apply_to": [
+                0
+            ]
+        },
+        {
+            "name": "Target (nmap)",
+            "flag": "TARGET",
+            "type_hint": "string",
+            "apply_to": [
+                1
+            ]
+        }
+    ],
+    "loop_mode": false,
+    "stop_on_error": true
+}
