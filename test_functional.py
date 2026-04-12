@@ -1,13 +1,37 @@
-"""Part 4 — End-to-End Functional Test Suite for Scaffold.
+""" test_functional.py — end-to-end behavioral test suite for Scaffold.
 
-Exercises every checklist item from the Part 4 review programmatically:
-  - Launch and navigation (tool picker, form loading, direct path, reload)
-  - Form interaction (all 9 widget types, tooltips, required fields, defaults,
-    mutual exclusivity, dependencies, extra flags, browse buttons)
-  - Command preview and execution (live update, copy, run/stop, output colors)
-  - Dark mode (toggle, persistence)
-  - Presets (save, load, reset, delete, restart persistence)
-  - Session persistence (window geometry)
+Runs as a single linear script (sections 1–114), tracking pass/fail counts.
+Each section spins up a MainWindow, exercises a feature area, then cleans up.
+
+Coverage:
+- Form rendering: all 10 widget types, required fields, validation regex,
+  dependencies, mutual exclusivity groups, live command preview
+- Command assembly: separator modes, positional args, repeatable flags,
+  subcommand switching, extra flags (shlex), password masking, elevation prefix
+- Presets: save/load/delete, schema-hash mismatch handling, round-trip across
+  all widget types, schema evolution (renamed/removed fields), size/type limits
+- Cascades: slot management, chain state machine, pause/resume, stop-on-error,
+  loop mode, 20-slot limit, variables (apply_to: all/none/list), first-match
+  injection, monkey-patch lifecycle, save/load, QSettings persistence, sidebar UI
+- History: Ctrl+H dialog, per-tool storage, 50-entry cap, password exclusion,
+  restoration, filter bar
+- Output panel: ring buffer, soft cap, color coding, clear/copy/save,
+  drag handle geometry, search (Ctrl+Shift+F), timer lifecycle
+- Process lifecycle: QProcess start/stop, Stopping state, SIGTERM/SIGKILL,
+  timeouts, force-kill timer, autosave crash recovery
+- Tool picker: directory scan, binary availability status, delete confirmation,
+  favorites, subdirectory grouping
+- Infrastructure: portable mode, QSettings migration, theme switching,
+  keyboard shortcuts, drag-and-drop
+- Security cross-checks: metacharacter passthrough, path traversal rejection,
+  malicious cascade variable values
+
+Variables prefixed _sNN_ belong to section NN (e.g., _s78_dock is section 78's
+cascade dock). Everything shares global scope, so section prefixes matter.
+
+Companion suites: test_security.py (injection resistance), test_preset_validation.py
+(validate_preset unit tests), test_examples.py (editable dropdowns),
+test_smoke.py (launch sanity), test_manual_verification.py (regression locks).
 """
 
 import io
