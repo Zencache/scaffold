@@ -41,7 +41,7 @@ VERSION*.md
 *.pem
 *.key
 
-# Diagnostic scripts and reports (internal only)
+# Local diagnostic scratch files (not for commit)
 DIAG_*.md
 DIAGNOSTIC_REPORT*.md
 diag_*.py
@@ -49,3 +49,4 @@ cascade_diag*.py
 verify_theme_consistency.py
 test_diagnostic.py
 diag_output.txt
+tmp*.json

@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.4"
 
 import atexit
 import datetime
@@ -457,7 +457,7 @@ def schema_hash(data: dict) -> str:
                 if isinstance(arg, dict) and isinstance(arg.get("flag"), str):
                     flags.append(f"{sub.get('name')}:{arg.get('flag')}")
         flags.sort()
-    return hashlib.md5(json.dumps(flags).encode()).hexdigest()[:8]
+    return hashlib.sha256(json.dumps(flags).encode()).hexdigest()[:8]
 
 
 # ANSI escape sequence pattern — compiled once, used in _flush_output()
@@ -3444,6 +3444,14 @@ class HistoryDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
 
+        # Search bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter history...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        self.search_bar.installEventFilter(self)
+        layout.addWidget(self.search_bar)
+
         # Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
@@ -3563,6 +3571,22 @@ class HistoryDialog(QDialog):
             if self.parent():
                 self.parent()._clear_history()
             self.reject()
+
+    def _on_filter(self, text: str) -> None:
+        """Hide rows that don't match the search text (case-insensitive substring)."""
+        needle = text.lower()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 1)  # Command column
+            display = item.text().lower() if item else ""
+            self.table.setRowHidden(row, bool(needle) and needle not in display)
+
+    def eventFilter(self, obj, event):
+        if obj is self.search_bar and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                if self.search_bar.text():
+                    self.search_bar.clear()
+                    return True
+        return super().eventFilter(obj, event)
 
 
 # ---------------------------------------------------------------------------
@@ -5435,53 +5459,60 @@ class CascadeSidebar(QDockWidget):
         # Monkey-patch _on_finished to advance the chain after each step
         original_on_finished = self._main_window._on_finished
 
-        def _chain_on_finished(exit_code, exit_status):
-            """Wrapper that calls original handler then advances chain."""
-            original_on_finished(exit_code, exit_status)
-            # Re-disable run_btn (original handler re-enables it)
-            self._main_window.run_btn.setEnabled(False)
-            if self._chain_state == CHAIN_RUNNING:
-                if self._stop_on_error and exit_code != 0:
+        try:
+            def _chain_on_finished(exit_code, exit_status):
+                """Wrapper that calls original handler then advances chain."""
+                original_on_finished(exit_code, exit_status)
+                # Re-disable run_btn (original handler re-enables it)
+                self._main_window.run_btn.setEnabled(False)
+                if self._chain_state == CHAIN_RUNNING:
+                    if self._stop_on_error and exit_code != 0:
+                        slot_idx = self._chain_queue[self._chain_current]
+                        step_num = self._chain_current + 1
+                        tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
+                        self._chain_cleanup(
+                            f"Cascade stopped: step {step_num} ({tool_name}) "
+                            f"exited with code {exit_code}"
+                        )
+                        return
+                    if self._chain_paused:
+                        self._chain_state = CHAIN_PAUSED
+                        self.pause_chain_btn.setEnabled(True)
+                        self.pause_chain_btn.setText("Resume")
+                        next_step = self._chain_current + 2  # 1-indexed display
+                        self._main_window.statusBar().showMessage(
+                            f"Cascade paused before step {next_step}. Click Resume to continue."
+                        )
+                        return
+                    self._chain_state = CHAIN_LOADING
                     slot_idx = self._chain_queue[self._chain_current]
-                    step_num = self._chain_current + 1
-                    tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
-                    self._chain_cleanup(
-                        f"Cascade stopped: step {step_num} ({tool_name}) "
-                        f"exited with code {exit_code}"
-                    )
-                    return
-                if self._chain_paused:
-                    self._chain_state = CHAIN_PAUSED
-                    self.pause_chain_btn.setEnabled(True)
-                    self.pause_chain_btn.setText("Resume")
-                    next_step = self._chain_current + 2  # 1-indexed display
-                    self._main_window.statusBar().showMessage(
-                        f"Cascade paused before step {next_step}. Click Resume to continue."
-                    )
-                    return
-                self._chain_state = CHAIN_LOADING
-                slot_idx = self._chain_queue[self._chain_current]
-                delay_secs = self._slots[slot_idx].get("delay", 0)
-                delay_ms = max(delay_secs * 1000, 300)  # Minimum 300ms for UI breathing room
-                if delay_secs > 0:
-                    next_step = self._chain_current + 2  # 1-indexed display
-                    self._main_window.statusBar().showMessage(
-                        f"Cascade: waiting {delay_secs}s before step {next_step}..."
-                    )
-                QTimer.singleShot(delay_ms, self._chain_advance)
+                    delay_secs = self._slots[slot_idx].get("delay", 0)
+                    delay_ms = max(delay_secs * 1000, 300)  # Minimum 300ms for UI breathing room
+                    if delay_secs > 0:
+                        next_step = self._chain_current + 2  # 1-indexed display
+                        self._main_window.statusBar().showMessage(
+                            f"Cascade: waiting {delay_secs}s before step {next_step}..."
+                        )
+                    QTimer.singleShot(delay_ms, self._chain_advance)
 
-        self._main_window._on_finished = _chain_on_finished
-        if self._stored_original_on_finished is None:
-            self._stored_original_on_finished = original_on_finished
+            self._main_window._on_finished = _chain_on_finished
+            if self._stored_original_on_finished is None:
+                self._stored_original_on_finished = original_on_finished
 
-        # Start the command
-        self._main_window._on_run_stop()
+            # Start the command
+            self._main_window._on_run_stop()
 
-        # If process failed to even start (e.g. binary not found),
-        # _on_error fires and sets process=None without _on_finished.
-        # Detect this and clean up.
-        if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
-            self._chain_cleanup("Cascade stopped: process failed to start")
+            # If process failed to even start (e.g. binary not found),
+            # _on_error fires and sets process=None without _on_finished.
+            # Detect this and clean up.
+            if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+                self._chain_cleanup("Cascade stopped: process failed to start")
+        except Exception as e:
+            try:
+                self._main_window._on_finished = original_on_finished
+            except Exception:
+                pass
+            self._chain_cleanup(f"Cascade crashed: {e}")
 
     def _on_pause_chain(self) -> None:
         """Pause or resume the cascade chain."""

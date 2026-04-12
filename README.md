@@ -15,14 +15,14 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
-![Single File](https://img.shields.io/badge/single%20file-7%2C777%20lines-orange)
+![Single File](https://img.shields.io/badge/single%20file-7%2C808%20lines-orange)
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold — nmap example" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold — hashcat example" width="48%">
 </p>
 
-> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (1,889 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
+> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line of code and every command was manually reviewed and approved, with the author making direct edits where needed. This was a collaboration, not delegation. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (1,956 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. Scaffold should work with any CLI tool that accepts flags and arguments, but tools with very large man pages or hundreds of flags may exceed the LLM's context window during schema generation, resulting in incomplete or inaccurate output. On the UI side, complex tools with deeply nested subcommand trees (like OpenClaw with 70+ subcommands and 200+ arguments) can produce forms that are harder to navigate. Scaffold still gives you a command overview and prevents syntax errors, but for very large tools it may be more of a reference than a streamlined workflow. **Always review the generated commands before running them**, especially with tools that can modify files or systems. If you hit issues with a specific version, try rolling back. Use at your own risk. Contributions and bug reports welcome!
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line and is handy for edge cases or flags the schema doesn't model perfectly.
 
@@ -36,7 +36,7 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **pip** — should come with Python; update it with `pip install --upgrade pip`
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 19 tools (nmap, curl, git, rsync, ansible, docker, aircrack-ng, and more) in the `tools/` folder. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 19 tools (nmap, curl, git, rsync, ansible, docker, aircrack-ng, and more) in the `tools/` folder, plus example cascade files in `cascades/`. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 
@@ -75,18 +75,21 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder (in
 - **LLM-powered schema generation** — paste SCHEMA_PROMPT.txt + docs, get a schema
 - **Syntax-colored command preview** — live preview with color-coded tokens
 - **Process execution** — run, stop, search output, copy or save results
-- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, and more
+- **10 widget types** — checkbox, text, spinbox, dropdown, file picker, password with show/hide, and more
 - **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
-- **Command history** — browse and restore past runs per tool (Ctrl+H)
-- **Auto-save & crash recovery** — form state saved automatically, restored on next launch
+- **Command history** — browse and restore past runs per tool (Ctrl+H), with filter bar for searching entries
+- **Password masking** — password fields mask input with a show/hide toggle; values are replaced with `********` in command preview, output, and history
+- **Auto-save & crash recovery** — form state saved automatically, restored on next launch; stale recovery files cleaned up on startup
 - **Collapsible display groups** — organize large forms into sections
-- **Field search** — find any field by name or flag (Ctrl+F)
+- **Field search** — find any field by name, flag, or description (Ctrl+F)
+- **Output search** — search within command output (Ctrl+Shift+F) with match highlighting and navigation
 - **Process timeout** — optional auto-kill after N seconds, per tool
 - **Mutual exclusivity & dependencies** — radio groups and conditional fields
 - **Validation** — regex patterns and required field checking
 - **Drag and drop** — drop a .json schema to load it
-- **Portable mode** — run from USB with local settings
-- **Cascade preset chaining** — chain multiple tool runs with per-step delays, loop mode, and saveable named cascade files. Same secure QProcess pipeline as regular execution
+- **Portable mode** — run from USB with local settings via `portable.txt`
+- **Elevated execution** — optional `pkexec` (Linux) or `gsudo` (Windows) elevation per tool, configurable as `"optional"` or `"always"` in the schema
+- **Cascade chaining** — chain multiple tool runs (up to 20 slots) with per-step delays, loop mode, stop-on-error, runtime variables, and saveable named cascade files. Same secure QProcess pipeline as regular execution
 - **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
 - **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
 - **Single Python file** — one file, one dependency (PySide6), fully offline
@@ -517,7 +520,7 @@ Regex patterns on string fields give immediate visual feedback (red border) for 
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file — copy and modify it to build schemas for your own tools
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
-- **Bundled tool schemas (testing)** — 18 schemas for aircrack-ng, ansible (4 tools), curl, docker (3 tools), git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, and ping. Some are mostly untested — contributions and bug reports welcome
+- **Bundled tool schemas (testing)** — 19 schemas for aircrack-ng, ansible (4 tools), curl, docker (3 tools), git, gobuster, hashcat, nikto, nmap, openclaw, ffmpeg, ping, and rsync. Some are mostly untested — contributions and bug reports welcome
 
 ## Presets
 
@@ -610,6 +613,7 @@ To disable portable mode, delete both `portable.txt` and `scaffold.ini`.
 | `tools/nmap.json` | nmap | 7 widget types, groups, dependencies, validation, repeatable flags |
 | `tools/openclaw.json` | openclaw | AI agent platform, 10+ subcommands, gateway with auth/tailscale options |
 | `tools/ping.json` | ping | Simple tool, mutual exclusivity group (IPv4/IPv6) |
+| `tools/rsync.json` | rsync | 129 arguments, remote SSH sync, incremental backups — mostly untested |
 | `tools/docker_test/docker.json` | docker | Container management, subcommands (run, build, exec, etc.) — mostly untested |
 | `tools/docker_test/docker-buildx.json` | docker buildx | Extended build capabilities with BuildKit — mostly untested |
 | `tools/docker_test/docker-compose.json` | docker compose | Multi-container orchestration, service management — mostly untested |
@@ -628,7 +632,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in planned phases: core engine → widget rendering → command execution → presets → subcommands → dark mode → elevated execution → UI polish → schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,889 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (1,956 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through a multi-part code review: cleanup and consistency, error handling audit, performance profiling, and a final linting pass
 5. **Iteration, not generation** — most features took multiple rounds of "build it, test it, that's not right, try again." The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging, not just run through automated checks
@@ -641,9 +645,9 @@ The author has 15 years of professional IT experience and holds certifications i
 
 **Multi-model distillation.** External audits from Copilot, ChatGPT, and MiniMax M2.7 surface candidate findings, which are then fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering. The best fixes in recent releases came from this distillation loop — one model finds the lead, another model sanity-checks it, and Opus decides what actually ships.
 
-**What's new in this release.** v2.8.0 adds cascade preset chaining (the big one — chain tool runs with delays, loops, and saveable named cascade files, all through the same QProcess pipeline as single runs) and LLM-powered preset generation (`--preset-prompt` + `PRESET_PROMPT.txt`, mirroring the existing schema-generation workflow). It also rolls in 13 bugfixes found through the plain-English diagnostic process described above.
+**What's new in this release.** v2.8.4 adds a history dialog filter bar (case-insensitive substring search via Ctrl+H), cascade crash recovery hardening (try/except guard around the chain monkey-patch), process-failed-to-start cascade detection, stale recovery file cleanup on startup, and SHA-256 schema hashing (replacing MD5). It also adds 10 new test sections (105–114) covering cascade edge cases (malicious variable values, single-slot execution, `apply_to: "none"` scope), validation hardening (path-separator rejection, empty subcommand names), and infrastructure (stale recovery cleanup, schema_hash verification, history search bar).
 
-The project has 1,889 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
+The project has 1,956 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 
 ## Support the Project
 

@@ -2,6 +2,35 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.4] — 2026-04-11
+
+History dialog filter bar, SHA-256 schema hashing, cascade crash recovery guard, and added new test sections.
+
+### Added
+
+- **History dialog filter bar** — `HistoryDialog` now includes a search bar (`_on_filter`) with case-insensitive substring filtering across command entries. Escape clears the filter text without closing the dialog (`eventFilter`).
+- **New test coverage (sections 105–114):** malicious cascade variable values (105), `apply_to: "none"` scope persistence and injection suppression (106), cascade process-failed-to-start cleanup (107), `_cleanup_stale_recovery_files` expiry and corrupt-JSON handling (108), binary validation relative-path rejection (109), empty subcommand name rejection (110), single-slot cascade execution (111), cascade crash recovery with monkey-patch restoration (112), `schema_hash` SHA-256 verification (113), history dialog search bar filtering and Escape behavior (114).
+
+### Changed
+
+- **`schema_hash` uses SHA-256** — `schema_hash()` switched from `hashlib.md5` to `hashlib.sha256` for preset version hashing.
+
+### Fixed
+
+- **Cascade monkey-patch crash recovery** — `_chain_execute_current` now wraps the `_on_finished` monkey-patch and `_on_run_stop()` call in try/except, restoring the original handler and calling `_chain_cleanup` on failure instead of leaving the app in an unrecoverable state.
+- **Section 3c stop-process test stabilized on Windows** — changed ping count from 0 (invalid on Windows) to 5, preventing a race where the process exited before the stop button was pressed.
+- **Section 26i drag-handle test stabilized** — added `processEvents` + `adjustSize` calls and a positive-height guard before `_effective_max_height` measurement, eliminating an intermittent layout-timing flake.
+
+#### Full suite results
+
+- **All 6 test suites pass: 1,957/1,957 assertions, 0 failures**
+  - Functional: 1,594/1,594
+  - Security: 158/158
+  - Smoke: 69/69
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.3] — 2026-04-09
 
 Elevation helper tests, cascade example files, variable injection documentation, and a delete-confirmation UX tweak.
