@@ -2,6 +2,29 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.6] — 2026-04-13
+
+Import/load hardening — format-check on preset import, malformed cascade steps handling.
+
+### Fixed
+
+- **Import Preset rejects non-preset files** — `_on_import_preset` now has a three-tier `_format` check mirroring `_load_tool_path`: cascade files are rejected with a clear message pointing to Cascade → Import Cascade; other non-preset formats (e.g. `scaffold_schema`) are rejected; files with no `_format` marker show a "Missing Format Marker" warning with Yes/Cancel (default Cancel). Previously a cascade file would pass `validate_preset` and silently import, then fail on next load.
+- **CascadeListDialog handles malformed `steps` field** — `_populate` now validates that `steps` is a list before calling `len()`. If `steps` is a dict, string, or any non-list value, the Steps column shows `"0 (malformed)"` instead of a misleading count (dict length or string length). Malformed rows remain visible so users can find and delete them.
+
+### Added
+
+- **Regression test for duplicate-flag single-reporting** (Section 133) — confirms `_check_duplicate_flag_values` reports each flag collision exactly once per scope (global, subcommand), including positional flags and `short_flag` collisions.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,176/2,176 assertions, 0 failures**
+  - Functional: 1,812/1,812
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.5] — 2026-04-13
 
 Cascade dialog hardening — combined error messages, duplicate flag rejection, flag format validation.

@@ -14685,6 +14685,374 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 133 — Duplicate flag single-reporting (regression test)
+# =====================================================================
+print("\n--- Section 133: Duplicate flag single-reporting ---")
+
+# 133a: Two arguments sharing --output → exactly ONE error, not two
+_s133_tool_a = {
+    "tool": "dup_test",
+    "binary": "dup_test",
+    "description": "test",
+    "arguments": [
+        {"name": "out_a", "flag": "--output", "type": "string"},
+        {"name": "out_b", "flag": "--output", "type": "string"},
+    ],
+}
+_s133_errs_a = scaffold.validate_tool(_s133_tool_a)
+check(len(_s133_errs_a) > 0, "133a: duplicate --output produces errors")
+_s133_output_mentions = [e for e in _s133_errs_a if "--output" in e]
+check(len(_s133_output_mentions) == 1,
+      f"133a: exactly ONE error mentions --output, got {len(_s133_output_mentions)}: {_s133_output_mentions}")
+
+# 133b: Positional flag collision (non-dash) still reported
+_s133_tool_b = {
+    "tool": "pos_test",
+    "binary": "pos_test",
+    "description": "test",
+    "arguments": [
+        {"name": "target_a", "flag": "TARGET", "type": "string"},
+        {"name": "target_b", "flag": "TARGET", "type": "string"},
+    ],
+}
+_s133_errs_b = scaffold.validate_tool(_s133_tool_b)
+_s133_target_mentions = [e for e in _s133_errs_b if "TARGET" in e]
+check(len(_s133_target_mentions) >= 1,
+      f"133b: positional TARGET collision is reported, got {len(_s133_target_mentions)}")
+
+# 133c: Subcommand with duplicate flag → one error per collision
+_s133_tool_c = {
+    "tool": "sub_dup_test",
+    "binary": "sub_dup_test",
+    "description": "test",
+    "subcommands": [
+        {
+            "name": "clone",
+            "arguments": [
+                {"name": "depth_a", "flag": "--depth", "type": "integer"},
+                {"name": "depth_b", "flag": "--depth", "type": "integer"},
+            ],
+        },
+    ],
+}
+_s133_errs_c = scaffold.validate_tool(_s133_tool_c)
+_s133_depth_mentions = [e for e in _s133_errs_c if "--depth" in e]
+check(len(_s133_depth_mentions) == 1,
+      f"133c: exactly ONE error for --depth in subcommand, got {len(_s133_depth_mentions)}: {_s133_depth_mentions}")
+
+# 133d: short_flag collision still reported
+_s133_tool_d = {
+    "tool": "short_dup_test",
+    "binary": "short_dup_test",
+    "description": "test",
+    "arguments": [
+        {"name": "verbose", "flag": "--verbose", "type": "boolean", "short_flag": "-v"},
+        {"name": "version", "flag": "--version", "type": "boolean", "short_flag": "-v"},
+    ],
+}
+_s133_errs_d = scaffold.validate_tool(_s133_tool_d)
+_s133_short_mentions = [e for e in _s133_errs_d if "-v" in e]
+check(len(_s133_short_mentions) >= 1,
+      f"133d: short_flag -v collision is reported, got {len(_s133_short_mentions)}")
+
+app.processEvents()
+
+
+# =====================================================================
+# Section 134 — Import preset format rejection
+# =====================================================================
+print("\n--- Section 134: Import preset format rejection ---")
+
+# Create temp dir with test files
+_s134_tmpdir = Path(tempfile.mkdtemp(prefix="s134_"))
+
+_s134_cascade_file = _s134_tmpdir / "cascade_masquerading.json"
+_s134_cascade_file.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "fake_cascade",
+    "description": "not a preset",
+    "steps": [],
+}), encoding="utf-8")
+
+_s134_schema_file = _s134_tmpdir / "schema_masquerading.json"
+_s134_schema_file.write_text(json.dumps({
+    "_format": "scaffold_schema",
+    "tool": "fake_schema",
+    "binary": "fake",
+    "arguments": [],
+}), encoding="utf-8")
+
+_s134_noformat_file = _s134_tmpdir / "no_format_preset.json"
+_s134_noformat_file.write_text(json.dumps({
+    "_subcommand": None,
+    "_schema_hash": "abc123",
+}), encoding="utf-8")
+
+_s134_valid_file = _s134_tmpdir / "valid_preset.json"
+_s134_valid_file.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_subcommand": None,
+    "_schema_hash": "abc123",
+}), encoding="utf-8")
+
+# We need a fresh window with a loaded tool for _on_import_preset to work
+_s134_tool = {
+    "tool": "s134_import_test",
+    "binary": "s134_test",
+    "description": "test tool for import",
+    "_format": "scaffold_schema",
+    "arguments": [
+        {"name": "input", "flag": "--input", "type": "string"},
+    ],
+}
+_s134_schema_path = _s134_tmpdir / "s134_import_test.json"
+_s134_schema_path.write_text(json.dumps(_s134_tool), encoding="utf-8")
+
+# Save and monkeypatch
+_s134_orig_warning = QMessageBox.warning
+_s134_orig_critical = QMessageBox.critical
+_s134_orig_getopen = None
+try:
+    from PySide6.QtWidgets import QFileDialog
+    _s134_orig_getopen = QFileDialog.getOpenFileName
+except Exception:
+    pass
+
+_s134_critical_calls = []
+_s134_warning_calls = []
+
+def _s134_mock_critical(parent, title, text, *args, **kwargs):
+    _s134_critical_calls.append((parent, title, text))
+    return QMessageBox.StandardButton.Ok
+
+def _s134_mock_warning_cancel(parent, title, text, *args, **kwargs):
+    _s134_warning_calls.append((parent, title, text))
+    return QMessageBox.StandardButton.Cancel
+
+def _s134_mock_warning_yes(parent, title, text, *args, **kwargs):
+    _s134_warning_calls.append((parent, title, text))
+    return QMessageBox.StandardButton.Yes
+
+QMessageBox.critical = _s134_mock_critical
+
+# Create a fresh window and load tool into it
+_s134_w = scaffold.MainWindow()
+_s134_orig_load_warning = QMessageBox.warning
+QMessageBox.warning = _s134_mock_warning_yes  # accept missing format for schema load
+_s134_w._load_tool_path(str(_s134_schema_path))
+app.processEvents()
+QMessageBox.warning = _s134_orig_load_warning
+
+# Ensure we have a loaded tool
+check(_s134_w.data is not None and _s134_w.data.get("tool") == "s134_import_test",
+      "134-setup: tool loaded for import test")
+
+# Get the preset dir path for checking imports
+_s134_preset_dir = scaffold._presets_dir("s134_import_test")
+
+# 134a: Cascade file → QMessageBox.critical, NOT imported
+_s134_critical_calls.clear()
+QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s134_cascade_file), "")
+QMessageBox.warning = _s134_orig_warning
+_s134_w._on_import_preset()
+app.processEvents()
+
+check(len(_s134_critical_calls) == 1,
+      f"134a: QMessageBox.critical called once for cascade, got {len(_s134_critical_calls)}")
+if _s134_critical_calls:
+    check("cascade" in _s134_critical_calls[0][2].lower(),
+          f"134a: critical message mentions 'cascade': {_s134_critical_calls[0][2]}")
+_s134_cascade_dest = _s134_preset_dir / "cascade_masquerading.json"
+check(not _s134_cascade_dest.exists(),
+      "134a: cascade file NOT imported to preset dir")
+
+# 134b: Schema file → QMessageBox.critical, NOT imported
+_s134_critical_calls.clear()
+QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s134_schema_file), "")
+_s134_w._on_import_preset()
+app.processEvents()
+
+check(len(_s134_critical_calls) == 1,
+      f"134b: QMessageBox.critical called once for schema, got {len(_s134_critical_calls)}")
+if _s134_critical_calls:
+    _s134b_msg = _s134_critical_calls[0][2].lower()
+    check("schema" in _s134b_msg or "preset" in _s134b_msg,
+          f"134b: critical message mentions 'schema' or 'preset': {_s134_critical_calls[0][2]}")
+_s134_schema_dest = _s134_preset_dir / "schema_masquerading.json"
+check(not _s134_schema_dest.exists(),
+      "134b: schema file NOT imported to preset dir")
+
+# 134c: No _format, warning → Cancel → NOT imported
+_s134_warning_calls.clear()
+QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s134_noformat_file), "")
+QMessageBox.warning = _s134_mock_warning_cancel
+_s134_w._on_import_preset()
+app.processEvents()
+
+check(len(_s134_warning_calls) == 1,
+      f"134c: QMessageBox.warning called once for missing format (Cancel), got {len(_s134_warning_calls)}")
+if _s134_warning_calls:
+    check("missing format" in _s134_warning_calls[0][1].lower() or "format" in _s134_warning_calls[0][2].lower(),
+          f"134c: warning mentions format: title={_s134_warning_calls[0][1]}, text={_s134_warning_calls[0][2]}")
+_s134_noformat_dest = _s134_preset_dir / "no_format_preset.json"
+check(not _s134_noformat_dest.exists(),
+      "134c: no-format file NOT imported when Cancel clicked")
+
+# 134d: No _format, warning → Yes → IS imported
+_s134_warning_calls.clear()
+QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s134_noformat_file), "")
+QMessageBox.warning = _s134_mock_warning_yes
+_s134_w._on_import_preset()
+app.processEvents()
+
+check(len(_s134_warning_calls) == 1,
+      f"134d: QMessageBox.warning called once for missing format (Yes), got {len(_s134_warning_calls)}")
+check(_s134_noformat_dest.exists(),
+      "134d: no-format file IS imported when Yes clicked")
+
+# 134e: Valid preset with _format: "scaffold_preset" → imports without prompt
+_s134_critical_calls.clear()
+_s134_warning_calls.clear()
+QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s134_valid_file), "")
+QMessageBox.warning = _s134_mock_warning_cancel  # should not be called
+QMessageBox.critical = _s134_mock_critical  # should not be called
+_s134_w._on_import_preset()
+app.processEvents()
+
+check(len(_s134_critical_calls) == 0,
+      f"134e: no critical dialog for valid preset, got {len(_s134_critical_calls)}")
+check(len(_s134_warning_calls) == 0,
+      f"134e: no warning dialog for valid preset, got {len(_s134_warning_calls)}")
+_s134_valid_dest = _s134_preset_dir / "valid_preset.json"
+check(_s134_valid_dest.exists(),
+      "134e: valid preset imported successfully")
+
+# Restore monkeypatches
+QMessageBox.warning = _s134_orig_warning
+QMessageBox.critical = _s134_orig_critical
+if _s134_orig_getopen is not None:
+    QFileDialog.getOpenFileName = _s134_orig_getopen
+
+# Cleanup
+_s134_w.close()
+_s134_w.deleteLater()
+shutil.rmtree(_s134_tmpdir, ignore_errors=True)
+shutil.rmtree(_s134_preset_dir, ignore_errors=True)
+app.processEvents()
+
+
+# =====================================================================
+# Section 135 — CascadeListDialog malformed steps
+# =====================================================================
+print("\n--- Section 135: CascadeListDialog malformed steps ---")
+
+# Create test cascade files in the cascades directory
+_s135_cascade_dir = scaffold._cascades_dir()
+
+_s135_good = _s135_cascade_dir / "_s135_good_cascade.json"
+_s135_good.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "Good Cascade",
+    "description": "works fine",
+    "steps": [
+        {"tool": "tool_a", "arguments": {}},
+        {"tool": "tool_b", "arguments": {}},
+    ],
+}), encoding="utf-8")
+
+_s135_dict_steps = _s135_cascade_dir / "_s135_dict_steps.json"
+_s135_dict_steps.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "Dict Steps",
+    "description": "steps is a dict",
+    "steps": {"broken": True},
+}), encoding="utf-8")
+
+_s135_string_steps = _s135_cascade_dir / "_s135_string_steps.json"
+_s135_string_steps.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "String Steps",
+    "description": "steps is a string",
+    "steps": "not a list",
+}), encoding="utf-8")
+
+# 135a: Dialog opens without exception
+_s135_dlg = None
+_s135_exc = None
+try:
+    _s135_dlg = scaffold.CascadeListDialog(mode="load")
+    app.processEvents()
+except Exception as e:
+    _s135_exc = e
+
+check(_s135_exc is None, f"135a: CascadeListDialog opens without exception (got {_s135_exc})")
+
+if _s135_dlg is not None:
+    # 135b: All three test files appear as rows (plus any pre-existing cascades)
+    # Find our specific rows by name
+    _s135_our_rows = {}
+    for _r in range(_s135_dlg.table.rowCount()):
+        _item = _s135_dlg.table.item(_r, 0)
+        if _item:
+            _name = _item.text()
+            if _name in ("Good Cascade", "Dict Steps", "String Steps"):
+                _s135_our_rows[_name] = _r
+
+    check(len(_s135_our_rows) == 3,
+          f"135b: all 3 test cascade files visible, got {len(_s135_our_rows)}: {list(_s135_our_rows.keys())}")
+
+    # 135c: Good cascade shows steps count 2
+    if "Good Cascade" in _s135_our_rows:
+        _s135_good_steps_item = _s135_dlg.table.item(_s135_our_rows["Good Cascade"], 2)
+        _s135_good_val = _s135_good_steps_item.data(Qt.ItemDataRole.DisplayRole) if _s135_good_steps_item else None
+        check(_s135_good_val == 2 or str(_s135_good_val) == "2",
+              f"135c: good cascade shows step count 2, got {_s135_good_val!r}")
+
+    # 135d: Dict-steps row shows "0 (malformed)"
+    if "Dict Steps" in _s135_our_rows:
+        _s135_dict_item = _s135_dlg.table.item(_s135_our_rows["Dict Steps"], 2)
+        _s135_dict_val = _s135_dict_item.data(Qt.ItemDataRole.DisplayRole) if _s135_dict_item else None
+        check(str(_s135_dict_val) == "0 (malformed)",
+              f"135d: dict-steps shows '0 (malformed)', got {_s135_dict_val!r}")
+
+    # 135e: String-steps row shows "0 (malformed)"
+    if "String Steps" in _s135_our_rows:
+        _s135_str_item = _s135_dlg.table.item(_s135_our_rows["String Steps"], 2)
+        _s135_str_val = _s135_str_item.data(Qt.ItemDataRole.DisplayRole) if _s135_str_item else None
+        check(str(_s135_str_val) == "0 (malformed)",
+              f"135e: string-steps shows '0 (malformed)', got {_s135_str_val!r}")
+
+    # 135f: Selecting and deleting a malformed row works
+    if "Dict Steps" in _s135_our_rows:
+        _s135_del_row = _s135_our_rows["Dict Steps"]
+        _s135_dlg.table.selectRow(_s135_del_row)
+        app.processEvents()
+        _s135_orig_question = QMessageBox.question
+        QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+        _s135_pre_count = _s135_dlg.table.rowCount()
+        _s135_dlg._on_delete()
+        app.processEvents()
+        _s135_post_count = _s135_dlg.table.rowCount()
+        check(_s135_post_count == _s135_pre_count - 1,
+              f"135f: row deleted (was {_s135_pre_count}, now {_s135_post_count})")
+        check(not _s135_dict_steps.exists(),
+              "135f: dict_steps file removed from disk")
+        QMessageBox.question = _s135_orig_question
+
+    _s135_dlg.close()
+    _s135_dlg.deleteLater()
+    app.processEvents()
+
+# Cleanup test cascade files
+for _f in (_s135_good, _s135_dict_steps, _s135_string_steps):
+    try:
+        _f.unlink()
+    except OSError:
+        pass
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

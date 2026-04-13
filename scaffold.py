@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.5"
+__version__ = "2.8.5.6"
 
 import atexit
 import datetime
@@ -3909,7 +3909,10 @@ class CascadeListDialog(QDialog):
             # Steps count
             steps = data.get("steps", [])
             count_item = QTableWidgetItem()
-            count_item.setData(Qt.ItemDataRole.DisplayRole, len(steps))
+            if isinstance(steps, list):
+                count_item.setData(Qt.ItemDataRole.DisplayRole, len(steps))
+            else:
+                count_item.setData(Qt.ItemDataRole.DisplayRole, "0 (malformed)")
             self.table.setItem(row, 2, count_item)
             # Modified date
             try:
@@ -7656,6 +7659,36 @@ class MainWindow(QMainWindow):
         if not isinstance(data, dict):
             self.statusBar().showMessage("Import failed: file is not a JSON object")
             return
+
+        # Three-tier _format check: correct -> silent, wrong -> reject, missing -> warn
+        fmt = data.get("_format")
+        if fmt == "scaffold_cascade":
+            QMessageBox.critical(
+                self, "Wrong File Format",
+                "This is a cascade file, not a preset. "
+                "Use Cascade \u2192 Import Cascade to open it.",
+            )
+            return
+        if fmt is not None and fmt != "scaffold_preset":
+            QMessageBox.critical(
+                self, "Wrong File Format",
+                f'This file has "_format": "{fmt}" \u2014 '
+                f"it appears to be a tool schema, not a preset."
+                if fmt == "scaffold_schema"
+                else f'This file has "_format": "{fmt}" \u2014 '
+                f"it is not a Scaffold preset.",
+            )
+            return
+        if fmt is None:
+            btn = QMessageBox.warning(
+                self, "Missing Format Marker",
+                "This file doesn't contain a format marker. "
+                "It may not be a Scaffold preset.\n\nImport anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if btn != QMessageBox.StandardButton.Yes:
+                return
 
         # Validate preset structure before importing
         verrors = validate_preset(data)
