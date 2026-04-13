@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5"
+__version__ = "2.8.5.1"
 
 import atexit
 import datetime
@@ -4241,7 +4241,25 @@ class CascadeVariableDefinitionDialog(QDialog):
 
         # --- table ---
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Name", "Flag", "Type", "Apply To"])
+        _headers = [
+            ("Name", "Human-readable label shown in the run-time variable prompt "
+                     "dialog. Free text; used only for display, not as a key."),
+            ("Flag", "The form field key this variable's value gets injected into "
+                     "when the chain runs. Must match a flag name in the target "
+                     "tool's schema (use subcommand:flag for scoped flags)."),
+            ("Type", "Input widget shown in the run-time prompt: string, integer, "
+                     "boolean, etc. Controls validation and how the value is "
+                     "rendered in the prompt dialog."),
+            ("Apply To", "Which slots in the cascade receive this variable's value.\n"
+                         "all \u2014 injects into every step\n"
+                         "none \u2014 defines the variable but injects nowhere\n"
+                         "A comma-separated list of slot numbers limits injection "
+                         "to those specific steps only."),
+        ]
+        for col, (label, tip) in enumerate(_headers):
+            item = QTableWidgetItem(label)
+            item.setToolTip(tip)
+            self._table.setHorizontalHeaderItem(col, item)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -4728,6 +4746,14 @@ def substitute_captures(text: str, values: dict) -> tuple[str, list[str]]:
     return (result, unset_names)
 
 
+_ARGV_FLAG_RE = re.compile(r"^--?[A-Za-z]")
+
+
+def _looks_like_argv_flag(value: str) -> bool:
+    """True if value looks like an argv flag (-x, --flag) but not bare -, --, or numbers."""
+    return bool(_ARGV_FLAG_RE.match(value))
+
+
 class CascadeSidebar(QDockWidget):
     """Collapsible right-side dock with dynamic cascade step slots."""
 
@@ -4860,6 +4886,7 @@ class CascadeSidebar(QDockWidget):
         self._chain_loop_count = 0
         self._stored_original_on_finished = None
         self._chain_variable_values: dict = {}
+        self._argv_warned_captures: set[str] = set()
         self._chain_paused = False
         self._current_cascade_name: str | None = None
 
@@ -5709,9 +5736,34 @@ class CascadeSidebar(QDockWidget):
         """Replace {name} tokens in text using values dict.
 
         Emits a warning line to the output panel for each unset capture name.
-        If _stop_on_error is True and any captures are unset, halts the chain.
-        Returns the substituted text string.
+        Emits argv-flag-injection warnings for whole-value flag-like captures.
+        If _stop_on_error is True and any captures are unset or flag-like,
+        halts the chain.  Returns the substituted text string.
         """
+        # Argv-flag injection guard: check for whole-value flag-like captures
+        # before substitution.  A field value of exactly "{name}" where
+        # values[name] matches ^--?[A-Za-z] is suspicious.
+        for name, value in values.items():
+            if (
+                text == f"{{{name}}}"
+                and isinstance(value, str)
+                and _looks_like_argv_flag(value)
+                and name not in self._argv_warned_captures
+            ):
+                self._argv_warned_captures.add(name)
+                if hasattr(self._main_window, "output"):
+                    self._main_window._append_output(
+                        f"[cascade] capture '{name}' resolved to argv-flag-like value "
+                        f"'{value}'; review before next step runs\n",
+                        COLOR_WARN,
+                    )
+                if self._stop_on_error:
+                    self._chain_cleanup(
+                        f"Cascade stopped: capture '{name}' resolved to "
+                        f"argv-flag-like value '{value}'"
+                    )
+                    return text  # halt — return original, cleanup already ran
+
         result, unset_names = substitute_captures(text, values)
         for name in unset_names:
             if hasattr(self._main_window, 'output'):
@@ -5748,6 +5800,7 @@ class CascadeSidebar(QDockWidget):
                 return
 
         slot_index = self._chain_queue[self._chain_current]
+        self._argv_warned_captures.clear()
         slot = self._slots[slot_index]
         tool_path = slot["tool_path"]
         preset_path = slot.get("preset_path")
@@ -5847,7 +5900,8 @@ class CascadeSidebar(QDockWidget):
         # Substitution pass: replace {capture_name} tokens in all field values.
         # Runs after variable injection so injected values are also subject to
         # substitution (a variable value can legitimately contain {capture_name}).
-        unset_seen: list[str] = []
+        # Delegates to _substitute_captures which handles unset warnings,
+        # argv-flag injection guard, and stop-on-error halts.
         form = self._main_window.form
         if form is not None and self._chain_variable_values:
             for key in list(form.fields.keys()):
@@ -5863,27 +5917,11 @@ class CascadeSidebar(QDockWidget):
                     continue
                 if not isinstance(current, str) or "{" not in current:
                     continue
-                new_value, unset = substitute_captures(current, self._chain_variable_values)
+                new_value = self._substitute_captures(current, self._chain_variable_values)
+                if self._chain_state == CHAIN_IDLE:
+                    return  # guard or unset halt fired
                 if new_value != current:
                     form._set_field_value(key, new_value)
-                for name in unset:
-                    if name not in unset_seen:
-                        unset_seen.append(name)
-
-        # Emit one warning line per unique unset name for this slot
-        for name in unset_seen:
-            self._main_window._append_output(
-                f"[cascade] capture '{name}' did not match; substituting empty string\n",
-                COLOR_WARN,
-            )
-
-        # Stop-on-error: unset capture with the flag on is a hard halt
-        if unset_seen and self._stop_on_error:
-            first = unset_seen[0]
-            self._chain_cleanup(
-                f"Cascade stopped: capture '{first}' unset and stop-on-error is on"
-            )
-            return
 
         # Small delay to let the form render before executing
         QTimer.singleShot(150, self._chain_execute_current)

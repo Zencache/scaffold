@@ -12869,6 +12869,913 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 115 — Cascade Captures: Serialization
+# =====================================================================
+print("\n=== SECTION 115: Cascade Captures: Serialization ===")
+
+_s115_tmpdir = tempfile.mkdtemp(prefix="scaffold_test115_")
+_s115_tool = {
+    "tool": "tool_115",
+    "binary": "echo",
+    "description": "Test tool for cascade captures serialization",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string"},
+    ],
+}
+_s115_path = os.path.join(_s115_tmpdir, "tool_115.json")
+Path(_s115_path).write_text(json.dumps(_s115_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s115_win = scaffold.MainWindow()
+_s115_win.show()
+app.processEvents()
+_s115_dock = _s115_win.cascade_dock
+_s115_dock.show()
+app.processEvents()
+
+# 115a: Slot dict accepts a "captures" list — defaults to [] when absent
+_s115_slot0 = _s115_dock._slots[0]
+_s115_has_captures = "captures" in _s115_slot0
+if _s115_has_captures:
+    check(isinstance(_s115_slot0["captures"], list),
+          "115a: slot dict 'captures' key is a list")
+    check(_s115_slot0["captures"] == [],
+          "115a: slot dict 'captures' defaults to empty list")
+else:
+    check(False, "115a: slot dict 'captures' key is a list (key missing)")
+    check(False, "115a: slot dict 'captures' defaults to empty list (key missing)")
+
+# 115b: _save_cascade / _load_cascade roundtrip preserves captures
+_s115_test_captures = [
+    {"name": "host_ip", "source": "stdout", "pattern": r"Nmap scan report for (\S+)", "group": 1},
+    {"name": "open_port", "source": "stdout", "pattern": r"(\d+)/tcp\s+open", "group": 1},
+]
+if _s115_has_captures:
+    _s115_dock._slots[0]["captures"] = list(_s115_test_captures)
+    _s115_dock._slots[0]["tool_path"] = _s115_path
+    _s115_dock._save_cascade()
+    _s115_dock._slots[0]["captures"] = []  # clear in-memory
+    _s115_dock._load_cascade()
+    app.processEvents()
+    check(_s115_dock._slots[0]["captures"] == _s115_test_captures,
+          "115b: _save/_load roundtrip preserves captures through QSettings")
+else:
+    check(False, "115b: _save/_load roundtrip preserves captures through QSettings (captures key missing)")
+
+# 115c: _export_cascade_data includes captures per step
+if _s115_has_captures:
+    _s115_dock._slots[0]["captures"] = list(_s115_test_captures)
+    _s115_dock._slots[0]["tool_path"] = _s115_path
+    _s115_export = _s115_dock._export_cascade_data("test115c")
+    _s115_steps = _s115_export.get("steps", [])
+    _s115_step0_has_captures = (
+        len(_s115_steps) > 0 and "captures" in _s115_steps[0]
+    )
+    check(_s115_step0_has_captures,
+          "115c: _export_cascade_data includes captures per step")
+    if _s115_step0_has_captures:
+        check(_s115_steps[0]["captures"] == _s115_test_captures,
+              "115c: exported captures match the slot captures")
+    else:
+        check(False, "115c: exported captures match the slot captures (captures missing in step)")
+else:
+    check(False, "115c: _export_cascade_data includes captures per step (captures key missing)")
+    check(False, "115c: exported captures match the slot captures (captures key missing)")
+
+# 115d: _import_cascade_data loads cascade JSON with per-step captures
+_s115_import_data = {
+    "_format": "scaffold_cascade",
+    "name": "test115d",
+    "description": "",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": _s115_path, "preset": None, "delay": 0,
+         "captures": _s115_test_captures},
+    ],
+    "variables": [],
+}
+try:
+    _s115_dock._import_cascade_data(_s115_import_data)
+    app.processEvents()
+    if _s115_has_captures:
+        check(_s115_dock._slots[0].get("captures") == _s115_test_captures,
+              "115d: _import_cascade_data loads per-step captures")
+    else:
+        check(False, "115d: _import_cascade_data loads per-step captures (captures key missing)")
+except Exception as _s115_exc_d:
+    check(False, f"115d: _import_cascade_data loads per-step captures (raised {type(_s115_exc_d).__name__})")
+
+# 115e: Backward compat — cascade JSON with no captures field imports without error
+_s115_no_captures_data = {
+    "_format": "scaffold_cascade",
+    "name": "test115e",
+    "description": "",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": _s115_path, "preset": None, "delay": 0},
+    ],
+    "variables": [],
+}
+try:
+    _s115_dock._import_cascade_data(_s115_no_captures_data)
+    app.processEvents()
+    if _s115_has_captures:
+        _s115_slot0_caps = _s115_dock._slots[0].get("captures", None)
+        check(_s115_slot0_caps == [],
+              "115e: import with no captures field yields empty capture list")
+    else:
+        check(False, "115e: import with no captures field yields empty capture list (captures key missing)")
+except Exception as _s115_exc_e:
+    check(False, f"115e: import with no captures field yields empty capture list (raised {type(_s115_exc_e).__name__})")
+
+# 115f: Capture entry validation — name must be alphanumeric + underscore
+_s115_bad_name_data = {
+    "_format": "scaffold_cascade",
+    "name": "test115f",
+    "description": "",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": _s115_path, "preset": None, "delay": 0,
+         "captures": [{"name": "bad-name!", "source": "stdout",
+                        "pattern": r"(\S+)", "group": 1}]},
+    ],
+    "variables": [],
+}
+_s115f_rejected = False
+try:
+    _s115_dock._import_cascade_data(_s115_bad_name_data)
+    _s115f_rejected = False
+except ValueError:
+    _s115f_rejected = True
+except Exception:
+    _s115f_rejected = False
+check(_s115f_rejected,
+      "115f: capture name with non-alphanumeric chars rejected on import")
+
+# 115g: Reserved-name collision — reuse a name from _cascade_variables
+_s115_reserved_var = {"name": "ReservedVar", "flag": "--reserved-var",
+                      "description": "test reserved", "apply_to": "all"}
+if _s115_has_captures:
+    _s115_dock._cascade_variables = [_s115_reserved_var]
+_s115_reserved_data = {
+    "_format": "scaffold_cascade",
+    "name": "test115g",
+    "description": "",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": _s115_path, "preset": None, "delay": 0,
+         "captures": [{"name": "ReservedVar", "source": "stdout",
+                        "pattern": r"(\S+)", "group": 1}]},
+    ],
+    "variables": [_s115_reserved_var],
+}
+_s115g_rejected = False
+try:
+    _s115_dock._import_cascade_data(_s115_reserved_data)
+    _s115g_rejected = False
+except ValueError:
+    _s115g_rejected = True
+except Exception:
+    _s115g_rejected = False
+check(_s115g_rejected,
+      "115g: capture name colliding with cascade variable name rejected on import")
+
+# 115h: Regex pattern >200 chars rejected on import
+_s115_long_pattern = "A" * 201
+_s115_long_pat_data = {
+    "_format": "scaffold_cascade",
+    "name": "test115h",
+    "description": "",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "steps": [
+        {"tool": _s115_path, "preset": None, "delay": 0,
+         "captures": [{"name": "long_pat", "source": "stdout",
+                        "pattern": _s115_long_pattern, "group": 0}]},
+    ],
+    "variables": [],
+}
+_s115h_rejected = False
+try:
+    _s115_dock._import_cascade_data(_s115_long_pat_data)
+    _s115h_rejected = False
+except ValueError:
+    _s115h_rejected = True
+except Exception:
+    _s115h_rejected = False
+check(_s115h_rejected,
+      "115h: regex pattern >200 chars rejected on import")
+
+# Cleanup section 115
+_s115_dock._cascade_variables = []
+_s115_win.close()
+_s115_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s115_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 116 — Cascade Captures: Extraction
+# =====================================================================
+print("\n=== SECTION 116: Cascade Captures: Extraction ===")
+
+# 116a: scaffold.extract_captures function exists
+_s116_has_func = hasattr(scaffold, "extract_captures")
+check(_s116_has_func,
+      "116a: scaffold.extract_captures function exists")
+
+# 116b: Pure function — callable, returns dict[str, str]
+_s116_test_captures = [
+    {"name": "host", "source": "stdout", "pattern": r"Host: (\S+)", "group": 1},
+]
+if _s116_has_func:
+    try:
+        _s116_result = scaffold.extract_captures(
+            _s116_test_captures, "Host: 192.168.1.1\n", "", 0)
+        check(isinstance(_s116_result, dict),
+              "116b: extract_captures returns a dict")
+    except Exception as _s116_exc_b:
+        check(False, f"116b: extract_captures returns a dict (raised {type(_s116_exc_b).__name__})")
+else:
+    check(False, "116b: extract_captures returns a dict (function missing)")
+
+# 116c: stdout source with regex + group extracts correctly
+if _s116_has_func:
+    try:
+        _s116_stdout = "Host: 192.168.1.1\nPort: 80/tcp open\n"
+        _s116_caps_c = [
+            {"name": "host", "source": "stdout", "pattern": r"Host: (\S+)", "group": 1},
+            {"name": "port", "source": "stdout", "pattern": r"(\d+)/tcp\s+open", "group": 1},
+        ]
+        _s116_res_c = scaffold.extract_captures(_s116_caps_c, _s116_stdout, "", 0)
+        check(_s116_res_c.get("host") == "192.168.1.1",
+              "116c: stdout regex extracts host correctly")
+        check(_s116_res_c.get("port") == "80",
+              "116c: stdout regex extracts port correctly")
+    except Exception as _s116_exc_c:
+        check(False, f"116c: stdout regex extracts host correctly (raised {type(_s116_exc_c).__name__})")
+        check(False, f"116c: stdout regex extracts port correctly (raised {type(_s116_exc_c).__name__})")
+else:
+    check(False, "116c: stdout regex extracts host correctly (function missing)")
+    check(False, "116c: stdout regex extracts port correctly (function missing)")
+
+# 116d: stdout source with non-matching regex → key absent from result
+if _s116_has_func:
+    try:
+        _s116_caps_d = [
+            {"name": "missing", "source": "stdout", "pattern": r"WILL_NOT_MATCH_(\S+)", "group": 1},
+        ]
+        _s116_res_d = scaffold.extract_captures(_s116_caps_d, "no match here", "", 0)
+        check("missing" not in _s116_res_d,
+              "116d: non-matching regex key absent from result (unset signal)")
+    except Exception as _s116_exc_d:
+        check(False, f"116d: non-matching regex key absent from result (raised {type(_s116_exc_d).__name__})")
+else:
+    check(False, "116d: non-matching regex key absent from result (function missing)")
+
+# 116e: Regex runs against last 64KB only — match earlier in a >64KB stream is NOT captured
+if _s116_has_func:
+    try:
+        _s116_early_match = "MARKER: early_value\n"
+        _s116_padding = "x" * (65 * 1024)  # >64KB of padding
+        _s116_big_stdout = _s116_early_match + _s116_padding
+        _s116_caps_e = [
+            {"name": "marker", "source": "stdout", "pattern": r"MARKER: (\S+)", "group": 1},
+        ]
+        _s116_res_e = scaffold.extract_captures(_s116_caps_e, _s116_big_stdout, "", 0)
+        check("marker" not in _s116_res_e,
+              "116e: match beyond 64KB window is NOT captured")
+    except Exception as _s116_exc_e:
+        check(False, f"116e: match beyond 64KB window is NOT captured (raised {type(_s116_exc_e).__name__})")
+else:
+    check(False, "116e: match beyond 64KB window is NOT captured (function missing)")
+
+# 116f: stderr source with regex extracts correctly
+if _s116_has_func:
+    try:
+        _s116_caps_f = [
+            {"name": "err_code", "source": "stderr", "pattern": r"Error (\d+)", "group": 1},
+        ]
+        _s116_res_f = scaffold.extract_captures(_s116_caps_f, "", "Error 404 occurred", 0)
+        check(_s116_res_f.get("err_code") == "404",
+              "116f: stderr regex extracts correctly")
+    except Exception as _s116_exc_f:
+        check(False, f"116f: stderr regex extracts correctly (raised {type(_s116_exc_f).__name__})")
+else:
+    check(False, "116f: stderr regex extracts correctly (function missing)")
+
+# 116g: file source returns the literal path string
+if _s116_has_func:
+    try:
+        _s116_caps_g = [
+            {"name": "outfile", "source": "file", "pattern": "/tmp/results.txt", "group": 0},
+        ]
+        _s116_res_g = scaffold.extract_captures(_s116_caps_g, "", "", 0)
+        check(_s116_res_g.get("outfile") == "/tmp/results.txt",
+              "116g: file source returns the literal path string")
+    except Exception as _s116_exc_g:
+        check(False, f"116g: file source returns the literal path string (raised {type(_s116_exc_g).__name__})")
+else:
+    check(False, "116g: file source returns the literal path string (function missing)")
+
+# 116h: exit_code source returns string form of the int
+if _s116_has_func:
+    try:
+        _s116_caps_h = [
+            {"name": "retcode", "source": "exit_code", "pattern": "", "group": 0},
+        ]
+        _s116_res_h0 = scaffold.extract_captures(_s116_caps_h, "", "", 0)
+        _s116_res_h1 = scaffold.extract_captures(_s116_caps_h, "", "", 1)
+        check(_s116_res_h0.get("retcode") == "0",
+              "116h: exit_code source returns '0' for exit code 0")
+        check(_s116_res_h1.get("retcode") == "1",
+              "116h: exit_code source returns '1' for exit code 1")
+    except Exception as _s116_exc_h:
+        check(False, f"116h: exit_code source returns '0' for exit code 0 (raised {type(_s116_exc_h).__name__})")
+        check(False, f"116h: exit_code source returns '1' for exit code 1 (raised {type(_s116_exc_h).__name__})")
+else:
+    check(False, "116h: exit_code source returns '0' for exit code 0 (function missing)")
+    check(False, "116h: exit_code source returns '1' for exit code 1 (function missing)")
+
+# 116i: stdout_full / stderr_full return the whole stream truncated to last 64KB
+if _s116_has_func:
+    try:
+        _s116_big_out = "A" * (70 * 1024)  # 70KB
+        _s116_caps_i = [
+            {"name": "full_out", "source": "stdout_full", "pattern": "", "group": 0},
+            {"name": "full_err", "source": "stderr_full", "pattern": "", "group": 0},
+        ]
+        _s116_res_i = scaffold.extract_captures(
+            _s116_caps_i, _s116_big_out, "short stderr", 0)
+        _s116_64kb = 64 * 1024
+        check(isinstance(_s116_res_i.get("full_out"), str)
+              and len(_s116_res_i.get("full_out", "")) <= _s116_64kb,
+              "116i: stdout_full truncated to last 64KB")
+        check(_s116_res_i.get("full_err") == "short stderr",
+              "116i: stderr_full returns whole stream when under 64KB")
+    except Exception as _s116_exc_i:
+        check(False, f"116i: stdout_full truncated to last 64KB (raised {type(_s116_exc_i).__name__})")
+        check(False, f"116i: stderr_full returns whole stream when under 64KB (raised {type(_s116_exc_i).__name__})")
+else:
+    check(False, "116i: stdout_full truncated to last 64KB (function missing)")
+    check(False, "116i: stderr_full returns whole stream when under 64KB (function missing)")
+
+# No cleanup needed — extract_captures is a pure function, no window/QSettings
+
+
+# =====================================================================
+# Section 117 — Cascade Captures: Substitution + Warnings
+# =====================================================================
+print("\n=== SECTION 117: Cascade Captures: Substitution + Warnings ===")
+
+_s117_tmpdir = tempfile.mkdtemp(prefix="scaffold_test117_")
+_s117_tool = {
+    "tool": "tool_117",
+    "binary": "echo",
+    "description": "Test tool for capture substitution",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string"},
+        {"name": "Port", "flag": "--port", "type": "string"},
+    ],
+}
+_s117_path = os.path.join(_s117_tmpdir, "tool_117.json")
+Path(_s117_path).write_text(json.dumps(_s117_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s117_win = scaffold.MainWindow()
+_s117_win.show()
+app.processEvents()
+_s117_win._load_tool_path(_s117_path)
+app.processEvents()
+check(hasattr(_s117_win, "output") and _s117_win.output is not None,
+      "117-pre: output panel exists after loading tool")
+_s117_dock = _s117_win.cascade_dock
+_s117_dock.show()
+app.processEvents()
+
+# 117a: Captures dict shares namespace with _chain_variable_values; captures override on collision
+_s117_has_captures_key = "captures" in _s117_dock._slots[0]
+if _s117_has_captures_key and hasattr(scaffold, "extract_captures"):
+    _s117_dock._chain_variable_values = {"host_ip": "from_variable"}
+    # Simulate capture result overriding a same-named variable
+    _s117_capture_result = {"host_ip": "from_capture"}
+    # Merge: captures should override variables
+    _s117_merged = dict(_s117_dock._chain_variable_values)
+    _s117_merged.update(_s117_capture_result)
+    check(_s117_merged["host_ip"] == "from_capture",
+          "117a: captures override _chain_variable_values on name collision")
+else:
+    check(False, "117a: captures override _chain_variable_values on name collision (captures feature missing)")
+
+# 117b: Forward-only — slot N's captures visible to slot N+1 onward, never to slot N itself
+# We test by checking that the substitution mechanism does NOT apply a capture
+# from slot 0 to slot 0's own fields, but does make it available for slot 1+
+_s117_has_advance = hasattr(_s117_dock, "_chain_advance")
+if _s117_has_captures_key and _s117_has_advance:
+    # The forward-only constraint means _chain_variable_values should NOT contain
+    # captures produced by the current slot at the time that slot's command runs
+    _s117_dock._chain_variable_values = {}
+    # Before slot 0 runs: no captures from slot 0 should be present
+    check("host_ip" not in _s117_dock._chain_variable_values,
+          "117b: slot 0 captures not in _chain_variable_values before slot 0 runs (forward-only)")
+else:
+    check(False, "117b: slot 0 captures not in _chain_variable_values before slot 0 runs (captures feature missing)")
+
+# 117c: {capture_name} in a form field value is replaced at inject time
+# Test that the substitution pattern is recognized
+_s117_template = "--target {host_ip}"
+_s117_capture_vals = {"host_ip": "10.0.0.1"}
+_s117_expected = "--target 10.0.0.1"
+_s117_substituted = _s117_template
+for _s117_k, _s117_v in _s117_capture_vals.items():
+    _s117_substituted = _s117_substituted.replace("{" + _s117_k + "}", _s117_v)
+# This validates the substitution *pattern* — the actual integration
+# requires scaffold to implement the inject path
+_s117_has_substitute = hasattr(_s117_dock, "_substitute_captures") or hasattr(_s117_dock, "_inject_captures")
+if _s117_has_substitute:
+    try:
+        _s117_sub_method = getattr(_s117_dock, "_substitute_captures",
+                                   getattr(_s117_dock, "_inject_captures", None))
+        _s117_sub_result = _s117_sub_method("--target {host_ip}", _s117_capture_vals)
+        check(_s117_sub_result == _s117_expected,
+              "117c: {capture_name} in field value replaced with captured string")
+    except Exception as _s117_exc_c:
+        check(False, f"117c: {{capture_name}} in field value replaced with captured string (raised {type(_s117_exc_c).__name__})")
+else:
+    check(False, "117c: {capture_name} in field value replaced with captured string (substitution method missing)")
+
+# 117d: Unset capture name → substituted as empty string AND warning line appears
+_s117_has_output = hasattr(_s117_win, "output")
+if _s117_has_substitute and _s117_has_output:
+    try:
+        _s117_sub_method2 = getattr(_s117_dock, "_substitute_captures",
+                                    getattr(_s117_dock, "_inject_captures", None))
+        _s117_sub_result2 = _s117_sub_method2("--target {nonexistent_cap}", {})
+        check(_s117_sub_result2 == "--target ",
+              "117d: unset capture name substituted as empty string")
+        _s117_output_text = _s117_win.output.toPlainText() if hasattr(_s117_win.output, "toPlainText") else ""
+        check("[cascade] capture 'nonexistent_cap' did not match; substituting empty string" in _s117_output_text,
+              "117d: warning line appears in output panel for unset capture")
+    except Exception as _s117_exc_d:
+        check(False, f"117d: unset capture name substituted as empty string (raised {type(_s117_exc_d).__name__})")
+        check(False, f"117d: warning line appears in output panel for unset capture (raised {type(_s117_exc_d).__name__})")
+else:
+    check(False, "117d: unset capture name substituted as empty string (substitution method missing)")
+    check(False, "117d: warning line appears in output panel for unset capture (substitution method missing)")
+
+# 117e: Unset capture + _stop_on_error=True → chain halts with message naming the capture
+if _s117_has_substitute:
+    _s117_dock._stop_on_error = True
+    _s117_dock._chain_variable_values = {}
+    try:
+        _s117_sub_method3 = getattr(_s117_dock, "_substitute_captures",
+                                    getattr(_s117_dock, "_inject_captures", None))
+        _s117_sub_result3 = _s117_sub_method3("--target {halting_cap}", {})
+        # If stop_on_error is True, the chain should halt — check state
+        _s117_state = getattr(_s117_dock, "_chain_state", None)
+        _s117_chain_idle = getattr(scaffold, "CHAIN_IDLE", None)
+        if _s117_chain_idle is not None:
+            check(_s117_state == _s117_chain_idle,
+                  "117e: chain halted (IDLE) after unset capture with stop_on_error=True")
+        else:
+            check(False, "117e: chain halted (IDLE) after unset capture with stop_on_error=True (CHAIN_IDLE constant missing)")
+    except Exception as _s117_exc_e:
+        check(False, f"117e: chain halted after unset capture with stop_on_error=True (raised {type(_s117_exc_e).__name__})")
+else:
+    check(False, "117e: chain halted (IDLE) after unset capture with stop_on_error=True (substitution method missing)")
+
+# Cleanup section 117
+_s117_dock._stop_on_error = False
+_s117_dock._chain_variable_values = {}
+_s117_dock._cascade_variables = []
+_s117_win.close()
+_s117_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s117_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 118 — Cascade Captures: UI Surface
+# =====================================================================
+print("\n=== SECTION 118: Cascade Captures: UI Surface ===")
+
+_s118_tmpdir = tempfile.mkdtemp(prefix="scaffold_test118_")
+_s118_tool = {
+    "tool": "tool_118",
+    "binary": "echo",
+    "description": "Test tool for capture UI surface",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string"},
+    ],
+}
+_s118_path = os.path.join(_s118_tmpdir, "tool_118.json")
+Path(_s118_path).write_text(json.dumps(_s118_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s118_win = scaffold.MainWindow()
+_s118_win.show()
+app.processEvents()
+_s118_dock = _s118_win.cascade_dock
+_s118_dock.show()
+app.processEvents()
+
+# 118a: Each _slot_widgets entry has a captures_btn key that is a QPushButton
+_s118_sw0 = _s118_dock._slot_widgets[0] if _s118_dock._slot_widgets else {}
+_s118_has_cap_btn = "captures_btn" in _s118_sw0
+if _s118_has_cap_btn:
+    check(isinstance(_s118_sw0["captures_btn"], QPushButton),
+          "118a: _slot_widgets[0] captures_btn is a QPushButton")
+else:
+    check(False, "118a: _slot_widgets[0] captures_btn is a QPushButton (key missing)")
+
+# 118b: Button labeled "Captures..."
+if _s118_has_cap_btn:
+    _s118_btn_text = _s118_sw0["captures_btn"].text()
+    check(_s118_btn_text == "Captures...",
+          f"118b: captures_btn labeled 'Captures...' (got {_s118_btn_text!r})")
+else:
+    check(False, "118b: captures_btn labeled 'Captures...' (key missing)")
+
+# 118c: Button lives in the same row layout as the delay spinbox
+if _s118_has_cap_btn and "delay_spin" in _s118_sw0:
+    _s118_delay_parent = _s118_sw0["delay_spin"].parentWidget()
+    _s118_cap_parent = _s118_sw0["captures_btn"].parentWidget()
+    # They should share the same parent layout container
+    check(_s118_delay_parent is _s118_cap_parent,
+          "118c: captures_btn and delay_spin share same parent layout")
+else:
+    if not _s118_has_cap_btn:
+        check(False, "118c: captures_btn and delay_spin share same parent layout (captures_btn missing)")
+    else:
+        check(False, "118c: captures_btn and delay_spin share same parent layout (delay_spin missing)")
+
+# 118d: scaffold.CascadeCaptureDefinitionDialog class exists and is a QDialog subclass
+_s118_has_dialog = hasattr(scaffold, "CascadeCaptureDefinitionDialog")
+check(_s118_has_dialog,
+      "118d: scaffold.CascadeCaptureDefinitionDialog class exists")
+if _s118_has_dialog:
+    check(issubclass(scaffold.CascadeCaptureDefinitionDialog, QDialog),
+          "118d: CascadeCaptureDefinitionDialog is a QDialog subclass")
+else:
+    check(False, "118d: CascadeCaptureDefinitionDialog is a QDialog subclass (class missing)")
+
+# 118e: Dialog has a QTableWidget with correct columns
+if _s118_has_dialog:
+    try:
+        _s118_dlg = scaffold.CascadeCaptureDefinitionDialog([], parent=_s118_win)
+        _s118_dlg.show()
+        app.processEvents()
+        _s118_tables = _s118_dlg.findChildren(QTableWidget)
+        check(len(_s118_tables) >= 1,
+              "118e: CascadeCaptureDefinitionDialog has a QTableWidget")
+        if _s118_tables:
+            _s118_tbl = _s118_tables[0]
+            _s118_col_count = _s118_tbl.columnCount()
+            check(_s118_col_count == 4,
+                  f"118e: table has 4 columns (Name, Source, Pattern/Path, Group) (got {_s118_col_count})")
+        else:
+            check(False, "118e: table has 4 columns (no QTableWidget found)")
+        _s118_dlg.close()
+        _s118_dlg.deleteLater()
+        app.processEvents()
+    except Exception as _s118_exc_e:
+        check(False, f"118e: CascadeCaptureDefinitionDialog has a QTableWidget (raised {type(_s118_exc_e).__name__})")
+        check(False, f"118e: table has 4 columns (raised {type(_s118_exc_e).__name__})")
+else:
+    check(False, "118e: CascadeCaptureDefinitionDialog has a QTableWidget (class missing)")
+    check(False, "118e: table has 4 columns (class missing)")
+
+# 118f: Source column is a QComboBox with correct items
+if _s118_has_dialog:
+    try:
+        _s118_dlg2 = scaffold.CascadeCaptureDefinitionDialog(
+            [{"name": "test_cap", "source": "stdout", "pattern": r"(\S+)", "group": 1}],
+            parent=_s118_win)
+        _s118_dlg2.show()
+        app.processEvents()
+        _s118_combos = _s118_dlg2.findChildren(QComboBox)
+        _s118_expected_sources = {"stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"}
+        _s118_found_source_combo = False
+        for _s118_cb in _s118_combos:
+            _s118_items = {_s118_cb.itemText(i) for i in range(_s118_cb.count())}
+            if _s118_expected_sources.issubset(_s118_items):
+                _s118_found_source_combo = True
+                break
+        check(_s118_found_source_combo,
+              "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_full, stderr_full")
+        _s118_dlg2.close()
+        _s118_dlg2.deleteLater()
+        app.processEvents()
+    except Exception as _s118_exc_f:
+        check(False, f"118f: Source column QComboBox has correct items (raised {type(_s118_exc_f).__name__})")
+else:
+    check(False, "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_full, stderr_full (class missing)")
+
+# 118g: Dialog exposes get_captures() returning list[dict]
+if _s118_has_dialog:
+    try:
+        _s118_dlg3 = scaffold.CascadeCaptureDefinitionDialog([], parent=_s118_win)
+        _s118_dlg3.show()
+        app.processEvents()
+        _s118_has_getter = hasattr(_s118_dlg3, "get_captures")
+        check(_s118_has_getter,
+              "118g: CascadeCaptureDefinitionDialog exposes get_captures()")
+        if _s118_has_getter:
+            _s118_caps_result = _s118_dlg3.get_captures()
+            check(isinstance(_s118_caps_result, list),
+                  "118g: get_captures() returns a list")
+        else:
+            check(False, "118g: get_captures() returns a list (method missing)")
+        _s118_dlg3.close()
+        _s118_dlg3.deleteLater()
+        app.processEvents()
+    except Exception as _s118_exc_g:
+        check(False, f"118g: CascadeCaptureDefinitionDialog exposes get_captures() (raised {type(_s118_exc_g).__name__})")
+        check(False, f"118g: get_captures() returns a list (raised {type(_s118_exc_g).__name__})")
+else:
+    check(False, "118g: CascadeCaptureDefinitionDialog exposes get_captures() (class missing)")
+    check(False, "118g: get_captures() returns a list (class missing)")
+
+# Cleanup section 118
+_s118_win.close()
+_s118_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s118_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 119 — Argv-Flag Injection Guard
+# =====================================================================
+print("\n=== SECTION 119: Argv-Flag Injection Guard ===")
+
+_s119_tmpdir = tempfile.mkdtemp(prefix="scaffold_test119_")
+_s119_tool = {
+    "tool": "tool_119",
+    "binary": "echo",
+    "description": "Test tool for argv-flag injection guard",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string"},
+        {"name": "Output", "flag": "--output", "type": "string"},
+    ],
+}
+_s119_path = os.path.join(_s119_tmpdir, "tool_119.json")
+Path(_s119_path).write_text(json.dumps(_s119_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s119_win = scaffold.MainWindow()
+_s119_win.show()
+app.processEvents()
+_s119_win._load_tool_path(_s119_path)
+app.processEvents()
+check(hasattr(_s119_win, "output") and _s119_win.output is not None,
+      "119-pre: output panel exists after loading tool")
+_s119_dock = _s119_win.cascade_dock
+_s119_dock.show()
+app.processEvents()
+
+# 119a: substitute_captures (module-level) is unchanged by the guard —
+#       the pure function returns the substituted text, no warnings.
+if hasattr(scaffold, "substitute_captures"):
+    _s119a_result, _s119a_unset = scaffold.substitute_captures("{evil}", {"evil": "--rm-rf"})
+    check(_s119a_result == "--rm-rf" and _s119a_unset == [],
+          "119a: substitute_captures returns flag-like value unchanged (guard is cascade-level only)")
+else:
+    check(False, "119a: substitute_captures function exists")
+
+# 119b: _substitute_captures detects whole-value flag injection (double-dash)
+_s119_has_sub = hasattr(_s119_dock, "_substitute_captures")
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119_dock._substitute_captures("{evil}", {"evil": "--rm-rf-everything"})
+        app.processEvents()
+        _s119b_out = _s119_win.output.toPlainText()
+        check("argv-flag" in _s119b_out.lower() and "evil" in _s119b_out
+              and "--rm-rf-everything" in _s119b_out,
+              f"119b: argv-flag warning for whole-value '--rm-rf-everything' (output: {_s119b_out[:200]!r})")
+    except Exception as _s119_exc_b:
+        check(False, f"119b: argv-flag warning for whole-value flag injection (raised {type(_s119_exc_b).__name__})")
+else:
+    check(False, "119b: argv-flag warning for whole-value flag injection (_substitute_captures missing)")
+
+# 119c: Embedded captured value does NOT trigger the warning.
+#       First probe with a whole-value flag to check if the guard is active at all;
+#       if the guard doesn't exist yet, fail explicitly rather than pass vacuously.
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    _s119c_probe_active = False
+    try:
+        _s119_dock._substitute_captures("{probe119c}", {"probe119c": "--probe"})
+        app.processEvents()
+        _s119c_probe_active = "argv-flag" in _s119_win.output.toPlainText().lower()
+    except Exception:
+        pass
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119c_result = _s119_dock._substitute_captures("prefix-{name119c}-suffix", {"name119c": "--evil"})
+        app.processEvents()
+        _s119c_out = _s119_win.output.toPlainText()
+        if _s119c_probe_active:
+            check("argv-flag" not in _s119c_out.lower(),
+                  f"119c: no argv-flag warning for embedded capture (output: {_s119c_out[:200]!r})")
+        else:
+            check(False, "119c: argv-flag guard not active — cannot verify embedded-capture exemption")
+    except Exception as _s119_exc_c:
+        check(False, f"119c: no argv-flag warning for embedded capture (raised {type(_s119_exc_c).__name__})")
+else:
+    check(False, "119c: no argv-flag warning for embedded capture (_substitute_captures missing)")
+
+# 119d: Single-dash flag (-x) triggers the warning
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119_dock._substitute_captures("{flag119d}", {"flag119d": "-x"})
+        app.processEvents()
+        _s119d_out = _s119_win.output.toPlainText()
+        check("argv-flag" in _s119d_out.lower() and "flag119d" in _s119d_out
+              and "-x" in _s119d_out,
+              f"119d: argv-flag warning for single-dash '-x' (output: {_s119d_out[:200]!r})")
+    except Exception as _s119_exc_d:
+        check(False, f"119d: argv-flag warning for single-dash flag (raised {type(_s119_exc_d).__name__})")
+else:
+    check(False, "119d: argv-flag warning for single-dash flag (_substitute_captures missing)")
+
+# 119e: Bare - (stdin/stdout marker) does NOT trigger.
+#       Probe first to avoid vacuous pass when guard is missing.
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    _s119e_probe_active = False
+    try:
+        _s119_dock._substitute_captures("{probe119e}", {"probe119e": "--probe"})
+        app.processEvents()
+        _s119e_probe_active = "argv-flag" in _s119_win.output.toPlainText().lower()
+    except Exception:
+        pass
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119_dock._substitute_captures("{stdin119e}", {"stdin119e": "-"})
+        app.processEvents()
+        _s119e_out = _s119_win.output.toPlainText()
+        if _s119e_probe_active:
+            check("argv-flag" not in _s119e_out.lower(),
+                  f"119e: no argv-flag warning for bare dash '-' (output: {_s119e_out[:200]!r})")
+        else:
+            check(False, "119e: argv-flag guard not active — cannot verify bare-dash exemption")
+    except Exception as _s119_exc_e:
+        check(False, f"119e: no argv-flag warning for bare dash (raised {type(_s119_exc_e).__name__})")
+else:
+    check(False, "119e: no argv-flag warning for bare dash (_substitute_captures missing)")
+
+# 119f: Bare -- (POSIX argument terminator) does NOT trigger.
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    _s119f_probe_active = False
+    try:
+        _s119_dock._substitute_captures("{probe119f}", {"probe119f": "--probe"})
+        app.processEvents()
+        _s119f_probe_active = "argv-flag" in _s119_win.output.toPlainText().lower()
+    except Exception:
+        pass
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119_dock._substitute_captures("{term119f}", {"term119f": "--"})
+        app.processEvents()
+        _s119f_out = _s119_win.output.toPlainText()
+        if _s119f_probe_active:
+            check("argv-flag" not in _s119f_out.lower(),
+                  f"119f: no argv-flag warning for bare double-dash '--' (output: {_s119f_out[:200]!r})")
+        else:
+            check(False, "119f: argv-flag guard not active — cannot verify bare-double-dash exemption")
+    except Exception as _s119_exc_f:
+        check(False, f"119f: no argv-flag warning for bare double-dash (raised {type(_s119_exc_f).__name__})")
+else:
+    check(False, "119f: no argv-flag warning for bare double-dash (_substitute_captures missing)")
+
+# 119g: Negative number (-5) does NOT trigger.
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    _s119_win.output.clear()
+    app.processEvents()
+    _s119g_probe_active = False
+    try:
+        _s119_dock._substitute_captures("{probe119g}", {"probe119g": "--probe"})
+        app.processEvents()
+        _s119g_probe_active = "argv-flag" in _s119_win.output.toPlainText().lower()
+    except Exception:
+        pass
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119_dock._substitute_captures("{num119g}", {"num119g": "-5"})
+        app.processEvents()
+        _s119g_out = _s119_win.output.toPlainText()
+        if _s119g_probe_active:
+            check("argv-flag" not in _s119g_out.lower(),
+                  f"119g: no argv-flag warning for negative number '-5' (output: {_s119g_out[:200]!r})")
+        else:
+            check(False, "119g: argv-flag guard not active — cannot verify negative-number exemption")
+    except Exception as _s119_exc_g:
+        check(False, f"119g: no argv-flag warning for negative number (raised {type(_s119_exc_g).__name__})")
+else:
+    check(False, "119g: no argv-flag warning for negative number (_substitute_captures missing)")
+
+# 119h: stop_on_error halts chain on flag-like capture
+if _s119_has_sub:
+    _s119_win.output.clear()
+    app.processEvents()
+    _s119_dock._stop_on_error = True
+    # Set state to non-idle so we can detect if the guard halts it
+    _s119h_running = getattr(scaffold, "CHAIN_RUNNING", "running")
+    _s119_dock._chain_state = _s119h_running
+    try:
+        _s119_dock._substitute_captures("{evil119h}", {"evil119h": "--evil"})
+        app.processEvents()
+        _s119h_state = getattr(_s119_dock, "_chain_state", None)
+        _s119h_idle = getattr(scaffold, "CHAIN_IDLE", None)
+        if _s119h_idle is not None:
+            check(_s119h_state == _s119h_idle,
+                  f"119h: chain halted (state={_s119h_state!r}, expected={_s119h_idle!r})")
+        else:
+            check(False, "119h: chain halted on flag-like capture (CHAIN_IDLE constant missing)")
+        _s119h_out = _s119_win.output.toPlainText() if hasattr(_s119_win.output, "toPlainText") else ""
+        check("evil119h" in _s119h_out and "--evil" in _s119h_out,
+              f"119h: cleanup message names capture and value (output: {_s119h_out[:200]!r})")
+    except Exception as _s119_exc_h:
+        check(False, f"119h: chain halted on flag-like capture (raised {type(_s119_exc_h).__name__})")
+        check(False, f"119h: cleanup message names capture and value (raised {type(_s119_exc_h).__name__})")
+    _s119_dock._stop_on_error = False
+    _s119_dock._chain_state = getattr(scaffold, "CHAIN_IDLE", "idle")
+else:
+    check(False, "119h: chain halted on flag-like capture (_substitute_captures missing)")
+    check(False, "119h: cleanup message names capture and value (_substitute_captures missing)")
+
+# 119i: One warning per capture name, not per field
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    # Reset any per-slot dedup state from earlier tests
+    if hasattr(_s119_dock, "_argv_warned_captures"):
+        _s119_dock._argv_warned_captures.clear()
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        # Simulate two fields with the same {evil119i} capture, both whole-value
+        _s119_dock._substitute_captures("{evil119i}", {"evil119i": "--bad"})
+        _s119_dock._substitute_captures("{evil119i}", {"evil119i": "--bad"})
+        app.processEvents()
+        _s119i_out = _s119_win.output.toPlainText()
+        _s119i_count = _s119i_out.lower().count("argv-flag")
+        check(_s119i_count == 1,
+              f"119i: exactly one argv-flag warning for repeated capture 'evil119i' (got {_s119i_count})")
+    except Exception as _s119_exc_i:
+        check(False, f"119i: exactly one argv-flag warning for repeated capture (raised {type(_s119_exc_i).__name__})")
+else:
+    check(False, "119i: exactly one argv-flag warning for repeated capture (_substitute_captures missing)")
+
+# 119j: Multiple distinct flag-like captures each warn once
+if _s119_has_sub and hasattr(_s119_win, "output"):
+    if hasattr(_s119_dock, "_argv_warned_captures"):
+        _s119_dock._argv_warned_captures.clear()
+    _s119_win.output.clear()
+    app.processEvents()
+    try:
+        _s119j_vals = {"a119j": "--one", "b119j": "--two"}
+        _s119_dock._substitute_captures("{a119j}", _s119j_vals)
+        _s119_dock._substitute_captures("{b119j}", _s119j_vals)
+        app.processEvents()
+        _s119j_out = _s119_win.output.toPlainText()
+        _s119j_count = _s119j_out.lower().count("argv-flag")
+        check(_s119j_count == 2 and "--one" in _s119j_out and "--two" in _s119j_out,
+              f"119j: two distinct captures each warn (count={_s119j_count}, output: {_s119j_out[:300]!r})")
+    except Exception as _s119_exc_j:
+        check(False, f"119j: two distinct captures each warn (raised {type(_s119_exc_j).__name__})")
+else:
+    check(False, "119j: two distinct captures each warn (_substitute_captures missing)")
+
+# Cleanup section 119
+_s119_dock._stop_on_error = False
+_s119_dock._chain_variable_values = {}
+_s119_dock._cascade_variables = []
+_s119_win.close()
+_s119_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s119_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

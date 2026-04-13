@@ -2,6 +2,18 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.1] — 2026-04-13
+
+Argv-flag injection guard for cascade capture substitution.
+
+### Fixed/Security Hardening
+
+- **Capture substitution argv-flag guard** — when a captured value resolves to a flag-like string (matches `^--?[A-Za-z]`) as the entire content of a form field, the output panel emits a warning and the chain halts under stop-on-error before the next step runs. Bare `-`, bare `--`, and negative numbers are exempt; captured values embedded in larger strings (e.g. `prefix-{name}-suffix`) are also exempt. One warning per capture name per slot; the dedup set resets between slots. The guard lives in the `CascadeSidebar._substitute_captures` wrapper — the pure `substitute_captures` function is unchanged. Defense-in-depth addition for the cascade capture system introduced in v2.8.5: Scaffold's QProcess list-based argv model already prevents shell injection, and this guard adds a visible signal for argv-flag confusion where a captured value could change downstream argument parsing.
+
+### Added
+
+- **Variable option tooltips** — options in the Edit Variables dialog now show hover-over descriptions.
+
 ## [v2.8.5] — 2026-04-13
 
 Cascade capture system, new capture definition dialog, and an updated example cascade.
