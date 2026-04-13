@@ -14362,6 +14362,329 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 130 — Combined capture dialog warnings (Bug 1)
+# =====================================================================
+print("\n--- Section 130: Combined capture dialog warnings ---")
+
+# 130a: Two invalid rows + one valid → single warning with both errors
+_s130_dlg = scaffold.CascadeCaptureDefinitionDialog([], cascade_variables=[])
+_s130_dlg._add_row(name="valid_cap", source="stdout", pattern_or_path="(\\d+)", group=1)
+_s130_dlg._add_row(name="bad name!", source="stdout", pattern_or_path="(\\d+)", group=1)
+_s130_dlg._add_row(name="no_pat", source="stdout", pattern_or_path="", group=1)
+app.processEvents()
+
+_s130_warnings = []
+_s130_orig_warning = QMessageBox.warning
+def _s130_mock_warning(*args, **kwargs):
+    _s130_warnings.append(args)
+    return QMessageBox.StandardButton.Ok
+QMessageBox.warning = _s130_mock_warning
+
+_s130_dlg._on_accept()
+app.processEvents()
+
+check(len(_s130_warnings) == 1,
+      f"130a: exactly one warning call, got {len(_s130_warnings)}")
+if _s130_warnings:
+    _s130_text = str(_s130_warnings[0][2]) if len(_s130_warnings[0]) > 2 else ""
+    check("bad name!" in _s130_text or "Row 2" in _s130_text,
+          f"130a: warning mentions invalid row 2: {_s130_text}")
+    check("no_pat" in _s130_text or "Row 3" in _s130_text,
+          f"130a: warning mentions invalid row 3: {_s130_text}")
+check(len(_s130_dlg._result_captures) == 0,
+      "130a: dialog did not accept (result_captures empty)")
+
+# Check invalid rows have red highlights
+_s130_name1 = _s130_dlg._table.item(1, 0)  # bad name! row
+_s130_name2 = _s130_dlg._table.item(2, 0)  # no_pat row
+check(_s130_name1 is not None and _s130_name1.background().color().name() == "#553333",
+      "130a: bad-name row has red highlight on name cell")
+
+# Check valid row's cells are NOT red-highlighted
+_s130_name0 = _s130_dlg._table.item(0, 0)  # valid row
+_s130_grp0 = _s130_dlg._table.item(0, 3)   # valid row group
+check(_s130_name0 is not None and _s130_name0.background().color().name() != "#553333",
+      "130a: valid row name cell is not red-highlighted")
+check(_s130_grp0 is not None and _s130_grp0.background().color().name() != "#553333",
+      "130a: valid row group cell is not red-highlighted")
+
+# 130b: Group must be integer error included in combined message
+_s130_dlg2 = scaffold.CascadeCaptureDefinitionDialog([], cascade_variables=[])
+_s130_dlg2._add_row(name="ok_cap", source="stdout", pattern_or_path="(\\d+)", group=1)
+_s130_dlg2._add_row(name="grp_bad", source="stdout", pattern_or_path="(\\d+)", group=1)
+# Set group to non-integer text
+_s130_grp_item = _s130_dlg2._table.item(1, 3)
+_s130_grp_item.setText("abc")
+app.processEvents()
+
+_s130_warnings.clear()
+_s130_dlg2._on_accept()
+app.processEvents()
+
+check(len(_s130_warnings) == 1,
+      f"130b: exactly one warning for bad group, got {len(_s130_warnings)}")
+if _s130_warnings:
+    _s130_text_b = str(_s130_warnings[0][2]) if len(_s130_warnings[0]) > 2 else ""
+    check("group" in _s130_text_b.lower() or "integer" in _s130_text_b.lower(),
+          f"130b: warning mentions group/integer: {_s130_text_b}")
+check(len(_s130_dlg2._result_captures) == 0,
+      "130b: dialog did not accept")
+
+# 130c: All valid → no warning, dialog accepts
+_s130_dlg3 = scaffold.CascadeCaptureDefinitionDialog([], cascade_variables=[])
+_s130_dlg3._add_row(name="cap_one", source="stdout", pattern_or_path="(\\d+)", group=1)
+_s130_dlg3._add_row(name="cap_two", source="exit_code")
+_s130_dlg3._add_row(name="cap_three", source="file", pattern_or_path="/tmp/out.txt")
+app.processEvents()
+
+_s130_warnings.clear()
+_s130_dlg3._on_accept()
+app.processEvents()
+
+check(len(_s130_warnings) == 0,
+      f"130c: no warnings when all valid, got {len(_s130_warnings)}")
+check(len(_s130_dlg3._result_captures) == 3,
+      f"130c: all three captures accepted, got {len(_s130_dlg3._result_captures)}")
+
+# 130d: Previously-highlighted valid row gets cleared on re-validation
+_s130_dlg4 = scaffold.CascadeCaptureDefinitionDialog([], cascade_variables=[])
+_s130_dlg4._add_row(name="will_fix", source="stdout", pattern_or_path="(\\d+)", group=1)
+_s130_dlg4._add_row(name="bad name!", source="stdout", pattern_or_path="(\\d+)", group=1)
+app.processEvents()
+
+# First validation — both rows evaluated, row 2 fails
+_s130_warnings.clear()
+_s130_dlg4._on_accept()
+app.processEvents()
+
+# Manually set valid row's name cell to red (simulating leftover from prior attempt)
+_s130_dlg4._table.item(0, 0).setBackground(QColor("#553333"))
+
+# Fix row 2 name, re-validate
+_s130_dlg4._table.item(1, 0).setText("fixed_name")
+_s130_warnings.clear()
+_s130_dlg4._on_accept()
+app.processEvents()
+
+check(len(_s130_warnings) == 0,
+      "130d: no warnings after fixing invalid row")
+_s130_name0d = _s130_dlg4._table.item(0, 0)
+check(_s130_name0d.background().color().name() != "#553333",
+      "130d: previously-highlighted valid row's highlight cleared")
+check(len(_s130_dlg4._result_captures) == 2,
+      f"130d: both captures accepted, got {len(_s130_dlg4._result_captures)}")
+
+# Restore QMessageBox.warning
+QMessageBox.warning = _s130_orig_warning
+
+# Cleanup section 130
+_s130_dlg.deleteLater()
+_s130_dlg2.deleteLater()
+_s130_dlg3.deleteLater()
+_s130_dlg4.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 131 — Duplicate flag rejection (Bug 2)
+# =====================================================================
+print("\n--- Section 131: Duplicate flag rejection ---")
+
+_s131_warnings = []
+_s131_orig_warning = QMessageBox.warning
+def _s131_mock_warning(*args, **kwargs):
+    _s131_warnings.append(args)
+    return QMessageBox.StandardButton.Ok
+QMessageBox.warning = _s131_mock_warning
+
+# 131a: Rows 1 and 3 share --port; rows 2 and 4 unique
+_s131_dlg = scaffold.CascadeVariableDefinitionDialog([], slot_count=4)
+_s131_dlg._add_row(name="Port A", flag="--port")
+_s131_dlg._add_row(name="Host", flag="--host")
+_s131_dlg._add_row(name="Port B", flag="--port")
+_s131_dlg._add_row(name="Output", flag="--output")
+app.processEvents()
+
+_s131_dlg._on_accept()
+app.processEvents()
+
+check(len(_s131_warnings) == 1,
+      f"131a: exactly one warning for duplicates, got {len(_s131_warnings)}")
+if _s131_warnings:
+    _s131_text = str(_s131_warnings[0][2]) if len(_s131_warnings[0]) > 2 else ""
+    check("--port" in _s131_text,
+          f"131a: warning mentions --port: {_s131_text}")
+    # Should mention rows 1 and 3 (1-indexed)
+    check("1" in _s131_text and "3" in _s131_text,
+          f"131a: warning mentions row numbers 1 and 3: {_s131_text}")
+check(len(_s131_dlg._result_variables) == 0,
+      "131a: dialog did not accept (result_variables empty)")
+
+# Check flag cells: duplicate rows (0 and 2) should be red, others not
+_s131_flag0 = _s131_dlg._table.item(0, 1)  # --port row 1
+_s131_flag1 = _s131_dlg._table.item(1, 1)  # --host row 2
+_s131_flag2 = _s131_dlg._table.item(2, 1)  # --port row 3
+_s131_flag3 = _s131_dlg._table.item(3, 1)  # --output row 4
+check(_s131_flag0.background().color().name() == "#553333",
+      "131a: row 1 flag cell is red (duplicate)")
+check(_s131_flag1.background().color().name() != "#553333",
+      "131a: row 2 flag cell is NOT red (unique)")
+check(_s131_flag2.background().color().name() == "#553333",
+      "131a: row 3 flag cell is red (duplicate)")
+check(_s131_flag3.background().color().name() != "#553333",
+      "131a: row 4 flag cell is NOT red (unique)")
+
+# 131b: Three-way duplicate (rows 1, 2, 3 all --foo)
+_s131_dlg2 = scaffold.CascadeVariableDefinitionDialog([], slot_count=4)
+_s131_dlg2._add_row(name="Foo A", flag="--foo")
+_s131_dlg2._add_row(name="Foo B", flag="--foo")
+_s131_dlg2._add_row(name="Foo C", flag="--foo")
+app.processEvents()
+
+_s131_warnings.clear()
+_s131_dlg2._on_accept()
+app.processEvents()
+
+check(len(_s131_warnings) == 1,
+      f"131b: one warning for three-way duplicate, got {len(_s131_warnings)}")
+if _s131_warnings:
+    _s131_text_b = str(_s131_warnings[0][2]) if len(_s131_warnings[0]) > 2 else ""
+    check("--foo" in _s131_text_b,
+          f"131b: warning mentions --foo: {_s131_text_b}")
+    check("1" in _s131_text_b and "2" in _s131_text_b and "3" in _s131_text_b,
+          f"131b: warning mentions all three rows: {_s131_text_b}")
+check(len(_s131_dlg2._result_variables) == 0,
+      "131b: dialog did not accept")
+
+# 131c: Fix duplicate → dialog accepts, highlights cleared
+_s131_warnings.clear()
+_s131_dlg._table.item(2, 1).setText("--other")  # Fix row 3 from --port to --other
+app.processEvents()
+
+_s131_dlg._on_accept()
+app.processEvents()
+
+check(len(_s131_warnings) == 0,
+      f"131c: no warnings after fixing duplicate, got {len(_s131_warnings)}")
+check(len(_s131_dlg._result_variables) == 4,
+      f"131c: all four variables accepted, got {len(_s131_dlg._result_variables)}")
+# All flag cells should be clear now
+_s131_flag0c = _s131_dlg._table.item(0, 1)
+_s131_flag2c = _s131_dlg._table.item(2, 1)
+check(_s131_flag0c.background().color().name() != "#553333",
+      "131c: row 1 flag highlight cleared after fix")
+check(_s131_flag2c.background().color().name() != "#553333",
+      "131c: row 3 flag highlight cleared after fix")
+
+# Restore QMessageBox.warning
+QMessageBox.warning = _s131_orig_warning
+
+# Cleanup section 131
+_s131_dlg.deleteLater()
+_s131_dlg2.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 132 — Malformed flag rejection (Bug 3)
+# =====================================================================
+print("\n--- Section 132: Malformed flag rejection ---")
+
+# 132a: Verify _CASCADE_VAR_FLAG_RE exists as module-level regex
+check(hasattr(scaffold, "_CASCADE_VAR_FLAG_RE"),
+      "132a: _CASCADE_VAR_FLAG_RE exists as module-level attribute")
+if hasattr(scaffold, "_CASCADE_VAR_FLAG_RE"):
+    import re as _s132_re
+    check(isinstance(scaffold._CASCADE_VAR_FLAG_RE, _s132_re.Pattern),
+          "132a: _CASCADE_VAR_FLAG_RE is a compiled regex")
+
+# 132b: Valid flags — all should be accepted
+_s132_valid_flags = [
+    "--verbose", "-v", "--output-file", "-f",
+    "TARGET", "HOST", "REPOSITORY",
+    "clone:--depth", "clone:REPOSITORY", "compose up:--env",
+]
+
+_s132_warnings = []
+_s132_orig_warning = QMessageBox.warning
+def _s132_mock_warning(*args, **kwargs):
+    _s132_warnings.append(args)
+    return QMessageBox.StandardButton.Ok
+QMessageBox.warning = _s132_mock_warning
+
+for _s132_flag in _s132_valid_flags:
+    _s132_vdlg = scaffold.CascadeVariableDefinitionDialog([], slot_count=4)
+    _s132_vdlg._add_row(name="TestVar", flag=_s132_flag)
+    app.processEvents()
+    _s132_warnings.clear()
+    _s132_vdlg._on_accept()
+    app.processEvents()
+    check(len(_s132_warnings) == 0,
+          f"132b: flag '{_s132_flag}' accepted without warning")
+    check(len(_s132_vdlg._result_variables) == 1,
+          f"132b: flag '{_s132_flag}' → variable accepted")
+    _s132_vdlg.deleteLater()
+
+# 132c: Invalid flags — all should be rejected
+_s132_invalid_flags = [
+    "not a flag",
+    "--has spaces",
+    "-",
+    "--",
+    "---triple",
+    "subcommand with spaces:--flag",
+    ":--orphan",
+    "clone:",
+    "CamelCase",
+]
+
+for _s132_flag in _s132_invalid_flags:
+    _s132_idlg = scaffold.CascadeVariableDefinitionDialog([], slot_count=4)
+    _s132_idlg._add_row(name="TestVar", flag=_s132_flag)
+    app.processEvents()
+    _s132_warnings.clear()
+    _s132_idlg._on_accept()
+    app.processEvents()
+    check(len(_s132_warnings) == 1,
+          f"132c: flag '{_s132_flag}' rejected with warning")
+    check(len(_s132_idlg._result_variables) == 0,
+          f"132c: flag '{_s132_flag}' → dialog did not accept")
+    # Check flag cell is red
+    _s132_fi = _s132_idlg._table.item(0, 1)
+    check(_s132_fi is not None and _s132_fi.background().color().name() == "#553333",
+          f"132c: flag '{_s132_flag}' → flag cell highlighted red")
+    _s132_idlg.deleteLater()
+
+# 132d: Multiple invalid flags → combined into single warning
+_s132_mdlg = scaffold.CascadeVariableDefinitionDialog([], slot_count=4)
+_s132_mdlg._add_row(name="Good", flag="--valid")
+_s132_mdlg._add_row(name="Bad1", flag="not a flag")
+_s132_mdlg._add_row(name="Bad2", flag="--has spaces")
+app.processEvents()
+
+_s132_warnings.clear()
+_s132_mdlg._on_accept()
+app.processEvents()
+
+check(len(_s132_warnings) == 1,
+      f"132d: single combined warning for multiple invalid flags, got {len(_s132_warnings)}")
+if _s132_warnings:
+    _s132_txt = str(_s132_warnings[0][2]) if len(_s132_warnings[0]) > 2 else ""
+    check("not a flag" in _s132_txt,
+          f"132d: warning mentions 'not a flag': {_s132_txt}")
+    check("--has spaces" in _s132_txt,
+          f"132d: warning mentions '--has spaces': {_s132_txt}")
+check(len(_s132_mdlg._result_variables) == 0,
+      "132d: dialog did not accept with malformed flags")
+
+_s132_mdlg.deleteLater()
+
+# Restore QMessageBox.warning
+QMessageBox.warning = _s132_orig_warning
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

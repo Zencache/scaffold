@@ -2,6 +2,29 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.5] — 2026-04-13
+
+Cascade dialog hardening — combined error messages, duplicate flag rejection, flag format validation.
+
+### Fixed
+
+- **CascadeCaptureDefinitionDialog shows one combined warning** — previously, N invalid capture rows produced N separate modal QMessageBox.warning dialogs. Now all errors are collected during the validation loop and shown in a single message listing every invalid row with its error (e.g. `Row 2 (name="badname"): pattern required for source 'stdout'`). Red cell highlighting is preserved per-row.
+- **CascadeVariableDefinitionDialog rejects duplicate flags** — two or more variables targeting the same flag value are now caught at edit time with a combined error message listing all duplicate rows. Previously the second definition was silently ignored at runtime (first-match-wins in `_chain_advance`).
+
+### Changed
+
+- **CascadeVariableDefinitionDialog validates flag format** — flag values must now match a strict pattern: short/long flags (`-f`, `--output-file`), positionals (`TARGET`, `HOST`), or subcommand-scoped variants (`clone:--depth`, `compose up:--env`). Garbage strings, bare dashes, mixed-case words, and malformed subcommand prefixes are rejected with a combined error message. Added `_CASCADE_VAR_FLAG_RE` module-level compiled regex.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,149/2,149 assertions, 0 failures**
+  - Functional: 1,785/1,785
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.4] — 2026-04-13
 
 Cascade dock min-width fix and password clipboard safety prompt.

@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.4"
+__version__ = "2.8.5.5"
 
 import atexit
 import datetime
@@ -4356,18 +4356,20 @@ class CascadeVariableDefinitionDialog(QDialog):
 
     def _on_accept(self) -> None:
         variables: list[dict] = []
-        has_error = False
+        error_lines: list[str] = []
+        # Track which rows have valid name+flag for duplicate/format checking
+        valid_rows: list[tuple[int, str]] = []  # (row, flag)
         for row in range(self._table.rowCount()):
             name_item = self._table.item(row, 0)
             flag_item = self._table.item(row, 1)
             name = name_item.text().strip() if name_item else ""
             flag = flag_item.text().strip() if flag_item else ""
             if not name or not flag:
-                has_error = True
                 if name_item and not name:
                     name_item.setBackground(QColor("#553333"))
                 if flag_item and not flag:
                     flag_item.setBackground(QColor("#553333"))
+                error_lines.append(f"Row {row + 1}: name and flag must not be empty")
                 continue
             # Clear any previous error highlight
             if name_item:
@@ -4375,12 +4377,21 @@ class CascadeVariableDefinitionDialog(QDialog):
             if flag_item:
                 flag_item.setBackground(QColor(0, 0, 0, 0))
 
+            # Flag format validation
+            if not _CASCADE_VAR_FLAG_RE.match(flag):
+                flag_item.setBackground(QColor("#553333"))
+                error_lines.append(
+                    f'Row {row + 1}: flag "{flag}" is not a valid flag or positional'
+                )
+                continue
+
             type_combo = self._table.cellWidget(row, 2)
             type_hint = type_combo.currentText() if type_combo else "string"
 
             apply_btn = self._table.cellWidget(row, 3)
             apply_to: str | list = apply_btn.value() if isinstance(apply_btn, ApplyToButton) else "all"
 
+            valid_rows.append((row, flag))
             variables.append({
                 "name": name,
                 "flag": flag,
@@ -4388,7 +4399,21 @@ class CascadeVariableDefinitionDialog(QDialog):
                 "apply_to": apply_to,
             })
 
-        if has_error:
+        # Check for duplicate flags among valid rows
+        flag_to_rows: dict[str, list[int]] = {}
+        for row, flag in valid_rows:
+            flag_to_rows.setdefault(flag, []).append(row)
+        for flag, rows in flag_to_rows.items():
+            if len(rows) > 1:
+                for r in rows:
+                    flag_item = self._table.item(r, 1)
+                    if flag_item:
+                        flag_item.setBackground(QColor("#553333"))
+                row_nums = " and ".join(str(r + 1) for r in rows)
+                error_lines.append(f'Duplicate flag "{flag}" on rows {row_nums}')
+
+        if error_lines:
+            QMessageBox.warning(self, "Invalid Variables", "\n".join(error_lines))
             return
         self._result_variables = variables
         self.accept()
@@ -4568,7 +4593,8 @@ class CascadeCaptureDefinitionDialog(QDialog):
 
     def _on_accept(self) -> None:
         entries: list[dict] = []
-        has_error = False
+        error_lines: list[str] = []
+        error_rows: set[int] = set()
         for row in range(self._table.rowCount()):
             name_item = self._table.item(row, 0)
             name = name_item.text().strip() if name_item else ""
@@ -4587,10 +4613,11 @@ class CascadeCaptureDefinitionDialog(QDialog):
                 try:
                     group_val = int(grp_text)
                 except ValueError:
-                    has_error = True
+                    error_rows.add(row)
                     if grp_item:
                         grp_item.setBackground(QColor("#553333"))
-                    QMessageBox.warning(self, "Invalid Capture", "group must be an integer")
+                    row_label = f'Row {row + 1} (name="{name}")' if name else f"Row {row + 1}"
+                    error_lines.append(f"{row_label}: group must be an integer")
                     continue
                 entry = {"name": name, "source": source, "pattern": pat_text, "group": group_val}
             elif source == "file":
@@ -4602,10 +4629,11 @@ class CascadeCaptureDefinitionDialog(QDialog):
             try:
                 _validate_capture_entry(entry, self._cascade_variables)
             except ValueError as exc:
-                has_error = True
+                error_rows.add(row)
                 if name_item:
                     name_item.setBackground(QColor("#553333"))
-                QMessageBox.warning(self, "Invalid Capture", str(exc))
+                row_label = f'Row {row + 1} (name="{name}")' if name else f"Row {row + 1}"
+                error_lines.append(f"{row_label}: {exc}")
                 continue
 
             # Clear highlights on success
@@ -4616,7 +4644,8 @@ class CascadeCaptureDefinitionDialog(QDialog):
 
             entries.append(entry)
 
-        if has_error:
+        if error_lines:
+            QMessageBox.warning(self, "Invalid Capture", "\n".join(error_lines))
             return
         self._result_captures = entries
         self.accept()
@@ -4758,6 +4787,14 @@ def substitute_captures(text: str, values: dict) -> tuple[str, list[str]]:
 
 
 _ARGV_FLAG_RE = re.compile(r"^--?[A-Za-z]")
+
+# Flag-format regex for cascade variable definitions.
+# Accepts:  -f  --flag  --output-file  TARGET  HOST
+#           clone:--depth  clone:REPOSITORY  compose up:--env
+_CASCADE_VAR_FLAG_RE = re.compile(
+    r"^(?:[a-z][a-z0-9_-]*(?:\s[a-z][a-z0-9_-]*)?:)?"  # optional subcommand: prefix (max 2 levels)
+    r"(?:--?[A-Za-z][A-Za-z0-9_-]*|[A-Z][A-Z0-9_]*)$"  # flag or POSITIONAL
+)
 
 
 def _looks_like_argv_flag(value: str) -> bool:
