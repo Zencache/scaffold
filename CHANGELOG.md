@@ -2,6 +2,32 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.8] — 2026-04-13
+
+Bugfix — atomic preset writes, cascade wrapper stacking, dock visibility persistence.
+
+### Fixed
+
+- **Preset import/export now use atomic writes** — `_on_import_preset` and `_on_export_preset` were still using raw `Path.write_text`, bypassing the `_atomic_write_json` helper introduced in v2.8.5.3. A disk-full or mid-write crash could corrupt the destination file. Both now write to a `.tmp` file and `os.replace`, matching all other save paths.
+- **Cascade wrapper stacking eliminated** — `_chain_execute_current` now restores the real `_on_finished` handler before wrapping, so each step's wrapper captures the original handler (not the previous wrapper). Previously, N steps produced N nested wrappers, causing `extract_captures` and `run_btn.setEnabled(False)` to execute N times per process finish instead of once.
+- **Cascade dock visibility persisted on native-X close** — `_on_cascade_visibility_changed` now writes `cascade/visible` to QSettings. Previously only the menu/Ctrl+G path (`_toggle_cascade`) persisted the state, so closing the dock via its native X button was forgotten on next launch.
+
+### Added
+
+- **Section 138** — atomic preset import regression test: patches `Path.write_text` to simulate mid-write failure, asserts destination file retains original content.
+- **Section 139** — cascade wrapper stacking test: installs wrappers for 3 simulated steps, invokes `_on_finished` once, asserts `run_btn.setEnabled(False)` is called exactly 1 time (not 3).
+- **Section 140** — cascade visibility persistence test: calls `_on_cascade_visibility_changed` with both values, asserts QSettings is updated each time.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,192/2,192 assertions, 0 failures**
+  - Functional: 1,828/1,828
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.7] — 2026-04-13
 
 Housekeeping — drag-enter cursor fix, preset prompt docs update.

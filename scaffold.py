@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.7"
+__version__ = "2.8.5.8"
 
 import atexit
 import datetime
@@ -6013,6 +6013,10 @@ class CascadeSidebar(QDockWidget):
 
         self._chain_state = CHAIN_RUNNING
 
+        # Restore real handler before wrapping, so we don't stack wrappers
+        if self._stored_original_on_finished is not None:
+            self._main_window._on_finished = self._stored_original_on_finished
+
         # Monkey-patch _on_finished to advance the chain after each step
         original_on_finished = self._main_window._on_finished
 
@@ -6414,6 +6418,7 @@ class MainWindow(QMainWindow):
         """React to cascade dock visibility changes (native X, menu, or programmatic)."""
         self._apply_cascade_minwidth(visible)
         self.act_cascade_toggle.setChecked(visible)
+        self.settings.setValue("cascade/visible", visible)
 
     def _toggle_cascade(self, checked: bool = None) -> None:
         """Show/hide the Cascade sidebar and persist the state."""
@@ -7715,10 +7720,7 @@ class MainWindow(QMainWindow):
                 return
 
         try:
-            dest.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(dest, data)
         except OSError as e:
             self.statusBar().showMessage(f"Import failed: {e}")
             return
@@ -7750,7 +7752,7 @@ class MainWindow(QMainWindow):
 
         try:
             content = preset_path.read_text(encoding="utf-8")
-            Path(dest).write_text(content, encoding="utf-8")
+            _atomic_write_json(Path(dest), json.loads(content))
         except OSError as e:
             self.statusBar().showMessage(f"Export failed: {e}")
             return

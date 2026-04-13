@@ -15158,6 +15158,217 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 138 — Atomic writes for preset import/export
+# =====================================================================
+print("\n--- Section 138: Atomic writes for preset import ---")
+
+# Setup: create a window with a loaded tool and a pre-existing preset at dest
+_s138_tmpdir = tempfile.mkdtemp(prefix="scaffold_test138_")
+_s138_tool = {
+    "tool": "test138_tool",
+    "binary": "echo",
+    "description": "Test tool for 138",
+    "arguments": [{"name": "Msg", "flag": "--msg", "type": "string"}],
+}
+_s138_tool_path = os.path.join(_s138_tmpdir, "test138_tool.json")
+Path(_s138_tool_path).write_text(json.dumps(_s138_tool))
+
+_s138_win = scaffold.MainWindow()
+_s138_win.show()
+app.processEvents()
+_s138_win._load_tool_path(_s138_tool_path)
+app.processEvents()
+
+# Create a source file to import
+_s138_import_data = {"_description": "imported", "scope:--msg": "hello"}
+_s138_src = Path(_s138_tmpdir) / "import_src.json"
+_s138_src.write_text(json.dumps(_s138_import_data, indent=2), encoding="utf-8")
+
+# Create an existing preset at the destination (the one we don't want corrupted)
+_s138_preset_dir = scaffold._presets_dir("test138_tool")
+_s138_preset_dir.mkdir(parents=True, exist_ok=True)
+_s138_dest = _s138_preset_dir / "import_src.json"
+_s138_original_content = json.dumps({"_description": "original"}, indent=2)
+_s138_dest.write_text(_s138_original_content, encoding="utf-8")
+
+# Patch QFileDialog to return the source file, QMessageBox to auto-confirm overwrite
+from PySide6.QtWidgets import QFileDialog
+_s138_orig_getopen = QFileDialog.getOpenFileName
+_s138_orig_question = QMessageBox.question
+QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s138_src), ""))
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+
+# Patch Path.write_text to simulate mid-write failure (truncate + partial write)
+_s138_orig_write_text = Path.write_text
+
+def _s138_failing_write(path_self, content, *args, **kwargs):
+    """Simulate mid-write crash: open in write mode (truncating), write partial, raise."""
+    enc = kwargs.get("encoding", "utf-8")
+    with open(str(path_self), "w", encoding=enc) as f:
+        f.write(content[:10])
+    raise OSError("Simulated disk-full mid-write failure")
+
+Path.write_text = _s138_failing_write
+
+# Invoke the import — this should fail but dest must stay intact (atomic) or be original
+try:
+    _s138_win._on_import_preset()
+    app.processEvents()
+except Exception:
+    pass  # Any exception is fine; we only care about dest state
+
+# Restore patches immediately
+Path.write_text = _s138_orig_write_text
+QFileDialog.getOpenFileName = _s138_orig_getopen
+QMessageBox.question = _s138_orig_question
+
+# 138a: Dest file must still have original content (not truncated/partial)
+_s138_dest_content = _s138_dest.read_text(encoding="utf-8")
+_s138_is_original = _s138_dest_content == _s138_original_content
+_s138_is_fully_new = _s138_dest_content == json.dumps(_s138_import_data, indent=2, ensure_ascii=False)
+check(_s138_is_original or _s138_is_fully_new,
+      "138a: after failed import, dest is original or fully-new (never partial)")
+
+# 138b: Specifically, with atomic writes, dest should be the original (write to .tmp failed)
+check(_s138_is_original,
+      "138b: after failed atomic import, dest retains original content")
+
+# Cleanup
+_s138_win.close()
+_s138_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s138_tmpdir, ignore_errors=True)
+shutil.rmtree(str(_s138_preset_dir.parent), ignore_errors=True)
+
+
+# =====================================================================
+# Section 139 — Cascade wrapper stacking (setEnabled(False) call count)
+# =====================================================================
+print("\n--- Section 139: Cascade wrapper stacking fix ---")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s139_tmpdir = tempfile.mkdtemp(prefix="scaffold_test139_")
+_s139_tool = {
+    "tool": "test139_tool",
+    "binary": "echo",
+    "description": "Test tool for 139",
+    "arguments": [{"name": "Msg", "flag": "--msg", "type": "string"}],
+}
+_s139_tool_path = os.path.join(_s139_tmpdir, "test139_tool.json")
+Path(_s139_tool_path).write_text(json.dumps(_s139_tool))
+
+_s139_win = scaffold.MainWindow()
+_s139_win.show()
+app.processEvents()
+_s139_dock = _s139_win.cascade_dock
+
+# Load tool so form exists
+_s139_win._load_tool_path(_s139_tool_path)
+app.processEvents()
+
+# Install a simple sentinel as _on_finished (no forwarding to real handler)
+_s139_sentinel_calls = [0]
+
+def _s139_sentinel(exit_code, exit_status):
+    _s139_sentinel_calls[0] += 1
+
+_s139_win._on_finished = _s139_sentinel
+
+# Create 3 slots with tool paths
+while len(_s139_dock._slots) < 3:
+    _s139_dock._on_add_slot()
+    app.processEvents()
+for _s139_i in range(3):
+    _s139_dock._slots[_s139_i]["tool_path"] = _s139_tool_path
+
+# Patch _on_run_stop to avoid starting real processes; set fake process to
+# prevent the "process failed to start" cleanup from triggering
+_s139_orig_run_stop = _s139_win._on_run_stop
+
+def _s139_fake_run():
+    _s139_win.process = object()  # Non-None so cleanup check passes
+
+_s139_win._on_run_stop = _s139_fake_run
+
+# Simulate 3 steps: each calls _chain_execute_current which wraps _on_finished
+_s139_dock._chain_queue = [0, 1, 2]
+for _s139_i in range(3):
+    _s139_dock._chain_current = _s139_i
+    _s139_dock._chain_state = scaffold.CHAIN_LOADING
+    _s139_win.process = None  # Reset fake process before loading tool
+    _s139_win._load_tool_path(_s139_tool_path)
+    app.processEvents()
+    _s139_dock._chain_execute_current()
+    app.processEvents()
+
+# Now instrument run_btn.setEnabled to count False calls
+_s139_false_count = [0]
+_s139_orig_set_enabled = _s139_win.run_btn.setEnabled
+
+def _s139_count_set_enabled(val):
+    if not val:
+        _s139_false_count[0] += 1
+    _s139_orig_set_enabled(val)
+
+_s139_win.run_btn.setEnabled = _s139_count_set_enabled
+
+# Set chain state so wrappers execute their body (not early-return on IDLE)
+_s139_dock._chain_state = scaffold.CHAIN_RUNNING
+_s139_dock._chain_current = 2
+
+# Invoke _on_finished once
+_s139_win._on_finished(0, 0)
+app.processEvents()
+
+# 139a: setEnabled(False) should be called exactly 1 time, not N (=3)
+check(_s139_false_count[0] == 1,
+      "139a: run_btn.setEnabled(False) called once, not N times (wrapper stacking fix)")
+
+# Restore and cleanup
+_s139_win.run_btn.setEnabled = _s139_orig_set_enabled
+_s139_win._on_run_stop = _s139_orig_run_stop
+_s139_win.process = None  # Reset fake process before cleanup
+_s139_dock._chain_cleanup("test139 done")
+_s139_win.close()
+_s139_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s139_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 140 — Persist cascade visibility on native-X close
+# =====================================================================
+print("\n--- Section 140: Cascade visibility persistence on native-X close ---")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s140_win = scaffold.MainWindow()
+_s140_win.show()
+app.processEvents()
+
+# 140a: Calling _on_cascade_visibility_changed(False) should persist to QSettings
+# Pre-set to True so we can verify it actually changes (not just default False)
+_s140_win.settings.setValue("cascade/visible", True)
+_s140_win._on_cascade_visibility_changed(False)
+app.processEvents()
+check(_s140_win.settings.value("cascade/visible", type=bool) is False,
+      "140a: cascade/visible persisted as False via _on_cascade_visibility_changed")
+
+# 140b: Calling _on_cascade_visibility_changed(True) should persist to QSettings
+_s140_win.settings.setValue("cascade/visible", False)
+_s140_win._on_cascade_visibility_changed(True)
+app.processEvents()
+check(_s140_win.settings.value("cascade/visible", type=bool) is True,
+      "140b: cascade/visible persisted as True via _on_cascade_visibility_changed")
+
+# Cleanup
+_s140_win.close()
+_s140_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
