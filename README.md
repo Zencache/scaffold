@@ -236,6 +236,8 @@ Chain multiple tool runs into sequential workflows from the cascade sidebar (Ctr
 
 Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State persists across sessions. Cascades run through the same QProcess list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees. Two example cascade files are bundled in `cascades/`.
 
+<img src="nmap%20cascade%20example.png" alt="Scaffold cascade panel running an nmap workflow" width="75%">
+
 ### LLM-powered preset generation
 
 Generate presets from natural language using `--preset-prompt` and `PRESET_PROMPT.txt`, mirroring the schema-generation workflow. Run `python scaffold.py --preset-prompt` to print the prompt, paste it alongside the target tool's schema into any LLM, describe the preset you want in plain English, and drop the returned JSON into `presets/<tool>/`. This is useful for tools with many flags where manually configuring a preset would be tedious.
