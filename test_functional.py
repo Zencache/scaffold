@@ -15369,6 +15369,190 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # =====================================================================
+# Section 141 — Partial form mutation on halt (Finding 3)
+# =====================================================================
+print("\n--- Section 141: _substitute_in_form_fields collect-then-commit ---")
+
+_s141_path = str(Path(__file__).parent / "tests" / "test_capture_types.json")
+_s141_win = scaffold.MainWindow()
+_s141_win.show()
+app.processEvents()
+_s141_win._load_tool_path(_s141_path)
+app.processEvents()
+
+_s141_form = _s141_win.form
+_s141_dock = _s141_win.cascade_dock
+
+# Enable stop_on_error so unset capture halts the chain
+_s141_dock._stop_on_error = True
+_s141_dock._chain_state = scaffold.CHAIN_LOADING
+_s141_dock._chain_variable_values = {"known": "K"}  # has {known} but NOT {missing}
+
+_s141_GLOBAL = scaffold.ToolForm.GLOBAL
+
+# First field uses a capture that EXISTS — it will substitute successfully
+# Second field uses a capture that is MISSING — halt fires on this one
+# On current code, the first field is already written before halt → partial mutation
+_s141_form._set_field_value((_s141_GLOBAL, "--target"), "a-{known}")
+_s141_form._set_field_value((_s141_GLOBAL, "--note"), "b-{missing}")
+app.processEvents()
+
+# Run substitution — should halt on {missing} and discard ALL pending writes
+_s141_dock._substitute_in_form_fields(_s141_form)
+app.processEvents()
+
+# 141a: First field should NOT have been mutated (collect-then-commit discards)
+_s141_target = _s141_form._raw_field_value((_s141_GLOBAL, "--target"))
+check(_s141_target == "a-{known}",
+      f"141a: first field unchanged after halt (got {_s141_target!r})")
+
+# 141b: Second field should NOT have been mutated
+_s141_note = _s141_form._raw_field_value((_s141_GLOBAL, "--note"))
+check(_s141_note == "b-{missing}",
+      f"141b: second field unchanged after halt (got {_s141_note!r})")
+
+# 141c: Chain state should be IDLE (halted)
+check(_s141_dock._chain_state == scaffold.CHAIN_IDLE,
+      f"141c: chain state is IDLE after halt (got {_s141_dock._chain_state!r})")
+
+# Cleanup section 141
+_s141_dock._stop_on_error = False
+_s141_dock._chain_state = scaffold.CHAIN_IDLE
+_s141_win.close()
+_s141_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 142 — Dedup unset-capture warnings per slot (Finding 5)
+# =====================================================================
+print("\n--- Section 142: Dedup unset-capture warnings ---")
+
+_s142_path = str(Path(__file__).parent / "tests" / "test_capture_types.json")
+_s142_win = scaffold.MainWindow()
+_s142_win.show()
+app.processEvents()
+_s142_win._load_tool_path(_s142_path)
+app.processEvents()
+
+_s142_dock = _s142_win.cascade_dock
+
+# stop_on_error=False so we don't halt, just warn
+_s142_dock._stop_on_error = False
+_s142_dock._chain_state = scaffold.CHAIN_LOADING
+_s142_dock._chain_variable_values = {}  # no captures — {missing142} is unset
+
+# Clear output and any prior dedup state
+_s142_win.output.clear()
+app.processEvents()
+if hasattr(_s142_dock, "_unset_warned_captures"):
+    _s142_dock._unset_warned_captures.clear()
+
+# Call _substitute_captures three times for the same unset capture
+_s142_dock._substitute_captures("{missing142}", {})
+_s142_dock._substitute_captures("{missing142}", {})
+_s142_dock._substitute_captures("{missing142}", {})
+app.processEvents()
+
+_s142_out = _s142_win.output.toPlainText()
+_s142_count = _s142_out.count("missing142")
+check(_s142_count == 1,
+      f"142a: exactly one unset-capture warning for repeated '{'{'}missing142{'}'}' (got {_s142_count})")
+
+# 142b: After clearing dedup state (simulating slot advance), a new warning should fire
+if hasattr(_s142_dock, "_unset_warned_captures"):
+    _s142_dock._unset_warned_captures.clear()
+_s142_win.output.clear()
+app.processEvents()
+
+_s142_dock._substitute_captures("{missing142}", {})
+app.processEvents()
+
+_s142_out2 = _s142_win.output.toPlainText()
+_s142_count2 = _s142_out2.count("missing142")
+check(_s142_count2 == 1,
+      f"142b: warning fires again after dedup reset (got {_s142_count2})")
+
+# Cleanup section 142
+_s142_dock._chain_state = scaffold.CHAIN_IDLE
+_s142_win.close()
+_s142_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 143 — Dead _autosave_form() call in _check_for_recovery
+# =====================================================================
+print("\n--- Section 143: Recovery flow does not call _autosave_form ---")
+
+_s143_tmpdir = tempfile.mkdtemp(prefix="scaffold_test143_")
+_s143_tool = {
+    "tool": "recovery_test_143",
+    "binary": "echo",
+    "description": "Test tool for recovery flow",
+    "arguments": [
+        {"name": "Name", "flag": "--name", "type": "string"},
+    ],
+}
+_s143_path = os.path.join(_s143_tmpdir, "tool_143.json")
+Path(_s143_path).write_text(json.dumps(_s143_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s143_win = scaffold.MainWindow()
+_s143_win.show()
+app.processEvents()
+_s143_win._load_tool_path(_s143_path)
+app.processEvents()
+
+_s143_GLOBAL = scaffold.ToolForm.GLOBAL
+
+# Write a recovery file with a known value
+_s143_recovery_path = _s143_win._recovery_file_path()
+_s143_recovery_data = {
+    "--name": "recovered_value",
+    "_recovery_timestamp": time.time(),
+    "_recovery_tool_path": _s143_path,
+}
+_s143_recovery_path.write_text(json.dumps(_s143_recovery_data), encoding="utf-8")
+
+# Monkeypatch QMessageBox.question to accept recovery for this test
+_s143_prev_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+# Track _autosave_form calls
+_s143_autosave_calls = []
+_s143_orig_autosave = _s143_win._autosave_form
+_s143_win._autosave_form = lambda: _s143_autosave_calls.append(1) or _s143_orig_autosave()
+
+# Run recovery check
+_s143_win._check_for_recovery()
+app.processEvents()
+
+# Restore monkeypatch
+QMessageBox.question = _s143_prev_question
+
+# 143a: Recovery file should be deleted
+check(not _s143_recovery_path.exists(),
+      "143a: recovery file deleted after accepting recovery")
+
+# 143b: Form should have the recovered value
+_s143_form_val = _s143_win.form._raw_field_value((_s143_GLOBAL, "--name"))
+check(_s143_form_val == "recovered_value",
+      f"143b: form restored recovered value (got {_s143_form_val!r})")
+
+# 143c: _autosave_form should not have written anything (dead call)
+# The call fires but the early-out prevents any file write — verify no recovery file was recreated
+check(not _s143_recovery_path.exists(),
+      "143c: no recovery file recreated by _autosave_form after restore")
+
+# Cleanup section 143
+_s143_win.close()
+_s143_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s143_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

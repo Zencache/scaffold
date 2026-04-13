@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.8"
+__version__ = "2.8.5.9"
 
 import atexit
 import datetime
@@ -4938,6 +4938,7 @@ class CascadeSidebar(QDockWidget):
         self._stored_original_on_finished = None
         self._chain_variable_values: dict = {}
         self._argv_warned_captures: set[str] = set()
+        self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
         self._current_cascade_name: str | None = None
 
@@ -5817,6 +5818,9 @@ class CascadeSidebar(QDockWidget):
 
         result, unset_names = substitute_captures(text, values)
         for name in unset_names:
+            if name in self._unset_warned_captures:
+                continue
+            self._unset_warned_captures.add(name)
             if hasattr(self._main_window, 'output'):
                 self._main_window._append_output(
                     f"[cascade] capture '{name}' did not match; substituting empty string\n",
@@ -5836,9 +5840,13 @@ class CascadeSidebar(QDockWidget):
         Reads and writes via the form's own methods so every widget type
         (string, text, file, directory, password, enum) is handled.
         Lists (multi_enum) have each string element substituted.
+
+        Uses collect-then-commit: pending writes are gathered first and
+        only applied after the full loop completes without a halt.
         """
         if not self._chain_variable_values:
             return
+        pending: list[tuple[tuple, object]] = []
         for key in list(form.fields.keys()):
             current = form._raw_field_value(key)
             if isinstance(current, str):
@@ -5846,9 +5854,9 @@ class CascadeSidebar(QDockWidget):
                     continue
                 new_value = self._substitute_captures(current, self._chain_variable_values)
                 if self._chain_state == CHAIN_IDLE:
-                    return  # guard or unset halt fired
+                    return  # guard or unset halt fired — discard all pending writes
                 if new_value != current:
-                    form._set_field_value(key, new_value)
+                    pending.append((key, new_value))
             elif isinstance(current, list):
                 changed = False
                 new_list = []
@@ -5856,14 +5864,17 @@ class CascadeSidebar(QDockWidget):
                     if isinstance(item, str) and "{" in item:
                         new_item = self._substitute_captures(item, self._chain_variable_values)
                         if self._chain_state == CHAIN_IDLE:
-                            return
+                            return  # discard all pending writes
                         if new_item != item:
                             changed = True
                         new_list.append(new_item)
                     else:
                         new_list.append(item)
                 if changed:
-                    form._set_field_value(key, new_list)
+                    pending.append((key, new_list))
+        # Commit all writes atomically — only reached if no halt fired
+        for key, new_value in pending:
+            form._set_field_value(key, new_value)
 
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
@@ -5890,6 +5901,7 @@ class CascadeSidebar(QDockWidget):
 
         slot_index = self._chain_queue[self._chain_current]
         self._argv_warned_captures.clear()
+        self._unset_warned_captures.clear()
         slot = self._slots[slot_index]
         tool_path = slot["tool_path"]
         preset_path = slot.get("preset_path")
@@ -7048,7 +7060,6 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.statusBar().showMessage("Form restored from auto-save")
-            self._autosave_form()
         else:
             self.statusBar().showMessage("Recovery discarded")
         try:

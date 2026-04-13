@@ -2,6 +2,26 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.9] — 2026-04-13
+
+Audit backlog cleanup — closes out the v2.7.4-era audit cycle. Two low-severity findings fixed, one dead-code removal.
+
+### Fixed
+
+- **`_substitute_in_form_fields` no longer partially mutates the form on halt** — the method now collects pending field writes into a local list and commits them only after the full loop completes without a halt. Previously, fields processed before an unset-capture halt (under `stop_on_error`) were already written while later fields were not, leaving the form in an inconsistent partial-substitution state (Finding 3).
+- **Unset-capture warnings are now deduplicated per slot** — `_substitute_captures` now uses a `_unset_warned_captures` set (cleared per slot in `_chain_advance`) to emit at most one warning per capture name per slot. Previously, if three fields referenced the same unset capture, three identical warning lines were emitted (Finding 5).
+- **Removed dead `_autosave_form()` call in `_check_for_recovery`** — after accepting recovery, `_default_form_snapshot` was set to match the restored state, so the subsequent `_autosave_form()` call always hit the early-out and never wrote a file. The call has been removed.
+
+### Added
+
+- **Section 141** — partial form mutation regression test: sets up a cascade with `stop_on_error=True`, one field with a known capture and one with a missing capture. Asserts neither field is mutated after halt.
+- **Section 142** — unset-capture warning dedup test: calls `_substitute_captures` three times for the same missing capture under `stop_on_error=False`. Asserts exactly one warning, then verifies dedup resets per slot.
+- **Section 143** — recovery flow dead-call test: walks through `_check_for_recovery` with a mocked recovery file, asserts form restores correctly and no recovery file is recreated.
+
+#### Full suite results
+
+- **Functional: 1,836/1,836** (up from 1,828)
+
 ## [v2.8.5.8] — 2026-04-13
 
 Bugfix — atomic preset writes, cascade wrapper stacking, dock visibility persistence.
