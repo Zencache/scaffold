@@ -13988,6 +13988,174 @@ shutil.rmtree(_s124_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 125 — Capture substitution across all widget types (Bug 1)
+# =====================================================================
+print("\n--- Section 125: Capture substitution across widget types ---")
+
+_s125_path = str(Path(__file__).parent / "tests" / "test_capture_types.json")
+_s125_win = scaffold.MainWindow()
+_s125_win._load_tool_path(_s125_path)
+app.processEvents()
+
+_s125_form = _s125_win.form
+_s125_dock = _s125_win.cascade_dock
+GLOBAL = scaffold.ToolForm.GLOBAL
+
+# Seed capture values as if a previous cascade step captured them
+_s125_dock._chain_variable_values = {"port": "8080"}
+_s125_dock._chain_state = scaffold.CHAIN_LOADING
+
+# Set field values containing {port} tokens
+_s125_form._set_field_value((GLOBAL, "--target"), "host-{port}")
+_s125_form._set_field_value((GLOBAL, "--note"), "port is {port}")
+_s125_form._set_field_value((GLOBAL, "--config-file"), "/tmp/config-{port}.ini")
+_s125_form._set_field_value((GLOBAL, "--output-dir"), "/tmp/out-{port}")
+_s125_form._set_field_value((GLOBAL, "--secret"), "prefix-{port}")
+# multi_enum: select "alpha" — no {port} token, should be left alone
+_s125_form._set_field_value((GLOBAL, "--tags"), ["alpha"])
+# enum: select "fast" — no {port} token, should be left alone
+_s125_form._set_field_value((GLOBAL, "--mode"), "fast")
+app.processEvents()
+
+# Verify values are set before substitution
+check(_s125_form._raw_field_value((GLOBAL, "--note")) == "port is {port}",
+      "125a: text field set with {port} token before substitution")
+check(_s125_form._raw_field_value((GLOBAL, "--config-file")) == "/tmp/config-{port}.ini",
+      "125b: file field set with {port} token before substitution")
+check(_s125_form._raw_field_value((GLOBAL, "--output-dir")) == "/tmp/out-{port}",
+      "125c: directory field set with {port} token before substitution")
+check(_s125_form._raw_field_value((GLOBAL, "--secret")) == "prefix-{port}",
+      "125d: password field set with {port} token before substitution")
+
+# Run substitution via the helper method
+_s125_dock._substitute_in_form_fields(_s125_form)
+app.processEvents()
+
+# Check substituted values
+check(_s125_form._raw_field_value((GLOBAL, "--target")) == "host-8080",
+      "125e: string field substituted {port} -> 8080")
+check(_s125_form._raw_field_value((GLOBAL, "--note")) == "port is 8080",
+      "125f: text field substituted {port} -> 8080")
+check(_s125_form._raw_field_value((GLOBAL, "--config-file")) == "/tmp/config-8080.ini",
+      "125g: file field substituted {port} -> 8080")
+check(_s125_form._raw_field_value((GLOBAL, "--output-dir")) == "/tmp/out-8080",
+      "125h: directory field substituted {port} -> 8080")
+check(_s125_form._raw_field_value((GLOBAL, "--secret")) == "prefix-8080",
+      "125i: password field substituted {port} -> 8080")
+
+# multi_enum left alone (choices are fixed, no {port} in them)
+_s125_tags = _s125_form._raw_field_value((GLOBAL, "--tags"))
+check(_s125_tags == ["alpha"],
+      f"125j: multi_enum field left alone (got {_s125_tags})")
+
+# enum left alone (choice value doesn't contain {port})
+_s125_mode = _s125_form._raw_field_value((GLOBAL, "--mode"))
+check(_s125_mode == "fast",
+      f"125k: enum field left alone (got {_s125_mode})")
+
+# Cleanup section 125
+_s125_win.close()
+_s125_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 126 — Atomic JSON writes (Bug 2)
+# =====================================================================
+print("\n--- Section 126: Atomic JSON writes ---")
+
+# 126a: _atomic_write_json happy path — writes valid JSON
+_s126_tmpdir = tempfile.mkdtemp(prefix="scaffold_test126_")
+_s126_path = Path(_s126_tmpdir) / "test_atomic.json"
+_s126_data = {"key": "value", "number": 42, "nested": {"a": 1}}
+
+scaffold._atomic_write_json(_s126_path, _s126_data)
+check(_s126_path.exists(), "126a: _atomic_write_json creates the file")
+
+_s126_read = json.loads(_s126_path.read_text(encoding="utf-8"))
+check(_s126_read == _s126_data, "126b: written JSON matches input data")
+
+# 126c: .tmp sibling is cleaned up on success
+_s126_tmp_sibling = _s126_path.with_suffix(_s126_path.suffix + ".tmp")
+check(not _s126_tmp_sibling.exists(), "126c: .tmp sibling cleaned up after success")
+
+# 126d: On failure, original file is unchanged and .tmp is cleaned up
+# Write a known-good file first
+_s126_orig_data = {"original": True}
+scaffold._atomic_write_json(_s126_path, _s126_orig_data)
+
+# Monkeypatch os.replace to simulate crash
+_s126_orig_replace = os.replace
+def _s126_bad_replace(src, dst):
+    raise OSError("Simulated mid-write crash")
+os.replace = _s126_bad_replace
+try:
+    try:
+        scaffold._atomic_write_json(_s126_path, {"corrupted": True})
+    except OSError:
+        pass  # Expected
+    _s126_after = json.loads(_s126_path.read_text(encoding="utf-8"))
+    check(_s126_after == _s126_orig_data,
+          "126d: original file unchanged after simulated failure")
+    check(not _s126_tmp_sibling.exists(),
+          "126e: .tmp sibling cleaned up after failure")
+finally:
+    os.replace = _s126_orig_replace
+
+# 126f: Preset save flow produces valid file (smoke test)
+_s126_win = scaffold.MainWindow()
+_s126_tool_path = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s126_win._load_tool_path(_s126_tool_path)
+app.processEvents()
+
+_s126_preset_dir = Path(_s126_tmpdir) / "presets"
+_s126_preset_dir.mkdir(exist_ok=True)
+_s126_preset_file = _s126_preset_dir / "smoke_test.json"
+_s126_preset_data = _s126_win.form.serialize_values()
+_s126_preset_data["_description"] = "smoke test"
+scaffold._atomic_write_json(_s126_preset_file, _s126_preset_data)
+
+_s126_verify = json.loads(_s126_preset_file.read_text(encoding="utf-8"))
+check(_s126_verify.get("_description") == "smoke test",
+      "126f: preset save via _atomic_write_json produces valid file")
+check("_schema_hash" in _s126_verify,
+      "126g: preset file has expected meta keys")
+
+# Cleanup section 126
+_s126_win.close()
+_s126_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s126_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 127 — PresetPicker._deleted_last initialization (Bug 3)
+# =====================================================================
+print("\n--- Section 127: PresetPicker._deleted_last init ---")
+
+_s127_tmpdir = tempfile.mkdtemp(prefix="scaffold_test127_")
+_s127_presets_dir = Path(_s127_tmpdir) / "presets"
+_s127_presets_dir.mkdir()
+# Write a dummy preset so the picker can init
+_s127_dummy = _s127_presets_dir / "dummy.json"
+_s127_dummy.write_text(json.dumps({"_description": "test"}), encoding="utf-8")
+
+_s127_picker = scaffold.PresetPicker("test_tool", _s127_presets_dir, mode="edit")
+
+# Should be False directly — no getattr fallback needed
+check(hasattr(_s127_picker, "_deleted_last"),
+      "127a: PresetPicker has _deleted_last attribute after __init__")
+check(_s127_picker._deleted_last is False,
+      "127b: _deleted_last is False after __init__")
+
+# Cleanup section 127
+_s127_picker.close()
+_s127_picker.deleteLater()
+app.processEvents()
+shutil.rmtree(_s127_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

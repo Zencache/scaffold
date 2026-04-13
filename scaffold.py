@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.2"
+__version__ = "2.8.5.3"
 
 import atexit
 import datetime
@@ -151,6 +151,28 @@ def _read_json_file(path) -> dict:
     if text.startswith("\ufeff"):
         text = text[1:]
     return json.loads(text)
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Write JSON atomically: write to temp, then os.replace.
+
+    Raises OSError on failure; callers handle it. The temp file is cleaned
+    up on failure so partial writes don't leave debris.
+    """
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def validate_tool(data: dict) -> list[str]:
@@ -3061,6 +3083,7 @@ class PresetPicker(QDialog):
         self.mode = mode  # "load", "delete", or "edit"
         self.selected_path: str | None = None
         self._presets: list[Path] = []  # ordered list matching table rows
+        self._deleted_last = False
 
         titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(f"{titles.get(mode, mode)} \u2014 {tool_name}")
@@ -3360,10 +3383,7 @@ class PresetPicker(QDialog):
         # Update only _description and write back
         data["_description"] = new_desc.strip()
         try:
-            preset_path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(preset_path, data)
         except OSError as e:
             QMessageBox.warning(self, "Error", f"Cannot write preset file:\n{e}")
             return
@@ -5770,6 +5790,41 @@ class CascadeSidebar(QDockWidget):
             return text  # halt — return original, cleanup already ran
         return result
 
+    def _substitute_in_form_fields(self, form) -> None:
+        """Replace {capture_name} tokens in all form field values.
+
+        Reads and writes via the form's own methods so every widget type
+        (string, text, file, directory, password, enum) is handled.
+        Lists (multi_enum) have each string element substituted.
+        """
+        if not self._chain_variable_values:
+            return
+        for key in list(form.fields.keys()):
+            current = form._raw_field_value(key)
+            if isinstance(current, str):
+                if "{" not in current:
+                    continue
+                new_value = self._substitute_captures(current, self._chain_variable_values)
+                if self._chain_state == CHAIN_IDLE:
+                    return  # guard or unset halt fired
+                if new_value != current:
+                    form._set_field_value(key, new_value)
+            elif isinstance(current, list):
+                changed = False
+                new_list = []
+                for item in current:
+                    if isinstance(item, str) and "{" in item:
+                        new_item = self._substitute_captures(item, self._chain_variable_values)
+                        if self._chain_state == CHAIN_IDLE:
+                            return
+                        if new_item != item:
+                            changed = True
+                        new_list.append(new_item)
+                    else:
+                        new_list.append(item)
+                if changed:
+                    form._set_field_value(key, new_list)
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -5894,19 +5949,13 @@ class CascadeSidebar(QDockWidget):
         # Substitution pass: replace {capture_name} tokens in all field values.
         # Runs after variable injection so injected values are also subject to
         # substitution (a variable value can legitimately contain {capture_name}).
-        # Delegates to _substitute_captures which handles unset warnings,
-        # argv-flag injection guard, and stop-on-error halts.
+        # Delegates to _substitute_in_form_fields which handles all widget types
+        # via the form's own reader/writer methods.
         form = self._main_window.form
         if form is not None and self._chain_variable_values:
-            for key in list(form.fields.keys()):
-                current = form._raw_field_value(key)
-                if not isinstance(current, str) or "{" not in current:
-                    continue
-                new_value = self._substitute_captures(current, self._chain_variable_values)
-                if self._chain_state == CHAIN_IDLE:
-                    return  # guard or unset halt fired
-                if new_value != current:
-                    form._set_field_value(key, new_value)
+            self._substitute_in_form_fields(form)
+            if self._chain_state == CHAIN_IDLE:
+                return  # guard or unset halt fired
 
         # Small delay to let the form render before executing
         QTimer.singleShot(150, self._chain_execute_current)
@@ -6878,10 +6927,7 @@ class MainWindow(QMainWindow):
         if path is None:
             return
         try:
-            path.write_text(
-                json.dumps(values, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(path, values)
             try:
                 os.chmod(path, 0o600)
             except OSError:
@@ -7436,10 +7482,7 @@ class MainWindow(QMainWindow):
         preset = self.form.serialize_values()
         preset["_description"] = description
         try:
-            preset_path.write_text(
-                json.dumps(preset, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(preset_path, preset)
         except OSError as e:
             self.statusBar().showMessage(f"Error saving preset: {e}")
             return

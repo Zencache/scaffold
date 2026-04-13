@@ -2,6 +2,26 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.3] — 2026-04-13
+
+Three bug fixes: capture substitution coverage, atomic preset writes, and PresetPicker init.
+
+### Fixed
+
+- **Capture substitution covers all widget types** — extracted the substitution loop from `_chain_advance` into a `_substitute_in_form_fields` helper that routes reads and writes through `ToolForm._raw_field_value` / `_set_field_value`, so `{capture}` tokens in text, file, directory, and password fields are properly substituted. Multi-enum list values also have each string element checked. Previously only QLineEdit and QComboBox-backed fields were handled.
+- **Atomic JSON writes for presets and autosave** — added `_atomic_write_json` helper that writes to a `.tmp` sibling then `os.replace()`s into place, preventing file corruption on mid-write crashes. Applied to `_on_save_preset`, `_on_edit_description`, and `_autosave_form`.
+- **`PresetPicker._deleted_last` initialized in `__init__`** — attribute is now set to `False` alongside other instance attributes, removing reliance on `getattr` fallback for a class-owned field.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,038/2,038 assertions, 0 failures**
+  - Functional: 1,674/1,674
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.2] — 2026-04-13
 
 Five targeted bug fixes identified by audit.

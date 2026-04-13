@@ -1,0 +1,84 @@
+{
+  "tool": "capture_types_test",
+  "binary": "echo",
+  "description": "Test schema for capture substitution across all widget types.",
+  "arguments": [
+    {
+      "name": "Target",
+      "flag": "--target",
+      "type": "string",
+      "description": "Baseline string field",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Note",
+      "flag": "--note",
+      "type": "text",
+      "description": "Multi-line text field",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Tags",
+      "flag": "--tags",
+      "type": "multi_enum",
+      "description": "Multi-select tags",
+      "required": false,
+      "default": null,
+      "choices": ["alpha", "beta", "gamma"],
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Config File",
+      "flag": "--config-file",
+      "type": "file",
+      "description": "Config file path",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Output Dir",
+      "flag": "--output-dir",
+      "type": "directory",
+      "description": "Output directory path",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Secret",
+      "flag": "--secret",
+      "type": "password",
+      "description": "Secret value",
+      "required": false,
+      "default": null,
+      "choices": null,
+      "separator": "space",
+      "positional": false
+    },
+    {
+      "name": "Mode",
+      "flag": "--mode",
+      "type": "enum",
+      "description": "Execution mode",
+      "required": false,
+      "default": null,
+      "choices": ["fast", "slow"],
+      "separator": "space",
+      "positional": false
+    }
+  ]
+}
