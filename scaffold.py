@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.3"
+__version__ = "2.8.5.4"
 
 import atexit
 import datetime
@@ -6174,6 +6174,7 @@ class MainWindow(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave_form)
         self._default_form_snapshot = None
         self._chain_preserve_output = False
+        self._copy_password_choice: bool | None = None
         self._cleanup_stale_recovery_files()
 
         # Restore geometry
@@ -6222,7 +6223,7 @@ class MainWindow(QMainWindow):
         if visible:
             self.setMinimumWidth(MIN_WINDOW_WIDTH + 320)
         self.cascade_dock.visibilityChanged.connect(
-            lambda vis: self.act_cascade_toggle.setChecked(vis)
+            self._on_cascade_visibility_changed
         )
 
         if tool_path:
@@ -6359,21 +6360,29 @@ class MainWindow(QMainWindow):
         self._set_theme("dark" if not _dark_mode else "light")
         self._sync_theme_checks()
 
-    def _toggle_cascade(self, checked: bool = None) -> None:
-        """Show/hide the Cascade sidebar and persist the state."""
-        if checked is None:
-            checked = not self.cascade_dock.isVisible()
-        if checked and not self.cascade_dock.isVisible():
-            # Expand window to accommodate sidebar + button breathing room
+    def _apply_cascade_minwidth(self, visible: bool) -> None:
+        """Set the window minimum width based on cascade dock visibility."""
+        if visible:
             min_needed = MIN_WINDOW_WIDTH + 320
             if self.width() < min_needed:
                 self.resize(min_needed, self.height())
             self.setMinimumWidth(min_needed)
-        elif not checked:
+        else:
             self.setMinimumWidth(MIN_WINDOW_WIDTH)
+
+    def _on_cascade_visibility_changed(self, visible: bool) -> None:
+        """React to cascade dock visibility changes (native X, menu, or programmatic)."""
+        self._apply_cascade_minwidth(visible)
+        self.act_cascade_toggle.setChecked(visible)
+
+    def _toggle_cascade(self, checked: bool = None) -> None:
+        """Show/hide the Cascade sidebar and persist the state."""
+        if checked is None:
+            checked = not self.cascade_dock.isVisible()
+        self._apply_cascade_minwidth(checked)
         self.cascade_dock.setVisible(checked)
-        self.act_cascade_toggle.setChecked(self.cascade_dock.isVisible())
-        self.settings.setValue("cascade/visible", self.cascade_dock.isVisible())
+        self.act_cascade_toggle.setChecked(checked)
+        self.settings.setValue("cascade/visible", checked)
 
     def _on_about(self) -> None:
         """Show the About Scaffold dialog."""
@@ -7164,6 +7173,7 @@ class MainWindow(QMainWindow):
 
     def _build_form_view(self):
         """Tear down old form widgets and build fresh ones for self.data."""
+        self._copy_password_choice = None
         # Kill any running process
         self._elapsed_timer.stop()
         self._teardown_process()
@@ -7728,11 +7738,60 @@ class MainWindow(QMainWindow):
             self.status.setStyleSheet("padding: 0 8px 4px 8px;")
             self.run_btn.setEnabled(True)
 
+    def _prepare_copy_cmd(self, cmd: list[str]) -> list[str] | None:
+        """Apply password masking policy to a command before copying.
+
+        Returns the (possibly masked) command, or None if the user dismissed
+        the dialog via window-close (treated as mask, choice not stored).
+        """
+        # Check if any password fields have non-None values
+        has_pw = False
+        sub = self.form.get_current_subcommand()
+        scopes = {self.form.GLOBAL}
+        if sub:
+            scopes.add(sub)
+        for key, field in self.form.fields.items():
+            scope, flag = key
+            if scope not in scopes:
+                continue
+            if field["arg"]["type"] != "password":
+                continue
+            if self.form.get_field_value(key) is not None:
+                has_pw = True
+                break
+
+        if not has_pw:
+            return cmd
+
+        if self._copy_password_choice is None:
+            answer = QMessageBox.question(
+                self, "Copy with Passwords?",
+                "This command contains password fields with values.\n"
+                "Copy the real passwords to the clipboard, or replace them "
+                "with ********?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._copy_password_choice = True
+            elif answer == QMessageBox.StandardButton.No:
+                self._copy_password_choice = False
+            else:
+                # Dialog dismissed (window close) — mask but don't store
+                return self.form._mask_passwords_for_display(cmd)
+
+        if self._copy_password_choice:
+            return cmd
+        return self.form._mask_passwords_for_display(cmd)
+
     def _copy_command(self) -> None:
         """Copy the current command using the selected shell format to the clipboard."""
         cmd, _ = self.form.build_command()
         if self.form.is_elevation_checked():
             cmd, _ = get_elevation_command(cmd)
+        cmd = self._prepare_copy_cmd(cmd)
+        if cmd is None:
+            return
         formatter, _ = _COPY_FORMATS.get(self._copy_format, (_format_display, "Command"))
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
@@ -7771,6 +7830,9 @@ class MainWindow(QMainWindow):
         cmd, _ = self.form.build_command()
         if self.form.is_elevation_checked():
             cmd, _ = get_elevation_command(cmd)
+        cmd = self._prepare_copy_cmd(cmd)
+        if cmd is None:
+            return
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
         color = DARK_COLORS["success"] if _dark_mode else "green"

@@ -2,6 +2,28 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.4] — 2026-04-13
+
+Cascade dock min-width fix and password clipboard safety prompt.
+
+### Fixed
+
+- **Cascade dock min-width restored on native close** — closing the cascade sidebar via its native X button now correctly resets the window minimum width to `MIN_WINDOW_WIDTH`. Previously the inflated min-width (`MIN_WINDOW_WIDTH + 320`) persisted, preventing the window from shrinking back. Extracted `_apply_cascade_minwidth` helper and wired `visibilityChanged` to `_on_cascade_visibility_changed` which syncs both the min-width and the menu checkmark regardless of how the dock is closed.
+
+### Security Hardening
+
+- **Copy Command prompts before exposing passwords** — all four clipboard copy paths (`_copy_command`, `_copy_as_bash`, `_copy_as_powershell`, `_copy_as_cmd`) now route through `_prepare_copy_cmd`, which detects filled password fields and shows a one-time confirmation dialog (default: mask with `********`). The user's choice is remembered for the remainder of the tool session (in-memory only, never persisted to QSettings) and resets when a new tool is loaded. Defense-in-depth: display preview and history already masked passwords; this closes the last path where plaintext could leak to the system clipboard.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,065/2,065 assertions, 0 failures**
+  - Functional: 1,701/1,701
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.3] — 2026-04-13
 
 Three bug fixes: capture substitution coverage, atomic preset writes, and PresetPicker init.

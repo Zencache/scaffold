@@ -9142,14 +9142,15 @@ check("********" in _s82_masked_display,
 check("hunter2" not in _s82_masked_display,
       "82b: masked display for output echo does NOT contain real password")
 
-# 82c: Copy command copies the REAL password (clipboard stays unmasked)
+# 82c: Copy command with password choice=True copies the REAL password
+_s82_win._copy_password_choice = True  # Allow real passwords (v2.8.5.4+)
 _s82_win._copy_command()
 app.processEvents()
 _s82_clipboard = QApplication.clipboard().text()
 check("hunter2" in _s82_clipboard,
-      "82c: clipboard contains real password 'hunter2' (not masked)")
+      "82c: clipboard contains real password 'hunter2' when choice=True")
 check("********" not in _s82_clipboard,
-      "82c: clipboard does NOT contain ******** (unmasked for terminal use)")
+      "82c: clipboard does NOT contain ******** when choice=True")
 
 # 82d: Command without password fields is unchanged by masking
 _s82_no_pw_schema = {
@@ -14153,6 +14154,211 @@ _s127_picker.close()
 _s127_picker.deleteLater()
 app.processEvents()
 shutil.rmtree(_s127_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 128 — Cascade dock min-width restore on native close
+# =====================================================================
+print("\n--- Section 128: Cascade dock min-width on visibility change ---")
+
+_s128_tool = {
+    "tool": "cascade_minw", "binary": "echo", "description": "Test",
+    "subcommands": None, "elevated": None,
+    "arguments": [
+        {"name": "Verbose", "flag": "-v", "type": "boolean",
+         "description": "", "required": False, "default": None,
+         "choices": None, "group": None, "depends_on": None,
+         "repeatable": False, "separator": "space", "positional": False,
+         "validation": None, "examples": None},
+    ],
+}
+_s128_tmpdir = tempfile.mkdtemp(prefix="scaffold_test128_")
+_s128_p = Path(_s128_tmpdir) / "cascade_minw.json"
+_s128_p.write_text(json.dumps(_s128_tool), encoding="utf-8")
+_s128_win = scaffold.MainWindow(tool_path=str(_s128_p))
+_s128_win.cascade_dock.setVisible(False)
+app.processEvents()
+
+# 128a: Initial min-width with dock hidden equals MIN_WINDOW_WIDTH
+check(_s128_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH,
+      f"128a: initial min-width is MIN_WINDOW_WIDTH ({_s128_win.minimumWidth()} vs {scaffold.MIN_WINDOW_WIDTH})")
+
+# 128b: After _toggle_cascade(True), min-width equals MIN_WINDOW_WIDTH + 320
+_s128_win._toggle_cascade(True)
+app.processEvents()
+check(_s128_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH + 320,
+      f"128b: min-width after toggle show is MIN_WINDOW_WIDTH+320 ({_s128_win.minimumWidth()})")
+
+# 128c: After _toggle_cascade(False), min-width returns to MIN_WINDOW_WIDTH
+_s128_win._toggle_cascade(False)
+app.processEvents()
+check(_s128_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH,
+      f"128c: min-width after toggle hide is MIN_WINDOW_WIDTH ({_s128_win.minimumWidth()})")
+
+# 128d: Show via toggle, then hide via setVisible(False) (simulating native X)
+_s128_win._toggle_cascade(True)
+app.processEvents()
+check(_s128_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH + 320,
+      "128d-pre: min-width expanded after toggle show")
+# Simulate native X button: directly set visibility on the dock
+_s128_win.cascade_dock.setVisible(False)
+app.processEvents()
+check(_s128_win.minimumWidth() == scaffold.MIN_WINDOW_WIDTH,
+      f"128d: min-width restored after native X close ({_s128_win.minimumWidth()} vs {scaffold.MIN_WINDOW_WIDTH})")
+
+# 128e: Menu checkmark stays in sync for both paths
+_s128_win._toggle_cascade(True)
+app.processEvents()
+check(_s128_win.act_cascade_toggle.isChecked() is True,
+      "128e: menu checked after toggle show")
+_s128_win.cascade_dock.setVisible(False)
+app.processEvents()
+check(_s128_win.act_cascade_toggle.isChecked() is False,
+      "128e: menu unchecked after native X close")
+
+# Cleanup section 128
+_s128_win.settings.setValue("cascade/visible", False)
+_s128_win.close()
+_s128_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s128_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 129 — Password clipboard copy confirmation
+# =====================================================================
+print("\n--- Section 129: Password clipboard copy confirmation ---")
+
+_s129_schema_path = Path(__file__).parent / "tests" / "test_password_copy.json"
+_s129_win = scaffold.MainWindow(tool_path=str(_s129_schema_path))
+_s129_form = _s129_win.form
+_s129_pw_key = (_s129_form.GLOBAL, "--pass")
+_s129_host_key = (_s129_form.GLOBAL, "--host")
+
+# 129a: No password filled — _prepare_copy_cmd returns cmd unchanged, no prompt
+_s129_form._set_field_value(_s129_host_key, "example.com")
+_s129_cmd_a, _ = _s129_form.build_command()
+_s129_question_calls = []
+_s129_orig_question = QMessageBox.question
+def _s129_mock_question(*args, **kwargs):
+    _s129_question_calls.append(args)
+    return QMessageBox.StandardButton.No
+QMessageBox.question = _s129_mock_question
+
+_s129_result_a = _s129_win._prepare_copy_cmd(_s129_cmd_a)
+check(_s129_result_a == _s129_cmd_a,
+      "129a: no password filled — cmd returned unchanged")
+check(len(_s129_question_calls) == 0,
+      "129a: no password filled — no prompt shown")
+check(_s129_win._copy_password_choice is None,
+      "129a: choice stays None when no password filled")
+
+# 129b: Password filled, choice is None → prompt fires, returns masked (No)
+_s129_form._set_field_value(_s129_pw_key, "s3cr3t")
+_s129_cmd_b, _ = _s129_form.build_command()
+_s129_question_calls.clear()
+_s129_win._copy_password_choice = None
+
+_s129_result_b = _s129_win._prepare_copy_cmd(_s129_cmd_b)
+check(len(_s129_question_calls) == 1,
+      "129b: prompt shown once for first copy with password")
+check(_s129_win._copy_password_choice is False,
+      "129b: choice stored as False (mask)")
+check("s3cr3t" not in _s129_result_b,
+      f"129b: password masked in result: {_s129_result_b}")
+check("********" in _s129_result_b,
+      f"129b: mask placeholder present in result: {_s129_result_b}")
+
+# 129c: Second call — no prompt, still masked
+_s129_question_calls.clear()
+_s129_cmd_c, _ = _s129_form.build_command()
+_s129_result_c = _s129_win._prepare_copy_cmd(_s129_cmd_c)
+check(len(_s129_question_calls) == 0,
+      "129c: no second prompt (choice remembered)")
+check("s3cr3t" not in _s129_result_c,
+      "129c: password still masked on second call")
+
+# 129d: Reset choice, monkeypatch Yes — real password returned
+_s129_win._copy_password_choice = None
+_s129_question_calls.clear()
+def _s129_mock_yes(*args, **kwargs):
+    _s129_question_calls.append(args)
+    return QMessageBox.StandardButton.Yes
+QMessageBox.question = _s129_mock_yes
+
+_s129_cmd_d, _ = _s129_form.build_command()
+_s129_result_d = _s129_win._prepare_copy_cmd(_s129_cmd_d)
+check(len(_s129_question_calls) == 1,
+      "129d: prompt shown after choice reset")
+check(_s129_win._copy_password_choice is True,
+      "129d: choice stored as True (unmask)")
+check("s3cr3t" in _s129_result_d,
+      f"129d: real password in result: {_s129_result_d}")
+
+# 129d2: Subsequent call with choice=True — no prompt, real password
+_s129_question_calls.clear()
+_s129_cmd_d2, _ = _s129_form.build_command()
+_s129_result_d2 = _s129_win._prepare_copy_cmd(_s129_cmd_d2)
+check(len(_s129_question_calls) == 0,
+      "129d2: no prompt when choice already True")
+check("s3cr3t" in _s129_result_d2,
+      "129d2: real password still returned")
+
+# 129e: _build_form_view resets choice to None
+_s129_win._copy_password_choice = True
+_s129_win._build_form_view()
+app.processEvents()
+check(_s129_win._copy_password_choice is None,
+      "129e: _build_form_view resets _copy_password_choice to None")
+
+# 129f: Integration — _copy_command routes through _prepare_copy_cmd
+# Reload tool so form is fresh
+_s129_win._load_tool_path(str(_s129_schema_path))
+app.processEvents()
+_s129_form2 = _s129_win.form
+_s129_pw_key2 = (_s129_form2.GLOBAL, "--pass")
+_s129_form2._set_field_value(_s129_pw_key2, "hunter2")
+_s129_win._copy_password_choice = False  # Pre-set to mask
+
+# Monkeypatch to prevent prompt (should not be called)
+QMessageBox.question = _s129_mock_question
+_s129_question_calls.clear()
+
+_s129_win._copy_command()
+_s129_clip_text = QApplication.clipboard().text()
+check("hunter2" not in _s129_clip_text,
+      f"129f: _copy_command masks password on clipboard: {_s129_clip_text}")
+check("********" in _s129_clip_text,
+      f"129f: _copy_command puts mask placeholder on clipboard: {_s129_clip_text}")
+
+# 129g: Integration — _copy_as_bash routes through _prepare_copy_cmd
+_s129_win._copy_password_choice = True  # Pre-set to show real
+_s129_win._copy_as_bash()
+_s129_clip_bash = QApplication.clipboard().text()
+check("hunter2" in _s129_clip_bash,
+      f"129g: _copy_as_bash includes real password: {_s129_clip_bash}")
+
+# 129h: Integration — _copy_as_powershell routes through _prepare_copy_cmd
+_s129_win._copy_password_choice = False
+_s129_win._copy_as_powershell()
+_s129_clip_ps = QApplication.clipboard().text()
+check("hunter2" not in _s129_clip_ps,
+      f"129h: _copy_as_powershell masks password: {_s129_clip_ps}")
+
+# 129i: Integration — _copy_as_cmd routes through _prepare_copy_cmd
+_s129_win._copy_password_choice = False
+_s129_win._copy_as_cmd()
+_s129_clip_cmd = QApplication.clipboard().text()
+check("hunter2" not in _s129_clip_cmd,
+      f"129i: _copy_as_cmd masks password: {_s129_clip_cmd}")
+
+# Restore QMessageBox.question
+QMessageBox.question = _s129_orig_question
+
+# Cleanup section 129
+_s129_win.close()
+_s129_win.deleteLater()
+app.processEvents()
 
 
 # =====================================================================
