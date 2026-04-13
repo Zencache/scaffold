@@ -10,7 +10,7 @@ Cascade capture system, new capture definition dialog, and an updated example ca
 
 - **Cascade captures** — cascade slots can now declare named captures that extract values from a step's output and inject them into later steps via `{name}` substitution. Capture sources include regex on stdout/stderr, literal file paths, exit codes, and full stream contents. Captures are forward-only and share the cascade variable namespace; collisions silently override the earlier value. Unresolved captures emit warnings and trigger a halt when stop-on-error is enabled.
 - **Capture definition dialog** — new "Captures..." button on each slot row opens `CascadeCaptureDefinitionDialog`, a per-step editor for defining captures. Column headers include tooltips explaining each capture source type.
-- **Example cascade: `cascades/nmap_followup_chain.json`** — uses nmap host discovery to capture an open port number, then feeds it into a targeted service scan via capture substitution. Replaces the previous aircrack example, whose real-world output did not match the demonstration regex.
+- **Example cascade: `cascades/nmap_followup_chain.json`** — uses nmap host discovery to capture an open port number, then feeds it into a targeted service scan via capture substitution.
 
 ## [v2.8.4] — 2026-04-11
 
