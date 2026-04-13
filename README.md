@@ -89,7 +89,7 @@ The tool picker will open showing all `.json` schemas in the `tools/` folder (in
 - **Drag and drop** — drop a .json schema to load it
 - **Portable mode** — run from USB with local settings via `portable.txt`
 - **Elevated execution** — optional `pkexec` (Linux) or `gsudo` (Windows) elevation per tool, configurable as `"optional"` or `"always"` in the schema
-- **Cascade chaining** — chain multiple tool runs (up to 20 slots) with per-step delays, loop mode, stop-on-error, runtime variables, and saveable named cascade files. Same secure QProcess pipeline as regular execution
+- **Cascade chaining** — chain multiple tool runs (up to 20 slots) with per-step delays, loop mode, stop-on-error, runtime variables, cascade captures, and saveable named cascade files. Same secure QProcess pipeline as regular execution
 - **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
 - **Copy As shell formats** — Bash, PowerShell, or CMD via right-click
 - **Single Python file** — one file, one dependency (PySide6), fully offline
@@ -490,6 +490,8 @@ Chain multiple tool runs into sequential workflows from the cascade sidebar (`Ct
 
 Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State (slots, loop mode, stop-on-error, variables, and cascade name) persists across sessions. Cascades run through the same `QProcess` list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees as the rest of the app. Two example cascade files are bundled: a basic nmap reconnaissance chain (`recon_basic.json`) and a ping-then-nmap workflow demonstrating cascade variables (`ping_then_nmap.json`).
 
+**Cascade Captures** let later steps reuse values extracted from earlier step output. A capture can pull data from stdout or stderr via regex, read a file path, grab an exit code, or take the full output stream, then inject it into subsequent steps as a `{name}` substitution. See `cascades/nmap_followup_chain.json` for a working example.
+
 ### LLM-powered preset generation
 
 Generate presets from natural language using `--preset-prompt` and `PRESET_PROMPT.txt`, mirroring the existing schema-generation workflow. Run `python scaffold.py --preset-prompt` to print the generation prompt, paste it alongside the target tool's schema into any frontier LLM (Claude, GPT-4, Gemini, etc.), describe the preset you want in plain English, and drop the returned JSON file into `presets/<tool>/`. Reload the tool to see it in the preset picker. This is especially useful for tools with many flags where manually configuring a preset would be tedious — describe the intent and let the LLM figure out the right flag combination.
@@ -645,7 +647,7 @@ The author has 15 years of professional IT experience and holds certifications i
 
 **Multi-model distillation.** External audits from Copilot, ChatGPT, and MiniMax M2.7 surface candidate findings, which are then fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering. The best fixes in recent releases came from this distillation loop — one model finds the lead, another model sanity-checks it, and Opus decides what actually ships.
 
-**What's new in this release.** v2.8.4 adds a history dialog filter bar (case-insensitive substring search via Ctrl+H), cascade crash recovery hardening (try/except guard around the chain monkey-patch), process-failed-to-start cascade detection, stale recovery file cleanup on startup, and SHA-256 schema hashing (replacing MD5). It also adds 10 new test sections (105–114) covering cascade edge cases (malicious variable values, single-slot execution, `apply_to: "none"` scope), validation hardening (path-separator rejection, empty subcommand names), and infrastructure (stale recovery cleanup, schema_hash verification, history search bar).
+**What's new in this release.** v2.8.5 adds cascade captures — slots can declare named values extracted from a step's output (regex on stdout/stderr, file paths, exit codes, full streams) and inject them into later steps via `{name}` substitution. A new "Captures..." button and `CascadeCaptureDefinitionDialog` provide per-step capture editing with tooltips for each source type. The previous aircrack example cascade was replaced with `cascades/nmap_followup_chain.json`, which demonstrates capture-driven chaining from host discovery to targeted service scan.
 
 The project has 1,956 passing test assertions across 6 suites, including a dedicated security suite that any user can run to verify the no-shell and input-handling claims directly. See the [Security](#security) section for how to run it. If you find bugs, have suggestions, or want to contribute, please open an issue or pull request!
 

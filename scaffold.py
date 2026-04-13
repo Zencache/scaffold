@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 
 import atexit
 import datetime
@@ -40,6 +40,8 @@ from pathlib import Path
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
 VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
+CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_full", "stderr_full", "file"})
+CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
 _SHELL_METACHAR = frozenset("|;&$`(){}< >!~\x00")
 
 
@@ -4369,6 +4371,234 @@ class CascadeVariableDefinitionDialog(QDialog):
         return list(self._result_variables)
 
 
+class CascadeCaptureDefinitionDialog(QDialog):
+    """Modal dialog for defining captures for a single cascade slot."""
+
+    _SOURCES = ["stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"]
+
+    def __init__(
+        self,
+        captures: list[dict],
+        cascade_variables: list[dict] | None = None,
+        slot_number: int = 1,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle(f"Captures \u2014 Step {slot_number}")
+        self.setMinimumWidth(560)
+        self._cascade_variables = cascade_variables if cascade_variables is not None else []
+        self._result_captures: list[dict] = []
+
+        layout = QVBoxLayout(self)
+
+        # --- table ---
+        self._table = QTableWidget(0, 4)
+        _headers = [
+            ("Name", "Identifier for this capture. Letters, digits, and underscores only; "
+                     "must start with a letter or underscore. Used in later steps as "
+                     "{name} to substitute the captured value into form fields."),
+            ("Source", "Where the captured value comes from:\n"
+                       "\u2022 stdout / stderr \u2014 regex match against the step's output stream "
+                       "(last 64KB)\n"
+                       "\u2022 file \u2014 a literal filesystem path, passed through as-is\n"
+                       "\u2022 exit_code \u2014 the step's exit code as a string\n"
+                       "\u2022 stdout_full / stderr_full \u2014 the entire output stream "
+                       "(last 64KB), no regex"),
+            ("Pattern/Path", "For stdout/stderr sources: a regular expression "
+                             "(max 200 characters). The capture group specified in the "
+                             "Group column is extracted on match.\n"
+                             "For file source: the literal path string to pass to later steps.\n"
+                             "Disabled for exit_code and stdout_full/stderr_full sources."),
+            ("Group", "Regex capture group index to extract (1 = first parenthesized group). "
+                      "Only used when source is stdout or stderr. Defaults to 1."),
+        ]
+        for col, (label, tip) in enumerate(_headers):
+            item = QTableWidgetItem(label)
+            item.setToolTip(tip)
+            self._table.setHorizontalHeaderItem(col, item)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        layout.addWidget(self._table)
+
+        # --- add / remove buttons ---
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add Capture")
+        add_btn.clicked.connect(self._add_row)
+        btn_row.addWidget(add_btn)
+        self._remove_btn = QPushButton("Remove Selected")
+        self._remove_btn.clicked.connect(self._remove_selected)
+        btn_row.addWidget(self._remove_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        # --- ok / cancel ---
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+        # Populate from existing captures
+        for cap in captures:
+            source = cap.get("source", "stdout")
+            if source in ("stdout", "stderr"):
+                self._add_row(
+                    name=cap.get("name", ""),
+                    source=source,
+                    pattern_or_path=cap.get("pattern", ""),
+                    group=cap.get("group", 1),
+                )
+            elif source == "file":
+                self._add_row(
+                    name=cap.get("name", ""),
+                    source=source,
+                    pattern_or_path=cap.get("path", ""),
+                )
+            else:
+                self._add_row(
+                    name=cap.get("name", ""),
+                    source=source,
+                )
+
+    # -- row management -----------------------------------------------------
+
+    def _add_row(
+        self,
+        name: str = "",
+        source: str = "stdout",
+        pattern_or_path: str = "",
+        group: int = 1,
+    ) -> None:
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+
+        self._table.setItem(row, 0, QTableWidgetItem(name))
+
+        source_combo = QComboBox()
+        source_combo.addItems(self._SOURCES)
+        idx = self._SOURCES.index(source) if source in self._SOURCES else 0
+        source_combo.setCurrentIndex(idx)
+        self._table.setCellWidget(row, 1, source_combo)
+
+        self._table.setItem(row, 2, QTableWidgetItem(pattern_or_path))
+        self._table.setItem(row, 3, QTableWidgetItem(str(group)))
+
+        self._update_row_enablement(row)
+        source_combo.currentTextChanged.connect(self._source_combo_changed)
+
+    def _source_combo_changed(self, text: str) -> None:
+        combo = self.sender()
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, 1) is combo:
+                self._update_row_enablement(row)
+                break
+
+    def _update_row_enablement(self, row: int) -> None:
+        combo = self._table.cellWidget(row, 1)
+        if not combo:
+            return
+        source = combo.currentText()
+        pat_item = self._table.item(row, 2)
+        grp_item = self._table.item(row, 3)
+        if not pat_item or not grp_item:
+            return
+
+        dim_bg = QColor("#333333") if _dark_mode else QColor("#e0e0e0")
+        clear_bg = QColor(0, 0, 0, 0)
+
+        if source in ("stdout", "stderr"):
+            pat_item.setFlags(pat_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            pat_item.setBackground(clear_bg)
+            grp_item.setFlags(grp_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            grp_item.setBackground(clear_bg)
+        elif source == "file":
+            pat_item.setFlags(pat_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            pat_item.setBackground(clear_bg)
+            grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            grp_item.setBackground(dim_bg)
+        else:  # exit_code, stdout_full, stderr_full
+            pat_item.setFlags(pat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            pat_item.setBackground(dim_bg)
+            grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            grp_item.setBackground(dim_bg)
+
+    def _remove_selected(self) -> None:
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self._table.removeRow(row)
+
+    # -- accept / validate --------------------------------------------------
+
+    def _on_accept(self) -> None:
+        entries: list[dict] = []
+        has_error = False
+        for row in range(self._table.rowCount()):
+            name_item = self._table.item(row, 0)
+            name = name_item.text().strip() if name_item else ""
+
+            combo = self._table.cellWidget(row, 1)
+            source = combo.currentText() if combo else "stdout"
+
+            pat_item = self._table.item(row, 2)
+            pat_text = pat_item.text().strip() if pat_item else ""
+
+            grp_item = self._table.item(row, 3)
+            grp_text = grp_item.text().strip() if grp_item else "1"
+
+            # Build entry dict based on source
+            if source in ("stdout", "stderr"):
+                try:
+                    group_val = int(grp_text)
+                except ValueError:
+                    has_error = True
+                    if grp_item:
+                        grp_item.setBackground(QColor("#553333"))
+                    QMessageBox.warning(self, "Invalid Capture", "group must be an integer")
+                    continue
+                entry = {"name": name, "source": source, "pattern": pat_text, "group": group_val}
+            elif source == "file":
+                entry = {"name": name, "source": "file", "path": pat_text}
+            else:
+                entry = {"name": name, "source": source}
+
+            # Validate via Phase 2 validator
+            try:
+                _validate_capture_entry(entry, self._cascade_variables)
+            except ValueError as exc:
+                has_error = True
+                if name_item:
+                    name_item.setBackground(QColor("#553333"))
+                QMessageBox.warning(self, "Invalid Capture", str(exc))
+                continue
+
+            # Clear highlights on success
+            if name_item:
+                name_item.setBackground(QColor(0, 0, 0, 0))
+            if grp_item:
+                grp_item.setBackground(QColor(0, 0, 0, 0))
+
+            entries.append(entry)
+
+        if has_error:
+            return
+        self._result_captures = entries
+        self.accept()
+
+    # -- public API ---------------------------------------------------------
+
+    def get_captures(self) -> list[dict]:
+        """Return the list of capture definitions."""
+        return list(self._result_captures)
+
+
 # ---------------------------------------------------------------------------
 # Cascade sidebar dock widget
 # ---------------------------------------------------------------------------
@@ -4382,6 +4612,120 @@ CHAIN_LOADING = "loading"       # Loading tool + preset into form
 CHAIN_RUNNING = "running"       # QProcess is executing
 CHAIN_FINISHED = "finished"     # Chain completed all steps
 CHAIN_PAUSED = "paused"         # Chain paused between steps
+
+_CAPTURE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_CAPTURE_VALID_SOURCES = frozenset({"stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"})
+
+
+def _validate_capture_entry(entry: dict, cascade_variables: list) -> None:
+    """Validate a single capture entry dict. Raises ValueError on any violation."""
+    if not isinstance(entry, dict):
+        raise ValueError("capture entry must be a dict")
+    # Name validation
+    name = entry.get("name")
+    if not name or not isinstance(name, str):
+        raise ValueError("capture entry must have a non-empty 'name' string")
+    if not _CAPTURE_NAME_RE.match(name):
+        raise ValueError(f"capture '{name}': name must match [A-Za-z_][A-Za-z0-9_]*")
+    if name in CAPTURE_RESERVED_NAMES:
+        raise ValueError(f"capture '{name}': name is reserved")
+    for var in cascade_variables:
+        if isinstance(var, dict) and var.get("name") == name:
+            raise ValueError(f"capture '{name}': name collides with cascade variable")
+    # Source validation
+    source = entry.get("source")
+    if source not in _CAPTURE_VALID_SOURCES:
+        raise ValueError(f"capture '{name}': source must be one of {sorted(_CAPTURE_VALID_SOURCES)}")
+    # Source-specific validation
+    if source in ("stdout", "stderr"):
+        pattern = entry.get("pattern")
+        if not pattern or not isinstance(pattern, str):
+            raise ValueError(f"capture '{name}': pattern required for source '{source}'")
+        if len(pattern) > 200:
+            raise ValueError(f"capture '{name}': pattern exceeds 200 chars")
+        group = entry.get("group")
+        if group is not None and (not isinstance(group, int) or group < 0):
+            raise ValueError(f"capture '{name}': group must be int >= 0")
+    elif source == "file":
+        path = entry.get("path")
+        if not path or not isinstance(path, str):
+            raise ValueError(f"capture '{name}': path required for source 'file'")
+
+
+def extract_captures(
+    slot_captures: list[dict],
+    stdout: str,
+    stderr: str,
+    exit_code: int,
+) -> dict[str, str]:
+    """Extract capture values from command output. Pure function — no side effects."""
+    result: dict[str, str] = {}
+    stdout_tail = stdout[-CAPTURE_STREAM_TAIL_BYTES:]
+    stderr_tail = stderr[-CAPTURE_STREAM_TAIL_BYTES:]
+    for entry in slot_captures:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not name or not isinstance(name, str):
+            continue
+        source = entry.get("source")
+        if source in ("stdout", "stderr"):
+            pattern = entry.get("pattern")
+            if not pattern or not isinstance(pattern, str):
+                continue
+            stream = stdout_tail if source == "stdout" else stderr_tail
+            group = entry.get("group", 1)
+            try:
+                m = re.search(pattern, stream)
+            except re.error:
+                continue
+            if m:
+                try:
+                    result[name] = m.group(group)
+                except IndexError:
+                    continue
+        elif source == "file":
+            path_val = entry.get("path")
+            if not path_val or not isinstance(path_val, str):
+                path_val = entry.get("pattern")
+            if path_val and isinstance(path_val, str):
+                result[name] = path_val
+        elif source == "exit_code":
+            result[name] = str(exit_code)
+        elif source == "stdout_full":
+            result[name] = stdout_tail
+        elif source == "stderr_full":
+            result[name] = stderr_tail
+    return result
+
+
+def substitute_captures(text: str, values: dict) -> tuple[str, list[str]]:
+    """Replace {name} tokens in text with values[name].
+
+    Returns (substituted_text, unset_names) where unset_names is the list
+    of {name} tokens whose name was not in values. Unset tokens are
+    replaced with empty string.
+
+    Only substitutes tokens whose inner content matches the capture-name
+    charset ^[A-Za-z_][A-Za-z0-9_]*$. Other {...} content (JSON, format
+    strings with indices, literal braces) is left untouched.
+    """
+    if not text:
+        return ("", [])
+    unset_names: list[str] = []
+    seen: set[str] = set()
+
+    def _replacer(m: re.Match) -> str:
+        name = m.group(1)
+        if name in values:
+            return str(values[name])
+        if name not in seen:
+            seen.add(name)
+            unset_names.append(name)
+        return ""
+
+    result = re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", _replacer, text)
+    return (result, unset_names)
 
 
 class CascadeSidebar(QDockWidget):
@@ -4603,6 +4947,13 @@ class CascadeSidebar(QDockWidget):
         delay_spin.setToolTip("Delay after this step (seconds). 0 = no delay.")
         delay_spin.valueChanged.connect(lambda val, b=main_btn: self._on_delay_changed(self._slot_buttons.index(b), val))
         delay_row.addWidget(delay_spin)
+        captures_btn = QPushButton("Captures...")
+        captures_btn.setFixedHeight(22)
+        captures_btn.setToolTip("Define values to capture from this step's output for use in later steps.")
+        captures_btn.clicked.connect(
+            lambda checked=False, b=captures_btn: self._on_edit_captures(self._find_slot_by_captures_btn(b))
+        )
+        delay_row.addWidget(captures_btn)
         delay_row.addStretch()
         slot_layout.addLayout(delay_row)
 
@@ -4619,6 +4970,7 @@ class CascadeSidebar(QDockWidget):
             "num_label": num_label,
             "delay_label": delay_label,
             "delay_spin": delay_spin,
+            "captures_btn": captures_btn,
         }
         self._slot_widgets.append(info)
         self._slot_buttons.append(main_btn)
@@ -4631,12 +4983,19 @@ class CascadeSidebar(QDockWidget):
                 return i
         return -1
 
+    def _find_slot_by_captures_btn(self, btn: QPushButton) -> int:
+        """Find slot index by its captures button."""
+        for i, info in enumerate(self._slot_widgets):
+            if info["captures_btn"] is btn:
+                return i
+        return -1
+
     def _on_add_slot(self) -> None:
         """Add a new empty slot at the end."""
         if len(self._slots) >= CASCADE_MAX_SLOTS:
             self._main_window.statusBar().showMessage(f"Maximum {CASCADE_MAX_SLOTS} steps")
             return
-        self._slots.append({"tool_path": None, "preset_path": None, "delay": 0})
+        self._slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
         self._add_slot_widget(len(self._slots) - 1)
         self._save_cascade()
         self._update_add_button_state()
@@ -4727,6 +5086,7 @@ class CascadeSidebar(QDockWidget):
                 "tool_path": slot.get("tool_path"),
                 "preset_path": slot.get("preset_path"),
                 "delay": slot.get("delay", 0),
+                "captures": slot.get("captures", []),
             })
         settings.setValue("cascade/slots", json.dumps(data))
         settings.setValue("cascade/loop_mode", 1 if self._loop_enabled else 0)
@@ -4760,12 +5120,13 @@ class CascadeSidebar(QDockWidget):
                             "tool_path": item.get("tool_path") if isinstance(item, dict) else None,
                             "preset_path": item.get("preset_path") if isinstance(item, dict) else None,
                             "delay": item.get("delay", 0) if isinstance(item, dict) else 0,
+                            "captures": item.get("captures", []) if isinstance(item, dict) else [],
                         })
             except (json.JSONDecodeError, TypeError):
                 pass
 
         if loaded_slots is None:
-            loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0}
+            loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
                             for _ in range(CASCADE_INITIAL_SLOTS)]
 
         # Tear down any existing widgets (hide + detach synchronously to
@@ -4831,6 +5192,7 @@ class CascadeSidebar(QDockWidget):
                 "tool": tool_rel,
                 "preset": preset_rel,
                 "delay": slot.get("delay", 0),
+                "captures": slot.get("captures", []),
             })
         return {
             "_format": "scaffold_cascade",
@@ -4860,6 +5222,12 @@ class CascadeSidebar(QDockWidget):
                 f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
             )
 
+        # Validate captures in all steps before making any changes
+        cascade_vars = data.get("variables", [])
+        for step_idx, step in enumerate(steps):
+            for cap in step.get("captures", []):
+                _validate_capture_entry(cap, cascade_vars)
+
         base = Path(__file__).parent
 
         # Tear down existing slot widgets (hide + detach synchronously to
@@ -4881,11 +5249,12 @@ class CascadeSidebar(QDockWidget):
                 "tool_path": tool_path,
                 "preset_path": preset_path,
                 "delay": step.get("delay", 0),
+                "captures": step.get("captures", []),
             })
 
         # Pad to minimum
         while len(new_slots) < CASCADE_INITIAL_SLOTS:
-            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0})
+            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
 
         self._slots = new_slots
         for i in range(len(self._slots)):
@@ -5062,6 +5431,22 @@ class CascadeSidebar(QDockWidget):
         self._main_window.statusBar().showMessage(
             f"Cascade variables updated ({count} defined)"
         )
+
+    def _on_edit_captures(self, slot_index: int) -> None:
+        """Open the capture definition editor dialog for a slot."""
+        if slot_index < 0 or slot_index >= len(self._slots):
+            return
+        current = self._slots[slot_index].get("captures", [])
+        dlg = CascadeCaptureDefinitionDialog(
+            captures=current,
+            cascade_variables=self._cascade_variables,
+            slot_number=slot_index + 1,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._slots[slot_index]["captures"] = dlg.get_captures()
+        self._save_cascade()
 
     def _on_import_cascade(self) -> None:
         """Import a cascade JSON file into the cascades directory."""
@@ -5320,6 +5705,25 @@ class CascadeSidebar(QDockWidget):
         # Start first step
         self._chain_advance()
 
+    def _substitute_captures(self, text: str, values: dict) -> str:
+        """Replace {name} tokens in text using values dict.
+
+        Emits a warning line to the output panel for each unset capture name.
+        If _stop_on_error is True and any captures are unset, halts the chain.
+        Returns the substituted text string.
+        """
+        result, unset_names = substitute_captures(text, values)
+        for name in unset_names:
+            if hasattr(self._main_window, 'output'):
+                self._main_window._append_output(
+                    f"[cascade] capture '{name}' did not match; substituting empty string\n",
+                    COLOR_WARN,
+                )
+        if unset_names and self._stop_on_error:
+            first = unset_names[0]
+            self._chain_state = CHAIN_IDLE
+        return result
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -5440,6 +5844,47 @@ class CascadeSidebar(QDockWidget):
                                 form._set_field_value(key, value)
                                 break
 
+        # Substitution pass: replace {capture_name} tokens in all field values.
+        # Runs after variable injection so injected values are also subject to
+        # substitution (a variable value can legitimately contain {capture_name}).
+        unset_seen: list[str] = []
+        form = self._main_window.form
+        if form is not None and self._chain_variable_values:
+            for key in list(form.fields.keys()):
+                try:
+                    raw = form.fields[key]["widget"]
+                    if hasattr(raw, "text"):
+                        current = raw.text()
+                    elif hasattr(raw, "currentText"):
+                        current = raw.currentText()
+                    else:
+                        continue
+                except Exception:
+                    continue
+                if not isinstance(current, str) or "{" not in current:
+                    continue
+                new_value, unset = substitute_captures(current, self._chain_variable_values)
+                if new_value != current:
+                    form._set_field_value(key, new_value)
+                for name in unset:
+                    if name not in unset_seen:
+                        unset_seen.append(name)
+
+        # Emit one warning line per unique unset name for this slot
+        for name in unset_seen:
+            self._main_window._append_output(
+                f"[cascade] capture '{name}' did not match; substituting empty string\n",
+                COLOR_WARN,
+            )
+
+        # Stop-on-error: unset capture with the flag on is a hard halt
+        if unset_seen and self._stop_on_error:
+            first = unset_seen[0]
+            self._chain_cleanup(
+                f"Cascade stopped: capture '{first}' unset and stop-on-error is on"
+            )
+            return
+
         # Small delay to let the form render before executing
         QTimer.singleShot(150, self._chain_execute_current)
 
@@ -5465,6 +5910,17 @@ class CascadeSidebar(QDockWidget):
                 original_on_finished(exit_code, exit_status)
                 # Re-disable run_btn (original handler re-enables it)
                 self._main_window.run_btn.setEnabled(False)
+                # Extract captures from this step's output
+                slot_idx = self._chain_queue[self._chain_current]
+                slot_captures = self._slots[slot_idx].get("captures", [])
+                if slot_captures:
+                    captured = extract_captures(
+                        slot_captures,
+                        self._main_window._last_run_stdout,
+                        self._main_window._last_run_stderr,
+                        exit_code,
+                    )
+                    self._chain_variable_values.update(captured)
                 if self._chain_state == CHAIN_RUNNING:
                     if self._stop_on_error and exit_code != 0:
                         slot_idx = self._chain_queue[self._chain_current]
@@ -6868,6 +7324,9 @@ class MainWindow(QMainWindow):
         # Output batching buffer — collect readyRead data and flush on a timer
         self._output_buffer: list[tuple[str, str]] = []
         self._output_truncated = False
+        # Per-run stream buffers for cascade capture extraction
+        self._last_run_stdout: str = ""
+        self._last_run_stderr: str = ""
         self._flush_timer = QTimer(self)
         self._flush_timer.setInterval(OUTPUT_FLUSH_MS)
         self._flush_timer.timeout.connect(self._flush_output)
@@ -7422,6 +7881,8 @@ class MainWindow(QMainWindow):
 
         self._killed = False
         self._timed_out = False
+        self._last_run_stdout = ""
+        self._last_run_stderr = ""
         self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
         self._style_run_btn()
@@ -7454,6 +7915,7 @@ class MainWindow(QMainWindow):
             return
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
+        self._last_run_stdout += text
         self._append_to_buffer(text, OUTPUT_FG)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
@@ -7464,6 +7926,7 @@ class MainWindow(QMainWindow):
             return
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
+        self._last_run_stderr += text
         self._append_to_buffer(text, COLOR_WARN)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
