@@ -2,6 +2,33 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.7] — 2026-04-13
+
+Housekeeping — drag-enter cursor fix, preset prompt docs update.
+
+### Fixed
+
+- **`dragEnterEvent` now calls `event.ignore()` on no-match** — when no dragged URL ends in `.json` (or no URLs are present), the method now explicitly rejects the event. Previously it returned silently, which on some Qt versions/platforms left the drop-cursor in "accept" state for files Scaffold won't actually load.
+
+### Changed
+
+- **PRESET_PROMPT multi-preset convention updated** — the `=== MULTIPLE PRESETS ===` section now instructs the LLM to return each preset as a separate JSON object with `=== PRESET: <filename>.json ===` delimiters, instead of a JSON array. This matches `validate_preset`'s requirement that each file be a single top-level JSON object.
+
+### Added
+
+- **Section 136** — dragEnterEvent rejection tests: non-.json URL, no URLs, mixed URLs, case variations.
+- **Section 137** — PRESET_PROMPT smoke test: verifies new separator pattern, no JSON array example, and array warning text.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,187/2,187 assertions, 0 failures**
+  - Functional: 1,823/1,823
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.6] — 2026-04-13
 
 Import/load hardening — format-check on preset import, malformed cascade steps handling.

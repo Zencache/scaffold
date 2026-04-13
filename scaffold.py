@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.6"
+__version__ = "2.8.5.7"
 
 import atexit
 import datetime
@@ -7078,6 +7078,7 @@ class MainWindow(QMainWindow):
                 if url.toLocalFile().lower().endswith(".json"):
                     event.acceptProposedAction()
                     return
+        event.ignore()
 
     def dropEvent(self, event: QDropEvent) -> None:
         """Load the first .json file dropped onto the window."""

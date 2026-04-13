@@ -94,22 +94,29 @@ Before returning, verify:
 
 === MULTIPLE PRESETS ===
 
-If the user asks for multiple presets, return a JSON array of preset objects:
+If the user asks for multiple presets, return each preset as a separate top-level JSON object. Separate each preset with a header line of the form:
 
-[
-  {
-    "_format": "scaffold_preset",
-    "_description": "First preset",
-    ...
-  },
-  {
-    "_format": "scaffold_preset",
-    "_description": "Second preset",
-    ...
-  }
-]
+=== PRESET: <suggested_filename>.json ===
 
-Each preset in the array must independently satisfy all rules and checklist items.
+The user will save each one as its own .json file under their tool's preset directory. Do NOT return a JSON array — Scaffold's preset loader requires each file to be a single JSON object at the top level.
+
+Example for two presets:
+
+=== PRESET: quick_scan.json ===
+{
+  "_format": "scaffold_preset",
+  "_description": "Quick scan of local subnet",
+  ...
+}
+
+=== PRESET: deep_scan.json ===
+{
+  "_format": "scaffold_preset",
+  "_description": "Deep service-version scan",
+  ...
+}
+
+Each preset must independently satisfy all rules and checklist items above. Suggested filenames should be lowercase with underscores, no spaces.
 
 === TOOL SCHEMA ===
 

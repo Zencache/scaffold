@@ -15053,6 +15053,111 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 136 — dragEnterEvent rejection on non-.json / no URLs
+# =====================================================================
+print("\n--- Section 136: dragEnterEvent rejection ---")
+
+class _S136MockMimeData:
+    """Minimal mock for QMimeData."""
+    def __init__(self, urls=None):
+        self._urls = urls  # None means hasUrls() returns False
+
+    def hasUrls(self):
+        return self._urls is not None
+
+    def urls(self):
+        return self._urls or []
+
+class _S136MockUrl:
+    """Minimal mock for QUrl."""
+    def __init__(self, path):
+        self._path = path
+
+    def toLocalFile(self):
+        return self._path
+
+class _S136MockDragEvent:
+    """Minimal mock for QDragEnterEvent."""
+    def __init__(self, mime_data):
+        self._mime = mime_data
+        self._accepted = False
+        self._ignored = False
+
+    def mimeData(self):
+        return self._mime
+
+    def acceptProposedAction(self):
+        self._accepted = True
+
+    def ignore(self):
+        self._ignored = True
+
+    def isAccepted(self):
+        return self._accepted
+
+# 136a: Non-.json URL -> should call ignore()
+_s136_evt_a = _S136MockDragEvent(_S136MockMimeData([_S136MockUrl("/tmp/readme.txt")]))
+window.dragEnterEvent(_s136_evt_a)
+check(_s136_evt_a._ignored, "136a: non-.json URL causes event.ignore()")
+check(not _s136_evt_a._accepted, "136a: non-.json URL does not accept")
+
+# 136b: No URLs at all -> should call ignore()
+_s136_evt_b = _S136MockDragEvent(_S136MockMimeData(None))
+window.dragEnterEvent(_s136_evt_b)
+check(_s136_evt_b._ignored, "136b: no URLs causes event.ignore()")
+check(not _s136_evt_b._accepted, "136b: no URLs does not accept")
+
+# 136c: Mix including one .json URL -> should accept
+_s136_evt_c = _S136MockDragEvent(_S136MockMimeData([
+    _S136MockUrl("/tmp/readme.txt"),
+    _S136MockUrl("/tmp/tool.json"),
+]))
+window.dragEnterEvent(_s136_evt_c)
+check(_s136_evt_c._accepted, "136c: mix with .json URL accepts")
+check(not _s136_evt_c._ignored, "136c: mix with .json URL does not ignore")
+
+# 136d: Case variations -> should accept
+for _s136_ext, _s136_label in [(".JSON", "136d-upper"), (".Json", "136d-mixed")]:
+    _s136_evt_d = _S136MockDragEvent(_S136MockMimeData([_S136MockUrl(f"/tmp/tool{_s136_ext}")]))
+    window.dragEnterEvent(_s136_evt_d)
+    check(_s136_evt_d._accepted, f"{_s136_label}: case variation {_s136_ext} accepts")
+
+app.processEvents()
+
+
+# =====================================================================
+# Section 137 — PRESET_PROMPT updated multi-preset convention
+# =====================================================================
+print("\n--- Section 137: PRESET_PROMPT updated convention ---")
+
+_s137_prompt_path = Path(__file__).parent / "PRESET_PROMPT.txt"
+_s137_text = _s137_prompt_path.read_text(encoding="utf-8")
+
+# 137a: Contains new separator pattern
+check("=== PRESET:" in _s137_text,
+      "137a: PRESET_PROMPT contains === PRESET: separator pattern")
+
+# 137b: Does NOT contain old JSON array opener in multi-preset section
+# The old format had a bare [ line followed by { as array-of-objects example
+_s137_multi_start = _s137_text.find("=== MULTIPLE PRESETS ===")
+_s137_tool_schema = _s137_text.find("=== TOOL SCHEMA ===")
+if _s137_multi_start != -1 and _s137_tool_schema != -1:
+    _s137_multi_section = _s137_text[_s137_multi_start:_s137_tool_schema]
+    import re as _s137_re
+    _s137_has_array = bool(_s137_re.search(r'^\[$', _s137_multi_section, _s137_re.MULTILINE))
+    check(not _s137_has_array,
+          "137b: multi-preset section has no JSON array opener bracket")
+else:
+    check(False, "137b: could not locate MULTIPLE PRESETS and TOOL SCHEMA sections")
+
+# 137c: Contains warning against JSON arrays
+check("Do NOT return a JSON array" in _s137_text,
+      "137c: PRESET_PROMPT contains 'Do NOT return a JSON array' warning")
+
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
