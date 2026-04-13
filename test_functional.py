@@ -6906,11 +6906,11 @@ check("no valid" in _s63_win.statusBar().currentMessage().lower(),
       "63j: chain with nonexistent tool path shows no valid message")
 check(_s63_dock._chain_state == scaffold.CHAIN_IDLE, "63j: chain state idle after missing tool")
 
-# 63k: run_chain_btn text changes to "Run..." during chain, reverts after cleanup
+# 63k: run_chain_btn text changes to "Running..." during chain, reverts after cleanup
 _s63_dock._slots[0]["tool_path"] = _s63_minimal
 _s63_dock._on_run_chain()
 app.processEvents()
-check(_s63_dock.run_chain_btn.text() == "Run...", "63k: run_chain_btn text is 'Run...' during chain")
+check(_s63_dock.run_chain_btn.text() == "Running...", "63k: run_chain_btn text is 'Running...' during chain")
 _s63_dock._on_stop_chain()
 app.processEvents()
 check(_s63_dock.run_chain_btn.text() == "Run", "63k: run_chain_btn text reverts to 'Run' after stop")
@@ -9398,7 +9398,7 @@ _s84_dock._slots[0]["tool_path"] = str(_s84_path)
 # Simulate the UI portion of _on_run_chain (don't actually run)
 _s84_dock._chain_state = scaffold.CHAIN_LOADING
 _s84_dock.run_chain_btn.setEnabled(False)
-_s84_dock.run_chain_btn.setText("Run...")
+_s84_dock.run_chain_btn.setText("Running...")
 _s84_dock.stop_chain_btn.setEnabled(True)
 _s84_dock.pause_chain_btn.setEnabled(True)
 _s84_dock.pause_chain_btn.setText("Pause")
@@ -9618,26 +9618,35 @@ check("menu-indicator" in _s86_menu_ss,
 check("image: none" in _s86_menu_ss,
       "86a: _menu_btn styleSheet suppresses indicator image")
 
-# 86b: Cascade button tooltips are rich text (wrapped in <p>)
+# 86b: All cascade button tooltips are rich text (wrapped in <p>)
+_s86_run_tip = _s86_dock.run_chain_btn.toolTip()
 _s86_pause_tip = _s86_dock.pause_chain_btn.toolTip()
+_s86_stop_tip = _s86_dock.stop_chain_btn.toolTip()
 _s86_loop_tip = _s86_dock.loop_btn.toolTip()
 _s86_err_tip = _s86_dock.stop_on_error_btn.toolTip()
+_s86_clear_tip = _s86_dock.clear_all_btn.toolTip()
+check(_s86_run_tip.startswith("<p") or _s86_run_tip.startswith("<P"),
+      "86b: run_chain_btn tooltip is rich text")
 check(_s86_pause_tip.startswith("<p") or _s86_pause_tip.startswith("<P"),
       "86b: pause_chain_btn tooltip is rich text")
+check(_s86_stop_tip.startswith("<p") or _s86_stop_tip.startswith("<P"),
+      "86b: stop_chain_btn tooltip is rich text")
 check(_s86_loop_tip.startswith("<p") or _s86_loop_tip.startswith("<P"),
       "86b: loop_btn tooltip is rich text")
 check(_s86_err_tip.startswith("<p") or _s86_err_tip.startswith("<P"),
       "86b: stop_on_error_btn tooltip is rich text")
+check(_s86_clear_tip.startswith("<p") or _s86_clear_tip.startswith("<P"),
+      "86b: clear_all_btn tooltip is rich text")
 
-# 86c: "Run..." text fits in cascade run button (not clipped)
+# 86c: "Running..." text fits in cascade run button (not clipped)
 # Simulate _on_run_chain setting the text without actually running
-_s86_dock.run_chain_btn.setText("Run...")
+_s86_dock.run_chain_btn.setText("Running...")
 app.processEvents()
 _s86_fm = QFontMetrics(_s86_dock.run_chain_btn.font())
-_s86_text_w = _s86_fm.horizontalAdvance("Run...")
+_s86_text_w = _s86_fm.horizontalAdvance("Running...")
 _s86_btn_w = _s86_dock.run_chain_btn.sizeHint().width()
 check(_s86_btn_w >= _s86_text_w,
-      f"86c: 'Run...' text ({_s86_text_w}px) fits in button ({_s86_btn_w}px)")
+      f"86c: 'Running...' text ({_s86_text_w}px) fits in button ({_s86_btn_w}px)")
 _s86_dock.run_chain_btn.setText("Run")
 app.processEvents()
 

@@ -4881,23 +4881,23 @@ class CascadeSidebar(QDockWidget):
         self._loop_enabled = False
         self.loop_btn = QPushButton("Loop")
         self.loop_btn.setFixedWidth(65)
-        self.loop_btn.setToolTip("<p>Click to toggle. Loop: repeat chain until stopped.</p>")
+        self.loop_btn.setToolTip("<p>Toggle loop mode (re-run continuously)</p>")
         self.loop_btn.clicked.connect(self._toggle_loop)
         self._stop_on_error = False
         self.stop_on_error_btn = QPushButton("Err\u2717")
         self.stop_on_error_btn.setFixedWidth(65)
-        self.stop_on_error_btn.setToolTip(
-            "<p>Stop on error: halt cascade if any step exits with non-zero code."
-            " Note: timed-out steps count as failures.</p>"
-        )
+        self.stop_on_error_btn.setToolTip("<p>Toggle stop-on-error (halt cascade if any step fails)</p>")
         self.stop_on_error_btn.clicked.connect(self._toggle_stop_on_error)
         self.run_chain_btn = QPushButton("Run")
+        self.run_chain_btn.setToolTip("<p>Execute the cascade</p>")
         self.pause_chain_btn = QPushButton("Pause")
         self.pause_chain_btn.setToolTip(
-            "<p>Pause cascade after the current step completes. Click again to resume.</p>"
+            "<p>Pause execution</p>"
         )
         self.stop_chain_btn = QPushButton("Stop")
+        self.stop_chain_btn.setToolTip("<p>Stop and reset the cascade</p>")
         self.clear_all_btn = QPushButton("Clear")
+        self.clear_all_btn.setToolTip("<p>Clear output</p>")
         self.stop_chain_btn.setEnabled(False)
         self.pause_chain_btn.setEnabled(False)
         self.run_chain_btn.clicked.connect(self._on_run_chain)
@@ -5764,7 +5764,7 @@ class CascadeSidebar(QDockWidget):
 
         # Disable UI during chain
         self.run_chain_btn.setEnabled(False)
-        self.run_chain_btn.setText("Run...")
+        self.run_chain_btn.setText("Running...")
         self.stop_chain_btn.setEnabled(True)
         self.pause_chain_btn.setEnabled(True)
         self.pause_chain_btn.setText("Pause")
