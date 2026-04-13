@@ -1,11 +1,18 @@
 Scaffold — Your CLI Tools, but with Buttons
+
 Stop memorizing flags. Start clicking them.
+
 Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done.
-Secure by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (150+ assertions) that you can run yourself anytime. All execution goes through PySide6's QProcess, passing flags and arguments as literal strings directly to the target binary — immune to shell injection, and leaves no shell history behind.
+
+Secure by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (158 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing flags and arguments as literal strings directly to the target binary — immune to shell injection, and leaves no shell history behind.
+
 This works with any CLI tool, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
-Presets are what really make this powerful. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. No more digging through shell history or old notes for that command you ran three weeks ago. Save it once, reload it anytime. Share preset files with your team. Build a personal library of ready-to-run commands for every tool you use. Don't want to build presets by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
-Need to chain multiple tools together? The cascade system lets you line up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline. Save your chains as named cascade files and reuse them.
-Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview — all from a single schema that describes your tool's arguments. No custom UI code needed. Hand a tool's man page or official documentation to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
+
+Presets are what really make this powerful. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
+
+Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline.
+Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
+
 Simple. Powerful. Secure by design.
 
 <p>
