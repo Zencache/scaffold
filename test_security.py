@@ -281,10 +281,10 @@ check(any("non-empty" in e.lower() for e in errs),
       f"3c: whitespace-only binary rejected ({errs})")
 
 # 3d: Binary with leading/trailing whitespace
-# Space is in _SHELL_METACHAR → caught as metacharacter
+# Whitespace is caught by a dedicated check (not metachar)
 errs = _binary_errors(" nmap ")
-check(any("metacharacter" in e.lower() for e in errs),
-      f"3d: binary with spaces caught as metachar ({errs})")
+check(any("whitespace" in e.lower() for e in errs),
+      f"3d: binary with spaces caught as whitespace ({errs})")
 
 # 3e: Binary with newline
 errs = _binary_errors("nmap\necho pwned")

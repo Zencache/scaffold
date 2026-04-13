@@ -13776,6 +13776,218 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # =====================================================================
+# Section 120 — apply_values honors enum defaults for missing keys
+# =====================================================================
+print("\n=== SECTION 120: apply_values honors enum defaults for missing keys ===")
+
+_s120_tmpdir = tempfile.mkdtemp(prefix="scaffold_test120_")
+_s120_tool = {
+    "tool": "tool_120",
+    "binary": "echo",
+    "description": "Test enum default in apply_values",
+    "arguments": [
+        {
+            "name": "Mode",
+            "flag": "--mode",
+            "type": "enum",
+            "choices": ["alpha", "beta", "gamma"],
+            "default": "beta",
+        },
+    ],
+}
+_s120_path = os.path.join(_s120_tmpdir, "tool_120.json")
+Path(_s120_path).write_text(json.dumps(_s120_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s120_win = scaffold.MainWindow()
+_s120_win.show()
+app.processEvents()
+_s120_win._load_tool_path(_s120_path)
+app.processEvents()
+
+# Build a preset that omits the --mode key entirely
+_s120_preset = {"_subcommand": None}
+_s120_win.form.apply_values(_s120_preset)
+app.processEvents()
+
+_s120_key = (scaffold.ToolForm.GLOBAL, "--mode")
+_s120_widget = _s120_win.form.fields[_s120_key]["widget"]
+check(_s120_widget.currentData() == "beta",
+      f"120a: apply_values restores enum to schema default 'beta' (got '{_s120_widget.currentData()}')")
+
+# Cleanup section 120
+_s120_win.close()
+_s120_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s120_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 121 — No double-reporting of duplicate flags
+# =====================================================================
+print("\n=== SECTION 121: No double-reporting of duplicate flags ===")
+
+# 121a: Two args with same --foo flag produce exactly ONE error mentioning --foo
+_s121_tool_a = {
+    "tool": "tool_121a",
+    "binary": "echo",
+    "description": "Duplicate flag test",
+    "arguments": [
+        {"name": "Alpha", "flag": "--foo", "type": "string"},
+        {"name": "Bravo", "flag": "--foo", "type": "string"},
+    ],
+}
+_s121_errors_a = scaffold.validate_tool(_s121_tool_a)
+_s121_foo_errors = [e for e in _s121_errors_a if "--foo" in e]
+check(len(_s121_foo_errors) == 1,
+      f"121a: exactly one error for duplicate --foo (got {len(_s121_foo_errors)}: {_s121_foo_errors})")
+
+# 121b: Two positional args with same name "TARGET" still produce a duplicate error
+_s121_tool_b = {
+    "tool": "tool_121b",
+    "binary": "echo",
+    "description": "Duplicate positional test",
+    "arguments": [
+        {"name": "First", "flag": "TARGET", "type": "string", "positional": True},
+        {"name": "Second", "flag": "TARGET", "type": "string", "positional": True},
+    ],
+}
+_s121_errors_b = scaffold.validate_tool(_s121_tool_b)
+_s121_target_errors = [e for e in _s121_errors_b if "TARGET" in e]
+check(len(_s121_target_errors) >= 1,
+      f"121b: duplicate positional 'TARGET' produces error (got {len(_s121_target_errors)}: {_s121_target_errors})")
+
+
+# =====================================================================
+# Section 122 — _SHELL_METACHAR excludes space; whitespace check separate
+# =====================================================================
+print("\n=== SECTION 122: _SHELL_METACHAR excludes space; whitespace check separate ===")
+
+# 122a: Binary with a space triggers whitespace error
+_s122_tool_a = {
+    "tool": "tool_122a",
+    "binary": "ev il",
+    "description": "Whitespace binary test",
+    "arguments": [],
+}
+_s122_errors_a = scaffold.validate_tool(_s122_tool_a)
+_s122_ws_errors = [e for e in _s122_errors_a if "whitespace" in e.lower()]
+check(len(_s122_ws_errors) >= 1,
+      f"122a: binary 'ev il' fails with whitespace error ({_s122_ws_errors})")
+
+# 122b: Binary with | still triggers metachar error
+_s122_tool_b = {
+    "tool": "tool_122b",
+    "binary": "ev|il",
+    "description": "Metachar binary test",
+    "arguments": [],
+}
+_s122_errors_b = scaffold.validate_tool(_s122_tool_b)
+_s122_mc_errors = [e for e in _s122_errors_b if "metachar" in e.lower() and "|" in e]
+check(len(_s122_mc_errors) >= 1,
+      f"122b: binary 'ev|il' fails with metachar error mentioning '|' ({_s122_mc_errors})")
+
+
+# =====================================================================
+# Section 123 — Suppress duplicate status/history on unexpected crash
+# =====================================================================
+print("\n=== SECTION 123: Suppress duplicate status/history on unexpected crash ===")
+
+_s123_tmpdir = tempfile.mkdtemp(prefix="scaffold_test123_")
+_s123_tool = {
+    "tool": "tool_123",
+    "binary": "echo",
+    "description": "Crash dedup test",
+    "arguments": [],
+}
+_s123_path = os.path.join(_s123_tmpdir, "tool_123.json")
+Path(_s123_path).write_text(json.dumps(_s123_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s123_win = scaffold.MainWindow()
+_s123_win.show()
+app.processEvents()
+_s123_win._load_tool_path(_s123_path)
+app.processEvents()
+
+# Prepare state as if a process was running
+_s123_win._killed = False
+_s123_win._error_reported = False
+_s123_win._timed_out = False
+_s123_win._run_start_time = time.monotonic()
+_s123_win._history_display = "echo"
+_s123_win._history_preset = {}
+_s123_win._history_timestamp = time.time()
+_s123_win.output.clear()
+app.processEvents()
+
+# Record history length before
+_s123_hist_before = len(_s123_win._load_history())
+
+# Simulate crash: _on_error fires, then _on_finished fires
+_s123_win._on_error(QProcess.ProcessError.Crashed)
+app.processEvents()
+_s123_win._on_finished(-1, QProcess.ExitStatus.CrashExit)
+app.processEvents()
+
+_s123_output = _s123_win.output.toPlainText()
+_s123_process_blocks = _s123_output.count("--- Process")
+check(_s123_process_blocks <= 1,
+      f"123a: only one '--- Process' block in output (got {_s123_process_blocks})")
+
+_s123_hist_after = len(_s123_win._load_history())
+check(_s123_hist_after == _s123_hist_before,
+      f"123b: _record_history_entry NOT called after crash (before={_s123_hist_before}, after={_s123_hist_after})")
+
+# Cleanup section 123
+_s123_win.close()
+_s123_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s123_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 124 — Password values preserve trailing whitespace
+# =====================================================================
+print("\n=== SECTION 124: Password values preserve trailing whitespace ===")
+
+_s124_tmpdir = tempfile.mkdtemp(prefix="scaffold_test124_")
+_s124_tool = {
+    "tool": "tool_124",
+    "binary": "echo",
+    "description": "Password whitespace test",
+    "arguments": [
+        {"name": "Secret", "flag": "--secret", "type": "password"},
+    ],
+}
+_s124_path = os.path.join(_s124_tmpdir, "tool_124.json")
+Path(_s124_path).write_text(json.dumps(_s124_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s124_win = scaffold.MainWindow()
+_s124_win.show()
+app.processEvents()
+_s124_win._load_tool_path(_s124_path)
+app.processEvents()
+
+_s124_key = (scaffold.ToolForm.GLOBAL, "--secret")
+_s124_win.form._set_field_value(_s124_key, "abc123  ")
+app.processEvents()
+
+_s124_cmd, _s124_binary = _s124_win.form.build_command()
+# The trailing spaces should be preserved in the command list
+_s124_found = any("abc123  " in arg for arg in _s124_cmd)
+check(_s124_found,
+      f"124a: password trailing spaces preserved in build_command (cmd={_s124_cmd})")
+
+# Cleanup section 124
+_s124_win.close()
+_s124_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s124_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

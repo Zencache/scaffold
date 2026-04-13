@@ -2,6 +2,28 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.2] — 2026-04-13
+
+Five targeted bug fixes identified by audit.
+
+### Fixed
+
+- **apply_values honors enum defaults for missing keys** — when a preset omits a key, `apply_values` now passes the schema `arg["default"]` instead of `None`, so enum fields restore to their declared default rather than falling back to index 0.
+- **Duplicate flag validation no longer double-reports** — removed redundant `_check_duplicate_flags` call sites (and the now-unused function). Extended `_check_duplicate_flag_values` to also track positional (non-dash-prefixed) flag names, so all duplicates produce exactly one error.
+- **`_SHELL_METACHAR` no longer contains a literal space** — space was indistinguishable from the separator in error messages. Binary validation now emits a distinct `"binary" contains whitespace` error via a separate `isspace()` check.
+- **Crash no longer produces duplicate status and history** — added `_error_reported` flag so that when `_on_error` handles a crash, the subsequent `_on_finished` callback skips its status message and `_record_history_entry` call.
+- **Password values preserve trailing whitespace** — removed `.strip()` from the password branch in `_read_field_value`, so pasted hex tokens and secrets with trailing spaces are no longer silently mutated.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,018/2,018 assertions, 0 failures**
+  - Functional: 1,654/1,654
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.1] — 2026-04-13
 
 Argv-flag injection guard for cascade capture substitution.

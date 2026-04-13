@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.1"
+__version__ = "2.8.5.2"
 
 import atexit
 import datetime
@@ -42,7 +42,7 @@ VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
 CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_full", "stderr_full", "file"})
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
-_SHELL_METACHAR = frozenset("|;&$`(){}< >!~\x00")
+_SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00")
 
 
 def _user_id() -> str:
@@ -181,6 +181,9 @@ def validate_tool(data: dict) -> list[str]:
                 errors.append(
                     f"\"binary\" contains shell metacharacters: {' '.join(bad_chars)}"
                 )
+            # Check for whitespace in binary name
+            if any(c.isspace() for c in binary):
+                errors.append("\"binary\" contains whitespace")
             # Check for path separators — only allowed if the path is absolute
             has_sep = "/" in binary or "\\" in binary
             if has_sep:
@@ -199,7 +202,6 @@ def validate_tool(data: dict) -> list[str]:
 
     if "arguments" in data and isinstance(data["arguments"], list):
         _validate_args(data["arguments"], "top-level", errors)
-        _check_duplicate_flags(data["arguments"], "top-level", errors)
         _check_duplicate_flag_values(data["arguments"], "global scope", errors)
         _check_groups(data["arguments"], "top-level", errors)
         _check_dependencies(data["arguments"], "top-level", errors)
@@ -257,7 +259,6 @@ def validate_tool(data: dict) -> list[str]:
                     errors.append(f"{label}: \"arguments\" must be a list")
                 else:
                     _validate_args(sub["arguments"], label, errors)
-                    _check_duplicate_flags(sub["arguments"], label, errors)
                     sub_name = sub.get("name", "?")
                     _check_duplicate_flag_values(sub["arguments"], f"subcommand '{sub_name}'", errors)
                     _check_groups(sub["arguments"], label, errors)
@@ -336,26 +337,10 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
             errors.append(f"{prefix}: \"dangerous\" must be a boolean")
 
 
-def _check_duplicate_flags(args: list, scope: str, errors: list) -> None:
-    seen = {}
-    for arg in args:
-        if not isinstance(arg, dict):
-            continue
-        flag = arg.get("flag")
-        if flag is None:
-            continue
-        if isinstance(flag, str):
-            flag = flag.strip()
-        if flag in seen:
-            errors.append(f"{scope}: duplicate flag \"{flag}\" (used by \"{seen[flag]}\" and \"{arg.get('name', '?')}\")")
-        else:
-            seen[flag] = arg.get("name", "?")
-
-
 def _check_duplicate_flag_values(args: list, scope_label: str, errors: list) -> None:
     """Check for duplicate flag and short_flag values within a single scope.
 
-    Skips positional arguments (flag not starting with '-') and None short_flags.
+    Covers both flag-style (starting with '-') and positional-style arguments.
     """
     seen_flags: dict[str, str] = {}
     seen_shorts: dict[str, str] = {}
@@ -366,7 +351,7 @@ def _check_duplicate_flag_values(args: list, scope_label: str, errors: list) -> 
         flag = arg.get("flag")
         if isinstance(flag, str):
             flag = flag.strip()
-        if isinstance(flag, str) and flag.startswith("-"):
+        if isinstance(flag, str) and flag:
             if flag in seen_flags:
                 errors.append(
                     f"Duplicate flag '{flag}' in {scope_label}: "
@@ -1879,7 +1864,7 @@ class ToolForm(QWidget):
             return v if v else None
 
         elif t == "password":
-            v = w._line_edit.text().strip()
+            v = w._line_edit.text()
             return v if v else None
 
         elif t == "text":
@@ -1991,6 +1976,12 @@ class ToolForm(QWidget):
             else:
                 preset_key = f"{scope}:{flag}"
             value = preset.get(preset_key)
+            if value is None:
+                arg = field["arg"]
+                if arg["type"] == "boolean":
+                    value = True if arg["default"] is True else None
+                else:
+                    value = arg["default"]
             self._set_field_value(key, value)
 
         self.blockSignals(False)
@@ -5078,7 +5069,7 @@ class CascadeSidebar(QDockWidget):
         """Update loop button appearance based on current state."""
         if self._loop_enabled:
             color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
-            self.loop_btn.setStyleSheet(f"border: 2px solid {color};")
+            self.loop_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; padding: 2px 8px; border-radius: 3px; }}")
             self.loop_btn.setText("Loop \u2713")
         else:
             self.loop_btn.setStyleSheet("")
@@ -5094,7 +5085,7 @@ class CascadeSidebar(QDockWidget):
         """Update stop-on-error button appearance based on current state."""
         if self._stop_on_error:
             color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
-            self.stop_on_error_btn.setStyleSheet(f"border: 2px solid {color};")
+            self.stop_on_error_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; padding: 2px 8px; border-radius: 3px; }}")
             self.stop_on_error_btn.setText("Err\u2713")
         else:
             self.stop_on_error_btn.setStyleSheet("")
@@ -5773,7 +5764,10 @@ class CascadeSidebar(QDockWidget):
                 )
         if unset_names and self._stop_on_error:
             first = unset_names[0]
-            self._chain_state = CHAIN_IDLE
+            self._chain_cleanup(
+                f"Cascade stopped: capture '{first}' was not set"
+            )
+            return text  # halt — return original, cleanup already ran
         return result
 
     def _chain_advance(self) -> None:
@@ -5905,16 +5899,7 @@ class CascadeSidebar(QDockWidget):
         form = self._main_window.form
         if form is not None and self._chain_variable_values:
             for key in list(form.fields.keys()):
-                try:
-                    raw = form.fields[key]["widget"]
-                    if hasattr(raw, "text"):
-                        current = raw.text()
-                    elif hasattr(raw, "currentText"):
-                        current = raw.currentText()
-                    else:
-                        continue
-                except Exception:
-                    continue
+                current = form._raw_field_value(key)
                 if not isinstance(current, str) or "{" not in current:
                     continue
                 new_value = self._substitute_captures(current, self._chain_variable_values)
@@ -5946,6 +5931,8 @@ class CascadeSidebar(QDockWidget):
             def _chain_on_finished(exit_code, exit_status):
                 """Wrapper that calls original handler then advances chain."""
                 original_on_finished(exit_code, exit_status)
+                if self._chain_state == CHAIN_IDLE:
+                    return  # Chain was stopped externally; don't re-disable
                 # Re-disable run_btn (original handler re-enables it)
                 self._main_window.run_btn.setEnabled(False)
                 # Extract captures from this step's output
@@ -6120,6 +6107,7 @@ class MainWindow(QMainWindow):
         self.tool_path = None
         self.process = None
         self._killed = False
+        self._error_reported = False
         self._timed_out = False
         self._elevated_run = False
         self._run_start_time: float | None = None
@@ -7840,6 +7828,7 @@ class MainWindow(QMainWindow):
         # Reset state (no UI updates — callers handle that).
         self.process = None
         self._killed = False
+        self._error_reported = False
         self._timed_out = False
         self._run_start_time = None
 
@@ -7918,6 +7907,7 @@ class MainWindow(QMainWindow):
         self._history_timestamp = time.time()
 
         self._killed = False
+        self._error_reported = False
         self._timed_out = False
         self._last_run_stdout = ""
         self._last_run_stderr = ""
@@ -7998,6 +7988,10 @@ class MainWindow(QMainWindow):
         self._timeout_timer.stop()
         self._force_kill_timer.stop()
         self._flush_output()
+        if self._error_reported:
+            # _on_error already handled UI; just clear process and return
+            self.process = None
+            return
         elapsed_str = ""
         if self._run_start_time is not None:
             elapsed = time.monotonic() - self._run_start_time
@@ -8030,6 +8024,7 @@ class MainWindow(QMainWindow):
         """Handle QProcess errors, printing a descriptive message to the output panel."""
         if error == QProcess.ProcessError.Crashed and self._killed:
             return  # Handled by _on_finished
+        self._error_reported = True
         error_messages = {
             QProcess.ProcessError.FailedToStart: (
                 f"Error: '{self.data['binary']}' not found. "
