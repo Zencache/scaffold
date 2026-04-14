@@ -10,7 +10,7 @@ This works with any CLI tool, not just well-known programs like nmap or ffmpeg. 
 
 Presets are what really make this powerful. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
 
-Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline.
+Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline. Cascades can also be saved and shared!
 
 Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
 
