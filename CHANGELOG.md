@@ -2,6 +2,17 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.10] — 2026-04-13
+
+Bugfix — cascade button label typo and missing tooltips.
+
+### Fixed
+
+- **Cascade Run button label corrected** — the button displayed "Run..." instead of "Running..." during execution.
+- **Cascade buttons now have tooltips** — Run, Stop, and Clear were missing tooltips entirely. All six cascade buttons now use consistent rich-text tooltips.
+
+
+
 ## [v2.8.5.9] — 2026-04-13
 
 Audit backlog cleanup — closes out the v2.7.4-era audit cycle. Two low-severity findings fixed, one dead-code removal.
