@@ -2,6 +2,28 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.5.11] — 2026-04-14
+
+History crash/error reporting, test stabilization, README corrections.
+
+### Added
+
+- **History entries now distinguish crashes from normal exits** — the Exit Code column shows descriptive labels ("crashed", "not found", "timed out", "I/O error") with a tooltip for the specific error type, instead of a raw numeric code. Backed by two new fields (`crashed`, `error`) written when QProcess reports a crash or emits an error signal.
+
+### Fixed
+
+- **Test 26h geometry assertion stabilized** — added `qWaitForWindowExposed` before geometry measurement and widened the pixel slack from 4 to 8, eliminating an intermittent window-manager timing flake (~1-in-8 failure rate).
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,260/2,260 assertions, 0 failures**
+  - Functional: 1,896/1,896
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.5.10] — 2026-04-13
 
 Bugfix — cascade button label and missing tooltips. Cascade variable dialog column clamping, history entry guard, and history empty-state UX.

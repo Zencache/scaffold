@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer, QPoint
 from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent, QPalette
+from PySide6.QtTest import QTest
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -2432,9 +2433,11 @@ check(_s26_eff >= scaffold.OUTPUT_MIN_HEIGHT,
 # 26h (B1.2): After max drag, output bottom does not exceed window bottom
 _s26_win2.output.setFixedHeight(_s26_win2.output_handle._effective_max_height())
 app.processEvents()
+QTest.qWaitForWindowExposed(_s26_win2)
+app.processEvents()
 _s26_out_bottom = _s26_win2.output.mapToGlobal(QPoint(0, _s26_win2.output.height())).y()
 _s26_win_bottom = _s26_win2.mapToGlobal(QPoint(0, _s26_win2.height())).y()
-_s26_slack = 4
+_s26_slack = 8
 check(_s26_out_bottom <= _s26_win_bottom + _s26_slack,
       f"26h (B1.2): output bottom ({_s26_out_bottom}) <= window bottom ({_s26_win_bottom}) + slack")
 

@@ -4,9 +4,9 @@ Scaffold — Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-8%2C500%2B-informational)
-![Tests](https://img.shields.io/badge/tests-2%2C175%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-2%2C260%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
-![Bundled Tools](https://img.shields.io/badge/bundled%20tools-20%20schemas-orange)
+![Bundled Tools](https://img.shields.io/badge/bundled%20tools-13%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
@@ -32,7 +32,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,192 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,260 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
