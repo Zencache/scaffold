@@ -5362,7 +5362,7 @@ check(len(_hist_loaded) == 1, f"49e: _load_history() has 1 entry (got {len(_hist
 
 # 49f: Entry has correct keys
 _hist_entry = _hist_loaded[0]
-_hist_expected_keys = {"display", "exit_code", "timestamp", "preset_data"}
+_hist_expected_keys = {"display", "exit_code", "timestamp", "preset_data", "crashed", "error"}
 check(set(_hist_entry.keys()) == _hist_expected_keys, f"49f: entry has correct keys: {set(_hist_entry.keys())}")
 
 # 49g: Entry display string contains the binary name
@@ -5515,6 +5515,211 @@ for key, field in window.form.fields.items():
             _hist_verbose_restored = w.isChecked()
         break
 check(_hist_verbose_restored, "49x: restoring history applies preset_data (verbose flag set)")
+
+# 49y: _record_history_entry accepts crashed kwarg, default is False
+window._clear_history()
+window._history_display = "true --test-crash"
+window._history_preset = {}
+window._history_timestamp = time.time()
+window._record_history_entry(99, crashed=True)
+_hist_crash = window._load_history()
+check(len(_hist_crash) == 1, f"49y: 1 crashed entry stored (got {len(_hist_crash)})")
+check(_hist_crash[0].get("crashed") is True, f"49y: crashed field is True (got {_hist_crash[0].get('crashed')!r})")
+check(_hist_crash[0]["exit_code"] == 99, f"49y: exit_code still stored as int (got {_hist_crash[0]['exit_code']})")
+# Also verify default crashed=False
+window._record_history_entry(0)
+_hist_no_crash = window._load_history()
+check(_hist_no_crash[0].get("crashed") is False, f"49y: default crashed is False (got {_hist_no_crash[0].get('crashed')!r})")
+window._clear_history()
+
+# 49z: _load_history returns entries with and without crashed field
+# Store a legacy entry (no crashed key) directly in QSettings
+_legacy_entry = {"display": "legacy cmd", "exit_code": 0, "timestamp": time.time(), "preset_data": {}}
+_crashed_entry = {"display": "crashed cmd", "exit_code": 62097, "timestamp": time.time(), "preset_data": {}, "crashed": True}
+import json as _json49
+window.settings.setValue(f"history/{window.data['tool']}", _json49.dumps([_crashed_entry, _legacy_entry]))
+_hist_mixed = window._load_history()
+check(len(_hist_mixed) == 2, f"49z: 2 mixed entries loaded (got {len(_hist_mixed)})")
+check(_hist_mixed[0].get("crashed") is True, "49z: crashed entry has crashed=True")
+check(_hist_mixed[1].get("crashed", False) is False, "49z: legacy entry missing crashed key treated as False")
+window._clear_history()
+
+# 49aa: HistoryDialog shows "crashed" text when crashed=True
+_hist_crash_data = [
+    {"display": "nmap -sV", "exit_code": 62097, "timestamp": time.time(), "preset_data": {}, "crashed": True},
+    {"display": "nmap -sP", "exit_code": 0, "timestamp": time.time(), "preset_data": {}, "crashed": False},
+]
+_hist_crash_dlg = scaffold.HistoryDialog("test_crash", _hist_crash_data, parent=window)
+_crash_item_0 = _hist_crash_dlg.table.item(0, 0)
+check(_crash_item_0 is not None and _crash_item_0.text() == "crashed",
+      f"49aa: crashed entry shows 'crashed' text (got '{_crash_item_0.text() if _crash_item_0 else None}')")
+_crash_item_1 = _hist_crash_dlg.table.item(1, 0)
+check(_crash_item_1 is not None and _crash_item_1.text() == "0",
+      f"49aa: non-crashed entry shows exit code '0' (got '{_crash_item_1.text() if _crash_item_1 else None}')")
+
+# 49ab: Tooltip on crashed cell contains raw exit code
+_crash_tooltip = _crash_item_0.toolTip() if _crash_item_0 else ""
+check("62097" in _crash_tooltip, f"49ab: crashed cell tooltip contains raw exit code (got '{_crash_tooltip}')")
+
+# 49ac: Legacy entries without crashed key display normally
+_hist_legacy_data = [
+    {"display": "old cmd", "exit_code": 1, "timestamp": time.time(), "preset_data": {}},
+]
+_hist_legacy_dlg = scaffold.HistoryDialog("test_legacy", _hist_legacy_data, parent=window)
+_legacy_item = _hist_legacy_dlg.table.item(0, 0)
+check(_legacy_item is not None and _legacy_item.text() == "1",
+      f"49ac: legacy entry without crashed key shows exit code (got '{_legacy_item.text() if _legacy_item else None}')")
+_hist_crash_dlg.deleteLater()
+_hist_legacy_dlg.deleteLater()
+
+# 49ad: _record_history_entry accepts error kwarg, default is None
+window._clear_history()
+window._history_display = "badcmd --flag"
+window._history_preset = {}
+window._history_timestamp = time.time()
+window._record_history_entry(-1, error="failed_to_start")
+_hist_err = window._load_history()
+check(len(_hist_err) == 1, f"49ad: 1 error entry stored (got {len(_hist_err)})")
+check(_hist_err[0].get("error") == "failed_to_start", f"49ad: error field is 'failed_to_start' (got {_hist_err[0].get('error')!r})")
+check(_hist_err[0]["exit_code"] == -1, f"49ad: exit_code is -1 (got {_hist_err[0]['exit_code']})")
+# Also verify default error=None
+window._record_history_entry(0)
+_hist_no_err = window._load_history()
+check(_hist_no_err[0].get("error") is None, f"49ad: default error is None (got {_hist_no_err[0].get('error')!r})")
+window._clear_history()
+
+# 49ae: All error tokens are accepted and stored correctly
+_error_tokens_49 = ["failed_to_start", "crashed", "timed_out", "write_error", "read_error", "unknown"]
+for _tok in _error_tokens_49:
+    window._record_history_entry(-1, error=_tok)
+_hist_all_err = window._load_history()
+check(len(_hist_all_err) == len(_error_tokens_49), f"49ae: {len(_error_tokens_49)} error entries stored (got {len(_hist_all_err)})")
+# Entries are newest-first, so reverse to match insertion order
+_stored_tokens = [e.get("error") for e in reversed(_hist_all_err)]
+check(_stored_tokens == _error_tokens_49, f"49ae: all error tokens stored correctly (got {_stored_tokens})")
+window._clear_history()
+
+# 49af: HistoryDialog shows "not found" for failed_to_start error
+_hist_err_data = [
+    {"display": "badcmd", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "failed_to_start"},
+    {"display": "goodcmd", "exit_code": 0, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": None},
+]
+_hist_err_dlg = scaffold.HistoryDialog("test_err", _hist_err_data, parent=window)
+_err_item_0 = _hist_err_dlg.table.item(0, 0)
+check(_err_item_0 is not None and _err_item_0.text() == "not found",
+      f"49af: failed_to_start shows 'not found' (got '{_err_item_0.text() if _err_item_0 else None}')")
+_err_item_1 = _hist_err_dlg.table.item(1, 0)
+check(_err_item_1 is not None and _err_item_1.text() == "0",
+      f"49af: normal entry still shows exit code (got '{_err_item_1.text() if _err_item_1 else None}')")
+_hist_err_dlg.deleteLater()
+
+# 49ag: HistoryDialog error labels for all token types
+_hist_label_data = [
+    {"display": "cmd1", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "failed_to_start"},
+    {"display": "cmd2", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "crashed"},
+    {"display": "cmd3", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "timed_out"},
+    {"display": "cmd4", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "write_error"},
+    {"display": "cmd5", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "read_error"},
+    {"display": "cmd6", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "unknown"},
+]
+_expected_labels = ["not found", "crashed", "timed out", "I/O error", "I/O error", "error"]
+_hist_label_dlg = scaffold.HistoryDialog("test_labels", _hist_label_data, parent=window)
+for _lbl_row, _exp_lbl in enumerate(_expected_labels):
+    _lbl_item = _hist_label_dlg.table.item(_lbl_row, 0)
+    check(_lbl_item is not None and _lbl_item.text() == _exp_lbl,
+          f"49ag: error token '{_hist_label_data[_lbl_row]['error']}' shows '{_exp_lbl}' (got '{_lbl_item.text() if _lbl_item else None}')")
+_hist_label_dlg.deleteLater()
+
+# 49ah: Error entry tooltip contains the error token
+_hist_tip_data = [
+    {"display": "badcmd", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": False, "error": "failed_to_start"},
+]
+_hist_tip_dlg = scaffold.HistoryDialog("test_tip", _hist_tip_data, parent=window)
+_tip_item = _hist_tip_dlg.table.item(0, 0)
+_tip_text = _tip_item.toolTip() if _tip_item else ""
+check("failed_to_start" in _tip_text, f"49ah: error tooltip contains token (got '{_tip_text}')")
+_hist_tip_dlg.deleteLater()
+
+# 49ai: error field takes priority over crashed field in display
+_hist_both_data = [
+    {"display": "cmd", "exit_code": -1, "timestamp": time.time(), "preset_data": {}, "crashed": True, "error": "crashed"},
+]
+_hist_both_dlg = scaffold.HistoryDialog("test_both", _hist_both_data, parent=window)
+_both_item = _hist_both_dlg.table.item(0, 0)
+_both_tip = _both_item.toolTip() if _both_item else ""
+check(_both_item is not None and _both_item.text() == "crashed",
+      f"49ai: error+crashed entry shows 'crashed' (got '{_both_item.text() if _both_item else None}')")
+check("error:" in _both_tip.lower() or "crashed" in _both_tip,
+      f"49ai: tooltip comes from error path (got '{_both_tip}')")
+_hist_both_dlg.deleteLater()
+
+# 49aj: Legacy entries without error key display normally (backwards compat)
+_hist_legacy_no_err = [
+    {"display": "old cmd", "exit_code": 42, "timestamp": time.time(), "preset_data": {}},
+    {"display": "old crash", "exit_code": 99, "timestamp": time.time(), "preset_data": {}, "crashed": True},
+]
+_hist_legacy_err_dlg = scaffold.HistoryDialog("test_legacy_err", _hist_legacy_no_err, parent=window)
+_leg_item_0 = _hist_legacy_err_dlg.table.item(0, 0)
+check(_leg_item_0 is not None and _leg_item_0.text() == "42",
+      f"49aj: legacy entry without error key shows exit code (got '{_leg_item_0.text() if _leg_item_0 else None}')")
+_leg_item_1 = _hist_legacy_err_dlg.table.item(1, 0)
+check(_leg_item_1 is not None and _leg_item_1.text() == "crashed",
+      f"49aj: legacy crashed entry without error key shows 'crashed' (got '{_leg_item_1.text() if _leg_item_1 else None}')")
+_hist_legacy_err_dlg.deleteLater()
+
+# 49ak: _record_history_entry with no capture vars set — silent no-op
+window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+window._clear_history()
+# Remove all three capture attrs if they exist
+for _attr in ("_history_display", "_history_preset", "_history_timestamp"):
+    if hasattr(window, _attr):
+        delattr(window, _attr)
+_49ak_raised = False
+try:
+    window._record_history_entry(0)
+except AttributeError:
+    _49ak_raised = True
+check(not _49ak_raised, "49ak: _record_history_entry with no capture vars does not raise")
+check(window._load_history() == [], "49ak: no entry written when capture vars missing")
+
+# 49al: _record_history_entry with only _history_display — silent no-op
+window._history_display = "partial setup"
+_49al_raised = False
+try:
+    window._record_history_entry(0)
+except AttributeError:
+    _49al_raised = True
+check(not _49al_raised, "49al: _record_history_entry with partial capture vars does not raise")
+check(window._load_history() == [], "49al: no entry written when preset/timestamp missing")
+# Clean up partial attr
+delattr(window, "_history_display")
+
+# 49am: empty history shows the empty-state label with tool name
+_49am_dlg = scaffold.HistoryDialog("ping", [], parent=window)
+_49am_dlg.show()
+app.processEvents()
+check(_49am_dlg.empty_label.isVisible(), "49am: empty-state label is visible for empty history")
+check("ping" in _49am_dlg.empty_label.text(), "49am: empty-state label contains tool name")
+check(not _49am_dlg.table.isVisible(), "49am: table is hidden when history is empty")
+
+# 49an: Clear button is disabled when history is empty
+check(not _49am_dlg.clear_btn.isEnabled(), "49an: Clear button disabled when history is empty")
+_49am_dlg.close()
+_49am_dlg.deleteLater()
+app.processEvents()
+
+# 49ao: Clear button is enabled when at least one entry exists
+_49ao_hist = [{"exit_code": 0, "display": "ping localhost", "timestamp": time.time(), "preset_data": {}}]
+_49ao_dlg = scaffold.HistoryDialog("ping", _49ao_hist, parent=window)
+_49ao_dlg.show()
+app.processEvents()
+check(_49ao_dlg.clear_btn.isEnabled(), "49ao: Clear button enabled when history has entries")
+check(not _49ao_dlg.empty_label.isVisible(), "49ao: empty-state label is hidden when history has entries")
+check(_49ao_dlg.table.isVisible(), "49ao: table is visible when history has entries")
+_49ao_dlg.close()
+_49ao_dlg.deleteLater()
+app.processEvents()
 
 # Cleanup
 window._clear_history()
@@ -11278,8 +11483,8 @@ _s99_col2_w = _s99_hdr.sectionSize(2)
 check(90 <= _s99_col2_w <= 130,
       f"99a (B2.1): column 2 width ~110 ({_s99_col2_w})")
 
-check(_s99_hdr.sectionResizeMode(3) == QHeaderView.ResizeMode.Stretch,
-      "99a (B2.1): column 3 (Apply To) is Stretch")
+check(_s99_hdr.sectionResizeMode(3) == QHeaderView.ResizeMode.Interactive,
+      "99a (B2.1): column 3 (Apply To) is Interactive (managed by _fit_last_column)")
 
 _s99_dlg1.close()
 _s99_dlg1.deleteLater()
@@ -13946,8 +14151,11 @@ check(_s123_process_blocks <= 1,
       f"123a: only one '--- Process' block in output (got {_s123_process_blocks})")
 
 _s123_hist_after = len(_s123_win._load_history())
-check(_s123_hist_after == _s123_hist_before,
-      f"123b: _record_history_entry NOT called after crash (before={_s123_hist_before}, after={_s123_hist_after})")
+check(_s123_hist_after == _s123_hist_before + 1,
+      f"123b: exactly one history entry recorded after crash (before={_s123_hist_before}, after={_s123_hist_after})")
+_s123_hist_entry = _s123_win._load_history()[0]
+check(_s123_hist_entry.get("error") == "crashed",
+      f"123b: history entry has error='crashed' (got {_s123_hist_entry.get('error')!r})")
 
 # Cleanup section 123
 _s123_win.close()
@@ -15559,6 +15767,131 @@ _s143_win.close()
 _s143_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s143_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 144 — CascadeListDialog Column Drag-Off-Screen Fix
+# =====================================================================
+print("\n--- Section 144: CascadeListDialog column clamping ---")
+
+import tempfile as _s144_tempfile
+
+_s144_tmpdir = Path(_s144_tempfile.mkdtemp(prefix="scaffold_s144_"))
+_s144_orig_cascades_dir = scaffold._cascades_dir
+
+def _s144_fake_cascades_dir():
+    _s144_tmpdir.mkdir(exist_ok=True)
+    return _s144_tmpdir
+
+scaffold._cascades_dir = _s144_fake_cascades_dir
+
+# Create a test cascade file so the dialog has at least one row
+_s144_cascade = {
+    "_format": "scaffold_cascade", "name": "ClampTest",
+    "description": "column clamping test", "steps": [
+        {"tool": "x", "preset": None, "delay": 0}],
+    "loop_mode": False, "stop_on_error": False, "variables": [],
+}
+(_s144_tmpdir / "clamp_test.json").write_text(json.dumps(_s144_cascade), encoding="utf-8")
+
+_s144_dlg = scaffold.CascadeListDialog(mode="load")
+_s144_dlg.show()
+app.processEvents()
+
+_s144_header = _s144_dlg.table.horizontalHeader()
+
+# 144a: cascadingSectionResizes is enabled
+check(_s144_header.cascadingSectionResizes(),
+      "144a: CascadeListDialog has cascading section resizes")
+
+# 144b: Name column (0) is Interactive
+check(_s144_header.sectionResizeMode(0) == QHeaderView.ResizeMode.Interactive,
+      "144b: name column is user-resizable")
+
+# 144c: Description column (1) is Interactive
+check(_s144_header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive,
+      "144c: description column is user-resizable")
+
+# 144d: Steps column (2) is ResizeToContents
+check(_s144_header.sectionResizeMode(2) == QHeaderView.ResizeMode.ResizeToContents,
+      "144d: steps column stays auto-sized")
+
+# 144e: Resizing column 0 to 5000px clamps it within viewport
+_s144_vp = _s144_dlg.table.viewport().width()
+_s144_header.resizeSection(0, 5000)
+app.processEvents()
+_s144_col0 = _s144_header.sectionSize(0)
+check(_s144_col0 <= _s144_vp, "144e: column 0 clamped within viewport after 5000px resize")
+_s144_total = sum(_s144_header.sectionSize(i) for i in range(_s144_dlg.table.columnCount()))
+check(_s144_total <= _s144_vp + 2, "144e: total columns fit within viewport after 5000px resize")
+
+# 144f: Last column grows to fill remaining space after a smaller resize
+_s144_header.resizeSection(0, 80)
+app.processEvents()
+_s144_total2 = sum(_s144_header.sectionSize(i) for i in range(_s144_dlg.table.columnCount()))
+check(abs(_s144_total2 - _s144_vp) <= 2,
+      "144f: columns fill viewport after smaller resize")
+
+_s144_dlg.close()
+_s144_dlg.deleteLater()
+app.processEvents()
+
+# Restore original _cascades_dir and clean up
+scaffold._cascades_dir = _s144_orig_cascades_dir
+shutil.rmtree(_s144_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+print("\n=== SECTION 145: CascadeVariableDefinitionDialog Column Clamping ===")
+# =====================================================================
+
+_s145_dlg = scaffold.CascadeVariableDefinitionDialog([
+    {"name": "Target", "flag": "--target", "type_hint": "string", "apply_to": "all"},
+], slot_count=3)
+_s145_dlg.show()
+app.processEvents()
+
+_s145_header = _s145_dlg._table.horizontalHeader()
+
+# 145a: cascadingSectionResizes is enabled
+check(_s145_header.cascadingSectionResizes(),
+      "145a: CascadeVariableDefinitionDialog has cascading section resizes")
+
+# 145b: stretchLastSection is disabled (manually managed by _fit_last_column)
+check(not _s145_header.stretchLastSection(),
+      "145b: stretchLastSection is off — last column managed manually")
+
+# 145c: Name column (0) is Interactive
+check(_s145_header.sectionResizeMode(0) == QHeaderView.ResizeMode.Interactive,
+      "145c: Name column is user-resizable")
+
+# 145d: Flag column (1) is Interactive
+check(_s145_header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive,
+      "145d: Flag column is user-resizable")
+
+# 145e: Type column (2) is Interactive
+check(_s145_header.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive,
+      "145e: Type column is user-resizable")
+
+# 145f: Resizing column 0 to 5000px clamps it within viewport
+_s145_vp = _s145_dlg._table.viewport().width()
+_s145_header.resizeSection(0, 5000)
+app.processEvents()
+_s145_col0 = _s145_header.sectionSize(0)
+check(_s145_col0 <= _s145_vp, "145f: column 0 clamped within viewport after 5000px resize")
+_s145_total = sum(_s145_header.sectionSize(i) for i in range(_s145_dlg._table.columnCount()))
+check(_s145_total <= _s145_vp + 2, "145f: total columns fit within viewport after extreme resize")
+
+# 145g: Last column grows to fill remaining space after a smaller resize
+_s145_header.resizeSection(0, 80)
+app.processEvents()
+_s145_total2 = sum(_s145_header.sectionSize(i) for i in range(_s145_dlg._table.columnCount()))
+check(abs(_s145_total2 - _s145_vp) <= 2,
+      "145g: columns fill viewport after smaller resize")
+
+_s145_dlg.close()
+_s145_dlg.deleteLater()
+app.processEvents()
 
 
 # =====================================================================

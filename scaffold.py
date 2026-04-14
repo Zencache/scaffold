@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.9"
+__version__ = "2.8.5.10"
 
 import atexit
 import datetime
@@ -3492,6 +3492,17 @@ class HistoryDialog(QDialog):
         self.table.doubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
 
+        # Empty-state label (shown when history is empty)
+        self.empty_label = QLabel(
+            f"No command history for {tool_name} yet.\n"
+            "Runs will appear here after they complete."
+        )
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setStyleSheet("color: #888; font-size: 13px;")
+        self.empty_label.setVisible(False)
+        layout.addWidget(self.empty_label, 1)
+
         # Buttons
         btn_bar = QHBoxLayout()
         btn_bar.addStretch()
@@ -3517,10 +3528,28 @@ class HistoryDialog(QDialog):
         for row, entry in enumerate(self.history):
             # Exit code column
             exit_code = entry.get("exit_code", -1)
-            exit_item = QTableWidgetItem(str(exit_code))
-            exit_item.setForeground(
-                QColor("#22bb45") if exit_code == 0 else QColor("#dd3333")
-            )
+            is_crashed = entry.get("crashed", False)
+            error_token = entry.get("error")
+            if error_token:
+                _error_labels = {
+                    "failed_to_start": "not found",
+                    "crashed": "crashed",
+                    "timed_out": "timed out",
+                    "write_error": "I/O error",
+                    "read_error": "I/O error",
+                }
+                exit_item = QTableWidgetItem(_error_labels.get(error_token, "error"))
+                exit_item.setForeground(QColor("#dd3333"))
+                exit_item.setToolTip(f"Process error: {error_token}")
+            elif is_crashed:
+                exit_item = QTableWidgetItem("crashed")
+                exit_item.setForeground(QColor("#dd3333"))
+                exit_item.setToolTip(f"Process crashed (raw exit code: {exit_code})")
+            else:
+                exit_item = QTableWidgetItem(str(exit_code))
+                exit_item.setForeground(
+                    QColor("#22bb45") if exit_code == 0 else QColor("#dd3333")
+                )
             self.table.setItem(row, 0, exit_item)
 
             # Command column
@@ -3550,6 +3579,12 @@ class HistoryDialog(QDialog):
 
         self.table.resizeColumnToContents(2)
         _fit_last_column(self.table)
+
+        empty = len(self.history) == 0
+        self.table.setVisible(not empty)
+        self.search_bar.setVisible(not empty)
+        self.empty_label.setVisible(empty)
+        self.clear_btn.setEnabled(not empty)
 
     def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
         """Redistribute space so the last column fills remaining viewport width."""
@@ -3839,7 +3874,9 @@ class CascadeListDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Name", "Description", "Steps", "Modified"])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setCascadingSectionResizes(True)
+        self.table.horizontalHeader().setMinimumSectionSize(50)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Interactive
         )
@@ -3854,6 +3891,9 @@ class CascadeListDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _orig_resize = self.table.resizeEvent
+        self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
         self.table.selectionModel().selectionChanged.connect(self._on_selection)
         layout.addWidget(self.table, 1)
@@ -3925,10 +3965,15 @@ class CascadeListDialog(QDialog):
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self.table.resizeColumnToContents(0)
+        _fit_last_column(self.table)
 
         self.action_btn.setEnabled(False)
         if self.delete_btn:
             self.delete_btn.setEnabled(False)
+
+    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
+        """Redistribute space so the last column fills remaining viewport width."""
+        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_selection(self) -> None:
         """Enable/disable buttons based on selection."""
@@ -4275,14 +4320,18 @@ class CascadeVariableDefinitionDialog(QDialog):
             item.setToolTip(tip)
             self._table.setHorizontalHeaderItem(col, item)
         header = self._table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setCascadingSectionResizes(True)
+        header.setMinimumSectionSize(50)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.resizeSection(0, 120)
         header.resizeSection(1, 160)
         header.resizeSection(2, 110)
         header.sectionResized.connect(self._on_section_resized)
+        _orig_resize = self._table.resizeEvent
+        self._table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self._table))
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -4316,6 +4365,7 @@ class CascadeVariableDefinitionDialog(QDialog):
                 type_hint=var.get("type_hint", "string"),
                 apply_to=var.get("apply_to", "all"),
             )
+        _fit_last_column(self._table)
 
     # -- row management -----------------------------------------------------
 
@@ -4347,7 +4397,8 @@ class CascadeVariableDefinitionDialog(QDialog):
             self._table.removeRow(row)
 
     def _on_section_resized(self, idx: int, _old: int, new: int) -> None:
-        """Clamp the Flag column (1) width within bounds."""
+        """Clamp columns to viewport and enforce Flag column width bounds."""
+        _clamp_for_last_column(self._table, idx, _old, new)
         if idx == 1:
             header = self._table.horizontalHeader()
             if new < _FLAG_COL_MIN:
@@ -6379,8 +6430,8 @@ class MainWindow(QMainWindow):
         toggle_shortcut.activated.connect(self._toggle_dark_mode)
 
         view_menu.addSeparator()
-        self.act_history = view_menu.addAction("Command History...")
-        self.act_history.setShortcut("Ctrl+H")
+        self.act_history = view_menu.addAction("History...")
+        self.act_history.setShortcut(QKeySequence("Ctrl+H"))
         self.act_history.triggered.connect(self._on_show_history)
         self.act_history.setEnabled(False)
 
@@ -6539,7 +6590,7 @@ class MainWindow(QMainWindow):
             "\n"
             "Ctrl+S          Save Preset...\n"
             "Ctrl+L          Preset List...\n"
-            "Ctrl+H          Command History...\n"
+            "Ctrl+H          History...\n"
             "\n"
             "Ctrl+D          Toggle Dark/Light Theme\n"
             "Ctrl+G          Toggle Cascade Panel\n"
@@ -8077,6 +8128,17 @@ class MainWindow(QMainWindow):
         program = cmd[0]
         arguments = cmd[1:]
 
+        # Show what we're running (mask passwords in display output)
+        masked_display = _format_display(self.form._mask_passwords_for_display(cmd))
+        self._append_output(f"$ {masked_display}\n", COLOR_CMD)
+        self._update_output_search_visibility()
+
+        # Capture history data at run start (before user can change the form).
+        # Set BEFORE signal connections so errorOccurred can't fire before these exist.
+        self._history_display = _format_display(self.form._mask_passwords_for_display(cmd))
+        self._history_preset = self.form.serialize_values()
+        self._history_timestamp = time.time()
+
         self.process = QProcess(self)
         self.process.setProgram(program)
         self.process.setArguments(arguments)
@@ -8084,16 +8146,6 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardError.connect(self._on_stderr_ready)
         self.process.finished.connect(self._on_finished)
         self.process.errorOccurred.connect(self._on_error)
-
-        # Show what we're running (mask passwords in display output)
-        masked_display = _format_display(self.form._mask_passwords_for_display(cmd))
-        self._append_output(f"$ {masked_display}\n", COLOR_CMD)
-        self._update_output_search_visibility()
-
-        # Capture history data at run start (before user can change the form)
-        self._history_display = _format_display(self.form._mask_passwords_for_display(cmd))
-        self._history_preset = self.form.serialize_values()
-        self._history_timestamp = time.time()
 
         self._killed = False
         self._error_reported = False
@@ -8178,7 +8230,8 @@ class MainWindow(QMainWindow):
         self._force_kill_timer.stop()
         self._flush_output()
         if self._error_reported:
-            # _on_error already handled UI; just clear process and return
+            # _on_error already handled UI and recorded history; just
+            # clear process and return — no double-record needed.
             self.process = None
             return
         elapsed_str = ""
@@ -8186,11 +8239,15 @@ class MainWindow(QMainWindow):
             elapsed = time.monotonic() - self._run_start_time
             elapsed_str = f" ({elapsed:.1f}s)"
             self._run_start_time = None
+        crashed = exit_status == QProcess.ExitStatus.CrashExit
         if self._timed_out:
             self.statusBar().showMessage(f"Timed out{elapsed_str}")
         elif self._killed:
             self._append_output("\n--- Process stopped ---\n", COLOR_WARN)
             self.statusBar().showMessage(f"Process stopped{elapsed_str}")
+        elif crashed and not self._killed and not self._timed_out:
+            self._append_output("\n--- Process crashed ---\n", COLOR_ERR)
+            self.statusBar().showMessage(f"Crashed{elapsed_str}")
         elif self._elevated_run and exit_code in (126, 127):
             self._append_output(
                 "\n--- Elevation was cancelled by the user. ---\n", COLOR_WARN
@@ -8202,7 +8259,7 @@ class MainWindow(QMainWindow):
         else:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Exit {exit_code}{elapsed_str}")
-        self._record_history_entry(exit_code)
+        self._record_history_entry(exit_code, crashed=crashed)
         self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
@@ -8230,6 +8287,15 @@ class MainWindow(QMainWindow):
         msg = error_messages.get(error, f"Unknown process error ({error}).")
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
+        # Record history for the errored run
+        _error_tokens = {
+            QProcess.ProcessError.FailedToStart: "failed_to_start",
+            QProcess.ProcessError.Crashed: "crashed",
+            QProcess.ProcessError.Timedout: "timed_out",
+            QProcess.ProcessError.WriteError: "write_error",
+            QProcess.ProcessError.ReadError: "read_error",
+        }
+        self._record_history_entry(-1, error=_error_tokens.get(error, "unknown"))
         self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
@@ -8260,17 +8326,21 @@ class MainWindow(QMainWindow):
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def _record_history_entry(self, exit_code: int) -> None:
+    def _record_history_entry(self, exit_code: int, *, crashed: bool = False, error: str | None = None) -> None:
         """Record a completed command execution in the history."""
         if self.data is None:
             return
-        if not hasattr(self, "_history_display"):
+        if not (hasattr(self, "_history_display")
+                and hasattr(self, "_history_preset")
+                and hasattr(self, "_history_timestamp")):
             return
         entry = {
             "display": self._history_display,
             "exit_code": exit_code,
             "timestamp": self._history_timestamp,
             "preset_data": self._history_preset,
+            "crashed": crashed,
+            "error": error,
         }
         history = self._load_history()
         history.insert(0, entry)

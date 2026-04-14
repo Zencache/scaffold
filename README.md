@@ -1,5 +1,16 @@
 Scaffold — Your CLI Tools, but with Buttons
 
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
+![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
+![Lines of Code](https://img.shields.io/badge/lines-8%2C500%2B-informational)
+![Tests](https://img.shields.io/badge/tests-2%2C175%20assertions-brightgreen)
+![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
+![Bundled Tools](https://img.shields.io/badge/bundled%20tools-20%20schemas-orange)
+![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
+![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
+
 Stop memorizing flags. Start clicking them.
 
 Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done.

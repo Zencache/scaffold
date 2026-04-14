@@ -4,14 +4,29 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.8.5.10] — 2026-04-13
 
-Bugfix — cascade button label typo and missing tooltips.
+Bugfix — cascade button label and missing tooltips. Cascade variable dialog column clamping, history entry guard, and history empty-state UX.
 
 ### Fixed
 
 - **Cascade Run button label corrected** — the button displayed "Run..." instead of "Running..." during execution.
 - **Cascade buttons now have tooltips** — Run, Stop, and Clear were missing tooltips entirely. All six cascade buttons now use consistent rich-text tooltips.
+- **Cascade variable definition dialog columns no longer draggable off-viewport** — `CascadeVariableDefinitionDialog` used `Stretch` on the last column with no viewport clamping. Columns could be resized past the viewport edge, becoming unreachable. Now uses the same `_fit_last_column` / `_clamp_for_last_column` pattern as HistoryDialog, PresetPicker, ToolPicker, and CascadeListDialog.
+- **`_record_history_entry` guards all three capture vars** — previously only checked for `_history_display`; missing `_history_preset` or `_history_timestamp` would `AttributeError`. Now checks all three before proceeding.
+- **History capture vars set before QProcess signal connections** — `_on_run_stop` previously connected `errorOccurred` before setting the history capture vars. If `QProcess.start()` failed synchronously, `_on_error` could fire before the vars existed. The capture block now runs before signal connections.
 
+### Improved
 
+- **History dialog empty-state UX** — when history is empty, the dialog now shows a centered message instead of an empty table with headers only. The Clear History button is disabled when empty.
+
+### Added
+
+- **Section 145** — `CascadeVariableDefinitionDialog` column clamping tests.
+- **49ak–49al** — `_record_history_entry` with missing capture vars: no `AttributeError`, no spurious entry written.
+- **49am–49ao** — history dialog empty-state: label visible with tool name, Clear button disabled when empty, enabled when entries exist.
+
+#### Full suite results
+
+- **Functional: 1,896/1,896**
 
 ## [v2.8.5.9] — 2026-04-13
 
