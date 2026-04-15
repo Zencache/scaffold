@@ -32,7 +32,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Most of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,260 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,260 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
@@ -325,7 +325,7 @@ python scaffold.py --version
 
 ## About This Project
 
-Most of the code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) with some edits from the author — but this was a collaboration, not delegation. The project was designed, directed, tested, and iterated by a human who audited every line of code and every command, and made direct edits where needed. This wasn't a one-shot generation.
+Much of the code in Scaffold was written by [Claude Code](https://claude.ai) (Opus 4.6) with edits from the author — but this was a collaboration, not delegation. The project was designed, directed, tested, and iterated by a human who audited every line of code and every command, and made direct edits where needed. This wasn't a one-shot generation, and took very careful planning and execution.
 
 Scaffold was built the way a real team would build software, just with an AI writing most of the code:
 
@@ -338,7 +338,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 The author has 15 years of professional IT experience and holds certifications in cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Claude Code is a useful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-**Methodology: plain-English bug hunting.** Most bugs in recent releases were found the same way: write a focused diagnostic prompt describing the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first.
+**Methodology: plain-English bug hunting.** Most bugs in recent releases were found the same way: first I describe in as much detail as possible what the bug is either in the logic or in the UI. Then we write a focused diagnostic prompt describing the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first before writing any fixes.
 
 **Multi-model distillation.** External audits from Copilot, ChatGPT, and other models surface candidate findings, which are fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering.
 
