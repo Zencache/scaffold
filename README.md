@@ -99,6 +99,11 @@ To launch directly into a specific tool: `python scaffold.py tools/nmap.json`
 - **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
 - **Copy as shell formats** — Bash, PowerShell, or CMD via right-click
 - **Single Python file** — one file, one dependency (PySide6), fully offline
+- **LLM-powered cascade generation (experimental)** — generate cascade files from natural language via a preconfigured Claude Project (or equivalent). See `CASCADE_GENERATION_GUIDE.md`
+
+
+
+
 
 See [Detailed Features](#detailed-features) below for full descriptions.
 
@@ -237,9 +242,11 @@ Tools like `git` with multiple subcommands work seamlessly. Multi-word subcomman
 
 Every executed command is automatically recorded. Browse recent runs per tool via View > Command History (Ctrl+H), see exit codes and timestamps, and restore any past form state with one click. A filter bar lets you search across entries.
 
-### Cascade history
 
-Every cascade run is automatically recorded with its full configuration snapshot and each step's post-substitution command. Open the history dialog via View > Cascade History (Ctrl+Shift+H) to browse past runs. Restore Step reloads a single step's form state; Restore Cascade reloads the entire cascade configuration into the sidebar without auto-running it. Export saves one cascade's history to JSON; Export All saves everything. Up to 50 entries are retained (oldest evicted first). In loop mode, each iteration is a separate history entry, so loop-heavy runs fill history faster. Runs interrupted by a crash appear in history as "crashed" after the next startup.
+### LLM-powered preset generation
+
+Generate presets from natural language using `--preset-prompt` and `PRESET_PROMPT.txt`, mirroring the schema-generation workflow. Run `python scaffold.py --preset-prompt` to print the prompt, paste it alongside the target tool's schema into any LLM, describe the preset you want in plain English, and drop the returned JSON into `presets/<tool>/`. This is useful for tools with many flags where manually configuring a preset would be tedious.
+
 
 ### Auto-save and crash recovery
 
@@ -253,11 +260,22 @@ Chain multiple tool runs into sequential workflows from the cascade sidebar (Ctr
 
 Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State persists across sessions. Cascades run through the same QProcess list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees. Two example cascade files are bundled in `cascades/`.
 
+### Cascade history
+
+Every cascade run is automatically recorded with its full configuration snapshot and each step's post-substitution command. Open the history dialog via View > Cascade History (Ctrl+Shift+H) to browse past runs. Restore Step reloads a single step's form state; Restore Cascade reloads the entire cascade configuration into the sidebar without auto-running it. Export saves one cascade's history to JSON; Export All saves everything. Up to 50 entries are retained (oldest evicted first). In loop mode, each iteration is a separate history entry, so loop-heavy runs fill history faster. Runs interrupted by a crash appear in history as "crashed" after the next startup.
+
 <img src="nmap%20cascade%20example.png" alt="Scaffold cascade panel running an nmap workflow" width="75%">
 
-### LLM-powered preset generation
 
-Generate presets from natural language using `--preset-prompt` and `PRESET_PROMPT.txt`, mirroring the schema-generation workflow. Run `python scaffold.py --preset-prompt` to print the prompt, paste it alongside the target tool's schema into any LLM, describe the preset you want in plain English, and drop the returned JSON into `presets/<tool>/`. This is useful for tools with many flags where manually configuring a preset would be tedious.
+### LLM-powered cascade generation (experimental)
+
+Generating cascades with an LLM is harder than generating schemas or presets because cascades reference multiple tools — pasting several full schemas into one chat quickly exhausts usable context. The workaround: configure a Claude Project (or any LLM environment with persistent document context) that already has your `tools/` and `presets/` directories loaded, paste the provided instructions into the Project's custom instructions, and describe the cascade you want in plain English.
+
+Generation quality is bounded by preset coverage. Presets are pre-validated flag combinations with human-written descriptions, which the LLM can reason about far more reliably than raw schemas. The instructions direct the LLM to prefer presets and fall back to full-schema flag selection only when no suitable preset exists — so the more curated your preset library, the better your generated cascades.
+
+This feature is **experimental** and documentation-only. See `CASCADE_GENERATION_GUIDE.md` for setup, usage, and known limitations.
+
+
 
 ### Additional features
 

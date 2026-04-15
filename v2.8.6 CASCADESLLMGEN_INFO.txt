@@ -1,0 +1,17 @@
+### Added
+
+- **Cascade generation guide (experimental)** — new `CASCADE_GENERATION_GUIDE.md` at repo root documenting a workflow for generating cascade files via an LLM with persistent access to your `tools/` and `presets/` directories (e.g. a Claude Project). The guide is split into a setup half for humans and an instructions half intended for pasting into the LLM's custom instructions. Preset-first generation with schema fallback. No code changes — this is a documentation-only feature pending real-world validation. Feedback and edge-case reports welcome.
+
+
+
+- **LLM-powered cascade generation (experimental)** — generate cascade files from natural language via a preconfigured Claude Project (or equivalent). See `CASCADE_GENERATION_GUIDE.md`
+
+
+
+### LLM-powered cascade generation (experimental)
+
+Generating cascades with an LLM is harder than generating schemas or presets because cascades reference multiple tools — pasting several full schemas into one chat quickly exhausts usable context. The workaround: configure a Claude Project (or any LLM environment with persistent document context) that already has your `tools/` and `presets/` directories loaded, paste the provided instructions into the Project's custom instructions, and describe the cascade you want in plain English.
+
+Generation quality is bounded by preset coverage. Presets are pre-validated flag combinations with human-written descriptions, which the LLM can reason about far more reliably than raw schemas. The instructions direct the LLM to prefer presets and fall back to full-schema flag selection only when no suitable preset exists — so the more curated your preset library, the better your generated cascades.
+
+This feature is **experimental** and documentation-only. See `CASCADE_GENERATION_GUIDE.md` for setup, usage, and known limitations.

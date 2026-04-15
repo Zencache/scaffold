@@ -2,13 +2,38 @@
 
 All notable changes to Scaffold are documented here.
 
-## [v2.8.6] — 2026-04-14
+## [v2.8.6] — 2026-04-15
 
-Cascade History documentation.
+New Cascade history menu, LLM powered cascade generation guide.  Output panel resize fixes — drag handle height measurement, scrollbar coherence, and dynamic height cap.
+
 
 ### Added
 
 - **Cascade History** — record and browse past cascade runs, restore individual steps or full cascades, export history to JSON. Documented in README, CHANGELOG, and in-app Cascade Guide.
+
+- **Cascade generation guide (experimental)** — new `CASCADE_GENERATION_GUIDE.md` at repo root documenting a workflow for generating cascade files via an LLM with persistent access to your `tools/` and `presets/` directories (e.g. a Claude Project). The guide is split into a setup half for humans and an instructions half intended for pasting into the LLM's custom instructions. Preset-first generation with schema fallback. No code changes — this is a documentation-only feature pending real-world validation. Feedback and edge-case reports welcome.
+
+
+### Fixed
+
+- **Drag handle now measures siblings by size hint** — `_effective_max_height()` previously used each sibling's current `height()`, which was inflated when the output panel was small (the form scroll area would expand to fill freed space, creating a circular dependency that capped the output at ~140 px). Now uses `min(height(), sizeHint().height())` so the calculation reflects intrinsic widget sizes, not inflated ones. Also switched from `window().height()` to `parent.height()` so the available-space calculation excludes menu/status bar chrome.
+- **Scrollbar stays coherent during drag resize** — `DragHandle.mouseMoveEvent` now preserves the scrollbar position across `setFixedHeight` calls: if the user was scrolled to the bottom the view stays at the bottom, otherwise the scroll offset is preserved.
+
+### Changed
+
+- **Output panel height cap is now dynamic** — removed the static `OUTPUT_MAX_HEIGHT = 800` pixel ceiling. The panel height is now bounded solely by `_effective_max_height()`, which computes available space from actual parent geometry minus sibling size hints. On large windows the output panel can grow to its full available space.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,552/2,553 assertions, 0 failures from changes**
+  - Functional: 2,188/2,189 (1 pre-existing flake in §123b — history cap, unrelated)
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 
 ## [v2.8.5.11] — 2026-04-14
 

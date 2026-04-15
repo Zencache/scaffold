@@ -96,7 +96,6 @@ OUTPUT_MAX_BLOCKS = 10000       # Max lines kept in the output panel
 OUTPUT_FLUSH_MS = 100           # Milliseconds between output buffer flushes
 OUTPUT_BUFFER_MAX_BYTES = 50 * 1024 * 1024  # 50 MB soft cap on _output_buffer
 OUTPUT_MIN_HEIGHT = 80          # Minimum output panel height (pixels)
-OUTPUT_MAX_HEIGHT = 800         # Maximum output panel height (pixels)
 OUTPUT_DEFAULT_HEIGHT = 150     # Default output panel height (pixels)
 
 # Tool schema file size limit (bytes)
@@ -961,10 +960,11 @@ class DragHandle(QWidget):
         """Return the effective maximum output height, accounting for visible sibling widgets."""
         win = self._target.window()
         if win is None:
-            return OUTPUT_MAX_HEIGHT
+            screen = QApplication.primaryScreen()
+            return screen.availableGeometry().height() if screen else 2000
         parent = self._target.parentWidget()
         if parent is None:
-            return min(OUTPUT_MAX_HEIGHT, win.height() // 2)
+            return win.height() // 2
         layout = parent.layout()
         sibling_total = 0
         if layout is not None:
@@ -975,18 +975,32 @@ class DragHandle(QWidget):
                     continue
                 if not w.isVisible():
                     continue
-                sibling_total += w.height() if w.height() > 0 else w.sizeHint().height()
-        margin = 24  # safety for window chrome, status bar, layout spacing
-        available = win.height() - sibling_total - margin
+                sh = w.sizeHint().height()
+                if sh > 0:
+                    sibling_total += min(w.height(), sh)
+                else:
+                    sibling_total += w.height()
+        margin = 24  # safety for layout spacing and margins
+        available = parent.height() - sibling_total - margin
         if available < OUTPUT_MIN_HEIGHT:
             available = OUTPUT_MIN_HEIGHT
-        return min(OUTPUT_MAX_HEIGHT, available)
+        return available
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging:
             delta = int(self._drag_start_y - event.globalPosition().y())
-            new_h = max(OUTPUT_MIN_HEIGHT, min(self._effective_max_height(), self._drag_start_h + delta))
+            new_h = max(OUTPUT_MIN_HEIGHT,
+                        min(self._effective_max_height(),
+                            self._drag_start_h + delta))
+            sb = self._target.verticalScrollBar()
+            was_at_bottom = sb.value() >= sb.maximum() - 1
+            old_value = sb.value()
             self._target.setFixedHeight(new_h)
+            self._target.updateGeometry()
+            if was_at_bottom:
+                sb.setValue(sb.maximum())
+            else:
+                sb.setValue(old_value)
             event.accept()
 
     def mouseReleaseEvent(self, event) -> None:
@@ -2547,33 +2561,36 @@ def _binary_in_path(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
-def _fit_last_column(table: QTableWidget) -> None:
-    """Make the last column fill remaining viewport space."""
-    header = table.horizontalHeader()
-    last_col = table.columnCount() - 1
+def _fit_last_column(widget) -> None:
+    """Make the last column fill remaining viewport space.
+
+    Works with both QTableWidget (horizontalHeader) and QTreeWidget (header).
+    """
+    header = widget.horizontalHeader() if hasattr(widget, 'horizontalHeader') else widget.header()
+    last_col = widget.columnCount() - 1
     used = sum(header.sectionSize(i) for i in range(last_col))
-    remaining = table.viewport().width() - used
+    remaining = widget.viewport().width() - used
     header.resizeSection(last_col, max(remaining, 50))
 
 
-def _clamp_for_last_column(table: QTableWidget, logical_index: int, old_size: int, new_size: int) -> None:
+def _clamp_for_last_column(widget, logical_index: int, old_size: int, new_size: int) -> None:
     """After a column resize, adjust the last column to fill remaining space.
 
     If the resized column took too much space, clamp it so the last column
-    keeps at least 50px.
+    keeps at least 50px.  Works with both QTableWidget and QTreeWidget.
     """
-    header = table.horizontalHeader()
-    last_col = table.columnCount() - 1
+    header = widget.horizontalHeader() if hasattr(widget, 'horizontalHeader') else widget.header()
+    last_col = widget.columnCount() - 1
     if logical_index == last_col:
         return
     used = sum(header.sectionSize(i) for i in range(last_col))
-    remaining = table.viewport().width() - used
+    remaining = widget.viewport().width() - used
     if remaining < 50:
         overflow = 50 - remaining
         header.blockSignals(True)
         header.resizeSection(logical_index, max(new_size - overflow, 50))
         used = sum(header.sectionSize(i) for i in range(last_col))
-        remaining = table.viewport().width() - used
+        remaining = widget.viewport().width() - used
         header.resizeSection(last_col, max(remaining, 50))
         header.blockSignals(False)
     else:
@@ -3683,14 +3700,12 @@ class CascadeHistoryDialog(QDialog):
         layout.addWidget(self.search_bar)
 
         # --- Tree widget ---
-        # Columns map to the design-doc's run table columns.  Child (step)
-        # rows reuse the same columns with different semantics:
-        #   Status → step index (#)      Name → tool name
-        #   Steps  → exit code / error   Started → command string
-        #   Age    → (empty)
+        # Columns: Status | Name | Command | Steps | Started
+        # Parent rows: glyph | cascade name | (blank) | ran/total | timestamp
+        # Step rows:   glyph/blank | tool-preset | command | N/Y | timestamp
         self.tree = QTreeWidget()
         self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(["Status", "Name", "Steps", "Started", "Age"])
+        self.tree.setHeaderLabels(["Status", "Name", "Command", "Steps", "Started"])
         self.tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
         self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
@@ -3699,13 +3714,19 @@ class CascadeHistoryDialog(QDialog):
         header = self.tree.header()
         header.setMinimumSectionSize(30)
         header.setStretchLastSection(False)
+        header.setCascadingSectionResizes(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.tree.setColumnWidth(0, 50)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tree.setColumnWidth(2, 60)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.setColumnWidth(0, 40)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.tree.setColumnWidth(1, 180)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.tree.setColumnWidth(2, 240)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.tree.setColumnWidth(3, 60)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        header.sectionResized.connect(self._on_section_resized)
+        _orig_resize = self.tree.resizeEvent
+        self.tree.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.tree))
         layout.addWidget(self.tree, 1)
 
         # --- Empty-state label ---
@@ -3766,7 +3787,6 @@ class CascadeHistoryDialog(QDialog):
     def _populate(self) -> None:
         """Fill the tree with cascade history entries."""
         self.tree.clear()
-        now = time.time()
 
         for entry in self.history:
             cascade_item = QTreeWidgetItem()
@@ -3791,71 +3811,71 @@ class CascadeHistoryDialog(QDialog):
                 italic_font.setItalic(True)
                 cascade_item.setFont(1, italic_font)
 
-            # Col 2 — steps completed / total
+            # Col 3 — steps completed / total
             steps = entry.get("steps", [])
             ran = sum(
                 1 for s in steps
                 if s.get("exit_code") is not None or s.get("error") is not None
             )
-            cascade_item.setText(2, f"{ran}/{len(steps)}")
+            cascade_item.setText(3, f"{ran}/{len(steps)}")
 
-            # Col 3 — started timestamp
+            # Col 4 — started timestamp
             ts = entry.get("started_at", 0)
             try:
                 dt = datetime.datetime.fromtimestamp(ts)
-                cascade_item.setText(3, dt.strftime("%b %d, %H:%M"))
+                cascade_item.setText(4, dt.strftime("%b %d, %H:%M"))
             except (OSError, ValueError):
-                cascade_item.setText(3, "?")
-
-            # Col 4 — relative age
-            age_secs = max(0, now - ts)
-            if age_secs < 60:
-                cascade_item.setText(4, f"{int(age_secs)}s ago")
-            elif age_secs < 3600:
-                cascade_item.setText(4, f"{int(age_secs // 60)}m ago")
-            elif age_secs < 86400:
-                cascade_item.setText(4, f"{int(age_secs // 3600)}h ago")
-            else:
-                cascade_item.setText(4, f"{int(age_secs // 86400)}d ago")
+                cascade_item.setText(4, "?")
 
             # Store the entry dict on the item for later retrieval
             cascade_item.setData(0, Qt.ItemDataRole.UserRole, entry)
 
             # --- child step rows ---
+            total_steps = len(steps)
             for step in steps:
                 step_item = QTreeWidgetItem()
 
-                # Col 0 — 1-based step index
-                step_item.setText(0, str(step.get("index", 0) + 1))
-
-                # Col 1 — tool name
-                step_item.setText(1, step.get("tool_name", ""))
-
-                # Col 2 — exit code or error label
+                # Col 0 — step-level status glyph (blank for success/skipped)
                 error = step.get("error")
                 exit_code = step.get("exit_code")
                 if error:
-                    _elabels = {
-                        "failed_to_start": "not found",
-                        "crashed": "crashed",
-                        "timed_out": "timed out",
-                        "write_error": "I/O error",
-                        "read_error": "I/O error",
-                    }
-                    step_item.setText(2, _elabels.get(error, "error"))
-                    step_item.setForeground(2, QColor("#dd3333"))
-                elif exit_code is not None:
-                    step_item.setText(2, str(exit_code))
-                    step_item.setForeground(
-                        2, QColor("#22bb45") if exit_code == 0 else QColor("#dd3333")
-                    )
-                else:
-                    # Skipped step (never executed)
-                    step_item.setText(2, "\u2014")
-                    step_item.setForeground(2, QColor("#888888"))
+                    glyph_ch = "x" if error == "crashed" else "!"
+                    step_item.setText(0, glyph_ch)
+                    step_item.setForeground(0, QColor("#dd3333"))
+                    step_font = step_item.font(0)
+                    step_font.setBold(True)
+                    step_item.setFont(0, step_font)
+                elif exit_code is not None and exit_code != 0:
+                    step_item.setText(0, "!")
+                    step_item.setForeground(0, QColor("#dd3333"))
+                    step_font = step_item.font(0)
+                    step_font.setBold(True)
+                    step_item.setFont(0, step_font)
+                # else: success or skipped — col 0 stays blank
 
-                # Col 3 — command string
-                step_item.setText(3, step.get("command", ""))
+                # Col 1 — tool name with optional preset name
+                tool_name = step.get("tool_name", "")
+                preset_path = step.get("preset_path")
+                if preset_path:
+                    step_item.setText(1, f"{tool_name} - {Path(preset_path).stem}")
+                else:
+                    step_item.setText(1, tool_name)
+
+                # Col 2 — command string
+                step_item.setText(2, step.get("command", ""))
+
+                # Col 3 — step progress N/total
+                step_idx = step.get("index", 0) + 1
+                step_item.setText(3, f"{step_idx}/{total_steps}")
+
+                # Col 4 — started timestamp
+                step_ts = step.get("started_at")
+                if step_ts is not None:
+                    try:
+                        step_dt = datetime.datetime.fromtimestamp(step_ts)
+                        step_item.setText(4, step_dt.strftime("%b %d, %H:%M"))
+                    except (OSError, ValueError):
+                        step_item.setText(4, "?")
 
                 # Store step dict
                 step_item.setData(0, Qt.ItemDataRole.UserRole, step)
@@ -3872,6 +3892,12 @@ class CascadeHistoryDialog(QDialog):
         self.clear_btn.setEnabled(not empty)
         self.export_all_btn.setEnabled(not empty)
         self._on_selection()
+
+    # ----- column resizing --------------------------------------------------
+
+    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
+        """Redistribute space so the last column fills remaining viewport width."""
+        _clamp_for_last_column(self.tree, logical_index, old_size, new_size)
 
     # ----- selection & enablement ------------------------------------------
 
@@ -5411,6 +5437,12 @@ class CascadeSidebar(QDockWidget):
         self.clear_all_btn.setToolTip("<p>Clear output</p>")
         self.stop_chain_btn.setEnabled(False)
         self.pause_chain_btn.setEnabled(False)
+        # Compact padding prevents "Running..." text clipping in light mode
+        # where native button chrome is wider than dark mode's QSS padding.
+        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
+        _chain_qss = f"QPushButton {{ border: 1px solid {_border}; padding: 2px 8px; border-radius: 3px; }}"
+        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn):
+            _cbtn.setStyleSheet(_chain_qss)
         self.run_chain_btn.clicked.connect(self._on_run_chain)
         self.pause_chain_btn.clicked.connect(self._on_pause_chain)
         self.stop_chain_btn.clicked.connect(self._on_stop_chain)
@@ -6903,6 +6935,11 @@ class CascadeSidebar(QDockWidget):
         dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
+        # Refresh chain button padding for the current theme
+        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
+        _chain_qss = f"QPushButton {{ border: 1px solid {_border}; padding: 2px 8px; border-radius: 3px; }}"
+        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn):
+            _cbtn.setStyleSheet(_chain_qss)
 
 
 # ---------------------------------------------------------------------------
@@ -8156,7 +8193,7 @@ class MainWindow(QMainWindow):
 
         # Output panel (create first so DragHandle can reference it)
         saved_height = int(self.settings.value("output/height", OUTPUT_DEFAULT_HEIGHT))
-        saved_height = max(OUTPUT_MIN_HEIGHT, min(OUTPUT_MAX_HEIGHT, saved_height))
+        saved_height = max(OUTPUT_MIN_HEIGHT, saved_height)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setFont(_monospace_font())

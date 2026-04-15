@@ -2353,7 +2353,7 @@ print("\n--- Section 26: Output Panel Height Clamping ---")
 window.resize(600, 400)
 app.processEvents()
 _s26a_max = window.output_handle._effective_max_height()
-window.output.setFixedHeight(scaffold.OUTPUT_MAX_HEIGHT)  # exceeds effective max
+window.output.setFixedHeight(window.height() * 3)  # exceeds effective max
 app.processEvents()
 window._clamp_output_height()
 app.processEvents()
@@ -2372,7 +2372,8 @@ check(window.output.height() >= scaffold.OUTPUT_MIN_HEIGHT,
 window.resize(600, 400)
 app.processEvents()
 eff_max = window.output_handle._effective_max_height()
-check(eff_max <= scaffold.OUTPUT_MAX_HEIGHT, f"26c: effective max <= OUTPUT_MAX_HEIGHT ({eff_max} <= {scaffold.OUTPUT_MAX_HEIGHT})")
+_s26c_parent = window.output.parentWidget()
+check(eff_max <= _s26c_parent.height(), f"26c: effective max <= parent height ({eff_max} <= {_s26c_parent.height()})")
 check(eff_max >= scaffold.OUTPUT_MIN_HEIGHT, f"26c: effective max >= OUTPUT_MIN_HEIGHT ({eff_max} >= {scaffold.OUTPUT_MIN_HEIGHT})")
 
 # 26d: MainWindow has resizeEvent and showEvent that handle clamping
@@ -2383,7 +2384,7 @@ check(hasattr(scaffold.MainWindow, "showEvent"), "26d: MainWindow has showEvent 
 window.resize(600, 400)
 app.processEvents()
 _s26e_max = window.output_handle._effective_max_height()
-window.output.setFixedHeight(scaffold.OUTPUT_MAX_HEIGHT)
+window.output.setFixedHeight(window.height() * 3)
 app.processEvents()
 window._clamp_output_height()
 app.processEvents()
@@ -2421,9 +2422,13 @@ if _s26_layout is not None:
             continue
         if not _s26_w.isVisible():
             continue
-        _s26_sibling_total += _s26_w.height() if _s26_w.height() > 0 else _s26_w.sizeHint().height()
+        _s26_sh = _s26_w.sizeHint().height()
+        if _s26_sh > 0:
+            _s26_sibling_total += min(_s26_w.height(), _s26_sh)
+        else:
+            _s26_sibling_total += _s26_w.height()
 _s26_safety = 24
-_s26_expected_max = _s26_win2.height() - _s26_sibling_total - _s26_safety
+_s26_expected_max = _s26_parent.height() - _s26_sibling_total - _s26_safety
 _s26_eff = _s26_win2.output_handle._effective_max_height()
 check(_s26_eff <= _s26_expected_max,
       f"26g (B1.1): effective max accounts for siblings ({_s26_eff} <= {_s26_expected_max})")
@@ -2463,6 +2468,100 @@ app.processEvents()
 
 _s26_win2.close()
 _s26_win2.deleteLater()
+app.processEvents()
+
+# 26j–26k use a dedicated window for drag-grow scrollbar coherence tests
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QPointF, QEvent
+
+_s26_win3 = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "tests" / "test_minimal.json"))
+_s26_win3.show()
+_s26_win3.resize(1000, 800)
+QTest.qWaitForWindowExposed(_s26_win3)
+app.processEvents()
+
+# Fill output with 200 lines
+_s26j_cursor = _s26_win3.output.textCursor()
+_s26j_cursor.movePosition(_s26j_cursor.MoveOperation.End)
+for _s26j_i in range(200):
+    _s26j_cursor.insertText(f"line {_s26j_i}\n")
+_s26_win3.output.setTextCursor(_s26j_cursor)
+app.processEvents()
+
+# 26j: scrollbar range stays coherent after drag-grow (scroll at bottom)
+_s26_win3.output.setFixedHeight(scaffold.OUTPUT_MIN_HEIGHT)
+app.processEvents()
+_s26j_sb = _s26_win3.output.verticalScrollBar()
+_s26j_sb.setValue(_s26j_sb.maximum())
+app.processEvents()
+
+# Verify starting state: at bottom
+check(_s26j_sb.value() >= _s26j_sb.maximum() - 1,
+      f"26j: scrollbar starts at bottom ({_s26j_sb.value()} >= {_s26j_sb.maximum() - 1})")
+
+# Simulate drag-grow via DragHandle.mouseMoveEvent
+_s26j_eff = _s26_win3.output_handle._effective_max_height()
+_s26j_handle = _s26_win3.output_handle
+_s26j_handle._dragging = True
+_s26j_handle._drag_start_h = scaffold.OUTPUT_MIN_HEIGHT
+_s26j_handle._drag_start_y = 500.0
+_s26j_target_y = 500.0 - (_s26j_eff - scaffold.OUTPUT_MIN_HEIGHT)
+_s26j_event = QMouseEvent(
+    QEvent.Type.MouseMove,
+    QPointF(0, 0),
+    QPointF(0, _s26j_target_y),
+    Qt.MouseButton.LeftButton,
+    Qt.MouseButton.LeftButton,
+    Qt.KeyboardModifier.NoModifier,
+)
+_s26j_handle.mouseMoveEvent(_s26j_event)
+app.processEvents()
+
+# Assert: scrollbar at new maximum (still at bottom)
+check(_s26j_sb.value() >= _s26j_sb.maximum() - 1,
+      f"26j: scrollbar stays at bottom after drag-grow ({_s26j_sb.value()} >= {_s26j_sb.maximum() - 1})")
+
+# Assert: document's last block visible in viewport
+_s26j_first_vis = _s26_win3.output.firstVisibleBlock().blockNumber()
+_s26j_vis_lines = max(1, _s26_win3.output.viewport().height() // _s26_win3.output.fontMetrics().lineSpacing())
+_s26j_total = _s26_win3.output.document().blockCount()
+check(_s26j_first_vis + _s26j_vis_lines >= _s26j_total - 1,
+      f"26j: last block visible ({_s26j_first_vis} + {_s26j_vis_lines} >= {_s26j_total - 1})")
+_s26j_handle._dragging = False
+
+# 26k: scroll position preserved when not at bottom
+_s26_win3.output.setFixedHeight(scaffold.OUTPUT_MIN_HEIGHT)
+app.processEvents()
+_s26k_sb = _s26_win3.output.verticalScrollBar()
+_s26k_sb.setValue(_s26k_sb.maximum() // 2)
+app.processEvents()
+_s26k_before = _s26k_sb.value()
+
+# Simulate drag-grow from mid-scroll
+_s26k_eff = _s26_win3.output_handle._effective_max_height()
+_s26j_handle._dragging = True
+_s26j_handle._drag_start_h = scaffold.OUTPUT_MIN_HEIGHT
+_s26j_handle._drag_start_y = 500.0
+_s26k_target_y = 500.0 - (_s26k_eff - scaffold.OUTPUT_MIN_HEIGHT)
+_s26k_event = QMouseEvent(
+    QEvent.Type.MouseMove,
+    QPointF(0, 0),
+    QPointF(0, _s26k_target_y),
+    Qt.MouseButton.LeftButton,
+    Qt.MouseButton.LeftButton,
+    Qt.KeyboardModifier.NoModifier,
+)
+_s26j_handle.mouseMoveEvent(_s26k_event)
+app.processEvents()
+
+_s26k_after = _s26k_sb.value()
+_s26k_drift = abs(_s26k_after - _s26k_before)
+check(_s26k_drift <= 3,
+      f"26k: mid-scroll preserved after drag-grow (drift={_s26k_drift}, was={_s26k_before}, now={_s26k_after})")
+_s26j_handle._dragging = False
+
+_s26_win3.close()
+_s26_win3.deleteLater()
 app.processEvents()
 
 # Restore global window size for cleanup
@@ -16527,7 +16626,7 @@ _s148_history = [
              "started_at": _s148_now - 120, "finished_at": _s148_now - 90,
              "captures": {}},
             {"index": 1, "tool_name": "nikto", "tool_path": "/path/nikto.json",
-             "preset_path": None, "command": "nikto -h 10.0.0.1",
+             "preset_path": "/path/presets/quick_scan.json", "command": "nikto -h 10.0.0.1",
              "exit_code": 0, "error": None,
              "started_at": _s148_now - 90, "finished_at": _s148_now - 60,
              "captures": {"IP": "10.0.0.1"}},
@@ -16655,40 +16754,36 @@ check(_s148_dlg.tree.topLevelItem(4).text(1) == "(untitled)",
 check(_s148_dlg.tree.topLevelItem(4).font(1).italic(),
       "148e: (untitled) is italic")
 
-# 148f: steps column shows ran/total
-check(_s148_dlg.tree.topLevelItem(0).text(2) == "2/2",
+# 148f: steps column (col 3) shows ran/total
+check(_s148_dlg.tree.topLevelItem(0).text(3) == "2/2",
       "148f: completed cascade steps 2/2")
-check(_s148_dlg.tree.topLevelItem(1).text(2) == "2/3",
+check(_s148_dlg.tree.topLevelItem(1).text(3) == "2/3",
       "148f: error_halted cascade steps 2/3 (one skipped)")
 
-# 148g: step child rows — exit code and error rendering
+# 148g: step child rows — step-level status glyphs in col 0
 _s148_bravo = _s148_dlg.tree.topLevelItem(1)
 _s148_step0 = _s148_bravo.child(0)  # exit_code=0, no error
 _s148_step1 = _s148_bravo.child(1)  # error=failed_to_start
 _s148_step2 = _s148_bravo.child(2)  # skipped (null exit_code, null error)
-check(_s148_step0.text(2) == "0",
-      f"148g: step with exit 0 shows '0' ({_s148_step0.text(2)})")
-check(_s148_step0.foreground(2).color().name() == "#22bb45",
-      "148g: step exit 0 is green")
-check(_s148_step1.text(2) == "not found",
-      f"148g: failed_to_start step shows 'not found' ({_s148_step1.text(2)})")
-check(_s148_step1.foreground(2).color().name() == "#dd3333",
-      "148g: failed_to_start step is red")
-check(_s148_step2.text(2) == "\u2014",
-      f"148g: skipped step shows em dash ({_s148_step2.text(2)})")
-check(_s148_step2.foreground(2).color().name() == "#888888",
-      "148g: skipped step is grey")
+check(_s148_step0.text(0) == "",
+      f"148g: successful step has blank status ({_s148_step0.text(0)!r})")
+check(_s148_step1.text(0) == "!",
+      f"148g: failed_to_start step shows '!' ({_s148_step1.text(0)!r})")
+check(_s148_step1.foreground(0).color().name() == "#dd3333",
+      "148g: failed_to_start step glyph is red")
+check(_s148_step2.text(0) == "",
+      f"148g: skipped step has blank status ({_s148_step2.text(0)!r})")
 
-# 148h: step child rows — tool name and command
+# 148h: step child rows — tool name and command (col 2)
 check(_s148_step0.text(1) == "curl",
       f"148h: step tool name ({_s148_step0.text(1)})")
-check(_s148_step1.text(3) == "wget http://example.com",
-      f"148h: step command text ({_s148_step1.text(3)})")
+check(_s148_step1.text(2) == "wget http://example.com",
+      f"148h: step command in col 2 ({_s148_step1.text(2)})")
 
-# 148i: step index column is 1-based
-check(_s148_step0.text(0) == "1", "148i: first step index is 1")
-check(_s148_step1.text(0) == "2", "148i: second step index is 2")
-check(_s148_step2.text(0) == "3", "148i: third step index is 3")
+# 148i: step progress shows N/Y in col 3 (1-based index / total)
+check(_s148_step0.text(3) == "1/3", "148i: first step shows 1/3")
+check(_s148_step1.text(3) == "2/3", "148i: second step shows 2/3")
+check(_s148_step2.text(3) == "3/3", "148i: third step shows 3/3")
 
 # 148j: loop cascade entries are separate top-level rows
 _s148_loop0 = _s148_dlg.tree.topLevelItem(2)
@@ -16878,6 +16973,78 @@ check(_s148_running_dlg.tree.topLevelItem(0).text(0) == "~",
       "148x: running status shows ~ glyph")
 check(_s148_running_dlg.tree.topLevelItem(0).foreground(0).color().name() == "#3388dd",
       "148x: running glyph is blue")
+
+# 148y: step Name column shows "tool - preset" when preset exists
+_s148_fresh = scaffold.CascadeHistoryDialog(_s148_history)
+app.processEvents()
+_s148_alpha_f = _s148_fresh.tree.topLevelItem(0)
+_s148_nmap_step = _s148_alpha_f.child(0)   # nmap, no preset
+_s148_nikto_step = _s148_alpha_f.child(1)  # nikto, with preset
+check(_s148_nmap_step.text(1) == "nmap",
+      f"148y: step without preset shows tool name only ({_s148_nmap_step.text(1)})")
+check(_s148_nikto_step.text(1) == "nikto - quick_scan",
+      f"148y: step with preset shows 'tool - preset' ({_s148_nikto_step.text(1)})")
+
+# 148z: step Command column (col 2) shows post-substitution command
+check(_s148_nmap_step.text(2) == "nmap -sV 10.0.0.1",
+      f"148z: step command in col 2 ({_s148_nmap_step.text(2)})")
+
+# 148aa: step Started column (col 4) shows formatted timestamp
+_s148_step_ts_text = _s148_nmap_step.text(4)
+check(len(_s148_step_ts_text) > 0 and "," in _s148_step_ts_text,
+      f"148aa: step has formatted timestamp in col 4 ({_s148_step_ts_text})")
+
+# 148ab: parent Command column (col 2) is blank
+check(_s148_alpha_f.text(2) == "",
+      f"148ab: parent row has blank Command column ({_s148_alpha_f.text(2)!r})")
+
+# 148ac: crashed step shows "x" glyph in col 0
+_s148_crashed_cascade = _s148_fresh.tree.topLevelItem(4)
+_s148_crashed_step = _s148_crashed_cascade.child(0)  # error="crashed"
+check(_s148_crashed_step.text(0) == "x",
+      f"148ac: crashed step shows 'x' glyph ({_s148_crashed_step.text(0)!r})")
+check(_s148_crashed_step.foreground(0).color().name() == "#dd3333",
+      "148ac: crashed step glyph is red")
+
+# 148ad: non-zero exit code step shows "!" glyph
+_s148_nonzero = scaffold.CascadeHistoryDialog([{
+    "id": "s148_nz", "name": "NZ", "status": "completed",
+    "started_at": _s148_now - 10, "finished_at": _s148_now - 5,
+    "loop_index": 0, "stop_on_error": False,
+    "steps": [
+        {"index": 0, "tool_name": "test", "tool_path": "/p/t.json",
+         "preset_path": None, "command": "test -f /etc/nope",
+         "exit_code": 2, "error": None,
+         "started_at": _s148_now - 10, "finished_at": _s148_now - 5,
+         "captures": {}},
+    ],
+}])
+app.processEvents()
+_s148_nz_step = _s148_nonzero.tree.topLevelItem(0).child(0)
+check(_s148_nz_step.text(0) == "!",
+      f"148ad: non-zero exit step shows '!' ({_s148_nz_step.text(0)!r})")
+check(_s148_nz_step.foreground(0).color().name() == "#dd3333",
+      "148ad: non-zero exit step glyph is red")
+_s148_nonzero.close()
+_s148_nonzero.deleteLater()
+app.processEvents()
+
+# 148ae: header resize modes match plan
+_s148_hdr = _s148_fresh.tree.header()
+check(_s148_hdr.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed,
+      "148ae: col 0 (Status) is Fixed")
+check(_s148_hdr.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive,
+      "148ae: col 1 (Name) is Interactive")
+check(_s148_hdr.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive,
+      "148ae: col 2 (Command) is Interactive")
+check(_s148_hdr.sectionResizeMode(3) == QHeaderView.ResizeMode.Fixed,
+      "148ae: col 3 (Steps) is Fixed")
+check(_s148_hdr.sectionResizeMode(4) == QHeaderView.ResizeMode.Interactive,
+      "148ae: col 4 (Started) is Interactive")
+
+_s148_fresh.close()
+_s148_fresh.deleteLater()
+app.processEvents()
 
 # Cleanup section 148
 _s148_dlg.close()
