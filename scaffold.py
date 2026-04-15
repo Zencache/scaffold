@@ -34,6 +34,7 @@ import signal
 import sys
 import tempfile
 import time
+import uuid
 from copy import deepcopy
 from pathlib import Path
 
@@ -107,6 +108,10 @@ AUTOSAVE_EXPIRY_HOURS = 24      # Recovery files older than this are ignored
 
 # Command history
 HISTORY_MAX_ENTRIES = 50
+
+# Cascade history
+CASCADE_HISTORY_MAX_ENTRIES = 50
+CASCADE_HISTORY_VERSION = 1
 
 
 # ---------------------------------------------------------------------------
@@ -3638,6 +3643,461 @@ class HistoryDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Cascade history dialog
+# ---------------------------------------------------------------------------
+
+# Status glyph mapping: status -> (glyph_char, color_hex)
+_CASCADE_STATUS_GLYPHS: dict[str, tuple[str, str]] = {
+    "completed":    ("+", "#22bb45"),
+    "stopped":      ("-", "#dd8800"),
+    "error_halted": ("!", "#dd3333"),
+    "crashed":      ("x", "#dd3333"),
+    "running":      ("~", "#3388dd"),
+}
+
+
+class CascadeHistoryDialog(QDialog):
+    """Modal dialog for browsing cascade execution history.
+
+    Displays cascade runs as parent rows and their steps as child rows in a
+    QTreeWidget.  The dialog works entirely on the in-memory *history* list
+    passed to the constructor — it never loads from QSettings itself.
+    """
+
+    def __init__(self, history: list[dict], parent=None):
+        super().__init__(parent)
+        self.history = list(history)  # operate on a mutable copy
+        self.restore_result: dict | None = None  # set by restore handlers
+        self.setWindowTitle("Cascade History")
+        self.resize(700, 450)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # --- Filter bar ---
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Filter by cascade name...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_filter)
+        self.search_bar.installEventFilter(self)
+        layout.addWidget(self.search_bar)
+
+        # --- Tree widget ---
+        # Columns map to the design-doc's run table columns.  Child (step)
+        # rows reuse the same columns with different semantics:
+        #   Status → step index (#)      Name → tool name
+        #   Steps  → exit code / error   Started → command string
+        #   Age    → (empty)
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(5)
+        self.tree.setHeaderLabels(["Status", "Name", "Steps", "Started", "Age"])
+        self.tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
+        self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        self.tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
+        self.tree.setRootIsDecorated(True)
+        self.tree.setUniformRowHeights(True)
+        header = self.tree.header()
+        header.setMinimumSectionSize(30)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.tree.setColumnWidth(0, 50)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.tree.setColumnWidth(2, 60)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.tree, 1)
+
+        # --- Empty-state label ---
+        self.empty_label = QLabel(
+            "No cascade history yet.\n"
+            "Runs will appear here after they complete."
+        )
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setStyleSheet("color: #888; font-size: 13px;")
+        self.empty_label.setVisible(False)
+        layout.addWidget(self.empty_label, 1)
+
+        # --- Button row ---
+        btn_bar = QHBoxLayout()
+        btn_bar.addStretch()
+
+        self.restore_step_btn = QPushButton("Restore Step")
+        self.restore_step_btn.setEnabled(False)
+        self.restore_step_btn.clicked.connect(self._on_restore_step)
+        btn_bar.addWidget(self.restore_step_btn)
+
+        self.restore_cascade_btn = QPushButton("Restore Cascade")
+        self.restore_cascade_btn.setEnabled(False)
+        self.restore_cascade_btn.clicked.connect(self._on_restore_cascade)
+        btn_bar.addWidget(self.restore_cascade_btn)
+
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setEnabled(False)
+        self.export_btn.clicked.connect(self._on_export)
+        btn_bar.addWidget(self.export_btn)
+
+        self.export_all_btn = QPushButton("Export All")
+        self.export_all_btn.setEnabled(False)
+        self.export_all_btn.clicked.connect(self._on_export_all)
+        btn_bar.addWidget(self.export_all_btn)
+
+        self.delete_btn = QPushButton("Delete Entry")
+        self.delete_btn.setEnabled(False)
+        self.delete_btn.clicked.connect(self._on_delete)
+        btn_bar.addWidget(self.delete_btn)
+
+        self.clear_btn = QPushButton("Clear All")
+        self.clear_btn.clicked.connect(self._on_clear)
+        btn_bar.addWidget(self.clear_btn)
+
+        self.close_btn = QPushButton("Close")
+        self.close_btn.clicked.connect(self.reject)
+        btn_bar.addWidget(self.close_btn)
+
+        layout.addLayout(btn_bar)
+
+        self.tree.selectionModel().selectionChanged.connect(self._on_selection)
+        self._populate()
+
+    # ----- tree population -------------------------------------------------
+
+    def _populate(self) -> None:
+        """Fill the tree with cascade history entries."""
+        self.tree.clear()
+        now = time.time()
+
+        for entry in self.history:
+            cascade_item = QTreeWidgetItem()
+
+            # Col 0 — status glyph
+            status = entry.get("status", "")
+            glyph, color = _CASCADE_STATUS_GLYPHS.get(status, ("?", "#888888"))
+            cascade_item.setText(0, glyph)
+            cascade_item.setForeground(0, QColor(color))
+            glyph_font = cascade_item.font(0)
+            glyph_font.setBold(True)
+            cascade_item.setFont(0, glyph_font)
+            cascade_item.setToolTip(0, status or "unknown")
+
+            # Col 1 — cascade name
+            name = entry.get("name", "")
+            if name:
+                cascade_item.setText(1, name)
+            else:
+                cascade_item.setText(1, "(untitled)")
+                italic_font = cascade_item.font(1)
+                italic_font.setItalic(True)
+                cascade_item.setFont(1, italic_font)
+
+            # Col 2 — steps completed / total
+            steps = entry.get("steps", [])
+            ran = sum(
+                1 for s in steps
+                if s.get("exit_code") is not None or s.get("error") is not None
+            )
+            cascade_item.setText(2, f"{ran}/{len(steps)}")
+
+            # Col 3 — started timestamp
+            ts = entry.get("started_at", 0)
+            try:
+                dt = datetime.datetime.fromtimestamp(ts)
+                cascade_item.setText(3, dt.strftime("%b %d, %H:%M"))
+            except (OSError, ValueError):
+                cascade_item.setText(3, "?")
+
+            # Col 4 — relative age
+            age_secs = max(0, now - ts)
+            if age_secs < 60:
+                cascade_item.setText(4, f"{int(age_secs)}s ago")
+            elif age_secs < 3600:
+                cascade_item.setText(4, f"{int(age_secs // 60)}m ago")
+            elif age_secs < 86400:
+                cascade_item.setText(4, f"{int(age_secs // 3600)}h ago")
+            else:
+                cascade_item.setText(4, f"{int(age_secs // 86400)}d ago")
+
+            # Store the entry dict on the item for later retrieval
+            cascade_item.setData(0, Qt.ItemDataRole.UserRole, entry)
+
+            # --- child step rows ---
+            for step in steps:
+                step_item = QTreeWidgetItem()
+
+                # Col 0 — 1-based step index
+                step_item.setText(0, str(step.get("index", 0) + 1))
+
+                # Col 1 — tool name
+                step_item.setText(1, step.get("tool_name", ""))
+
+                # Col 2 — exit code or error label
+                error = step.get("error")
+                exit_code = step.get("exit_code")
+                if error:
+                    _elabels = {
+                        "failed_to_start": "not found",
+                        "crashed": "crashed",
+                        "timed_out": "timed out",
+                        "write_error": "I/O error",
+                        "read_error": "I/O error",
+                    }
+                    step_item.setText(2, _elabels.get(error, "error"))
+                    step_item.setForeground(2, QColor("#dd3333"))
+                elif exit_code is not None:
+                    step_item.setText(2, str(exit_code))
+                    step_item.setForeground(
+                        2, QColor("#22bb45") if exit_code == 0 else QColor("#dd3333")
+                    )
+                else:
+                    # Skipped step (never executed)
+                    step_item.setText(2, "\u2014")
+                    step_item.setForeground(2, QColor("#888888"))
+
+                # Col 3 — command string
+                step_item.setText(3, step.get("command", ""))
+
+                # Store step dict
+                step_item.setData(0, Qt.ItemDataRole.UserRole, step)
+
+                cascade_item.addChild(step_item)
+
+            self.tree.addTopLevelItem(cascade_item)
+
+        # Empty-state visibility
+        empty = len(self.history) == 0
+        self.tree.setVisible(not empty)
+        self.search_bar.setVisible(not empty)
+        self.empty_label.setVisible(empty)
+        self.clear_btn.setEnabled(not empty)
+        self.export_all_btn.setEnabled(not empty)
+        self._on_selection()
+
+    # ----- selection & enablement ------------------------------------------
+
+    def _on_selection(self) -> None:
+        """Update button enablement based on current tree selection."""
+        items = self.tree.selectedItems()
+        if not items:
+            self.restore_step_btn.setEnabled(False)
+            self.restore_cascade_btn.setEnabled(False)
+            self.export_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
+            return
+        item = items[0]
+        is_step = item.parent() is not None
+        self.restore_step_btn.setEnabled(is_step)
+        self.restore_cascade_btn.setEnabled(True)
+        self.export_btn.setEnabled(True)
+        self.delete_btn.setEnabled(True)
+
+    # ----- button handlers -------------------------------------------------
+
+    def _on_restore_step(self) -> None:
+        """Restore the selected step's tool and preset into the main form."""
+        items = self.tree.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        if item.parent() is None:
+            return  # only step (child) rows
+        step = item.data(0, Qt.ItemDataRole.UserRole)
+        if step is None:
+            return
+        tool_path = step.get("tool_path")
+        if not tool_path or not Path(tool_path).exists():
+            QMessageBox.warning(
+                self,
+                "Tool Not Found",
+                f"The tool schema file no longer exists:\n{tool_path or '(unknown)'}",
+            )
+            return
+        self.restore_result = {"action": "step", "step": step}
+        self.accept()
+
+    def _on_restore_cascade(self) -> None:
+        """Restore the selected cascade config into the cascade sidebar."""
+        items = self.tree.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        if item.parent() is not None:
+            item = item.parent()
+        entry = item.data(0, Qt.ItemDataRole.UserRole)
+        if entry is None:
+            return
+        config = entry.get("config")
+        if config is None:
+            QMessageBox.warning(
+                self,
+                "No Configuration",
+                "This run entry does not contain a configuration snapshot.",
+            )
+            return
+        # Check for missing tool files
+        missing: list[str] = []
+        for i, slot in enumerate(config.get("slots", [])):
+            tp = slot.get("tool_path")
+            if tp and not Path(tp).exists():
+                missing.append(f"Slot {i + 1}: {Path(tp).name}")
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Missing Tools",
+                "The following tools no longer exist:\n\n"
+                + "\n".join(missing)
+                + "\n\nThese slots will be empty in the restored cascade.",
+            )
+        self.restore_result = {"action": "cascade", "config": config}
+        self.accept()
+
+    def _on_export(self) -> None:
+        """Export the selected cascade run as JSON.
+
+        Resolves step selections to their parent cascade.  Writes JSON with
+        ``_format`` / ``_version`` envelope using the atomic ``.tmp`` +
+        ``os.replace`` pattern from ``_atomic_write_json``.
+        """
+        items = self.tree.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        # Resolve to parent cascade row
+        if item.parent() is not None:
+            item = item.parent()
+        entry = item.data(0, Qt.ItemDataRole.UserRole)
+        if entry is None:
+            return
+
+        name = entry.get("name", "")
+        default_name = f"{name}_history.json" if name else "cascade_history.json"
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Export Cascade History", default_name, "JSON files (*.json)",
+        )
+        if not dest:
+            return
+
+        data = {
+            "_format": "scaffold_cascade_history",
+            "_version": 1,
+            "entries": [entry],
+        }
+        try:
+            _atomic_write_json(Path(dest), data)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Could not write to {dest}:\n{exc}",
+            )
+
+    def _on_export_all(self) -> None:
+        """Export the entire cascade history as JSON.
+
+        Writes all entries regardless of selection.  Same ``_format`` /
+        ``_version`` envelope and atomic-write pattern as ``_on_export``.
+        """
+        if not self.history:
+            return
+
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Export Cascade History", "cascade_history_all.json",
+            "JSON files (*.json)",
+        )
+        if not dest:
+            return
+
+        data = {
+            "_format": "scaffold_cascade_history",
+            "_version": 1,
+            "entries": list(self.history),
+        }
+        try:
+            _atomic_write_json(Path(dest), data)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Could not write to {dest}:\n{exc}",
+            )
+
+    def _on_delete(self) -> None:
+        """Delete the selected cascade entry from in-memory history and
+        refresh the tree.  If a step row is selected, deletes the parent
+        cascade entry (steps are not independently deletable).
+        """
+        items = self.tree.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        # Resolve to parent cascade row
+        if item.parent() is not None:
+            item = item.parent()
+        entry = item.data(0, Qt.ItemDataRole.UserRole)
+        if entry is not None and entry in self.history:
+            self.history.remove(entry)
+        self._populate()
+
+    def _on_clear(self) -> None:
+        """Clear all cascade history after confirmation."""
+        answer = QMessageBox.question(
+            self,
+            "Clear Cascade History",
+            "Remove all cascade history?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.history.clear()
+            self._populate()
+
+    # ----- filter -----------------------------------------------------------
+
+    def _on_filter(self, text: str) -> None:
+        """Hide rows whose visible columns don't match *text* (case-insensitive
+        substring).  Both cascade and step rows are checked.  A matching child
+        keeps its parent visible; a matching parent keeps all children visible.
+        """
+        needle = text.lower()
+        for i in range(self.tree.topLevelItemCount()):
+            cascade_item = self.tree.topLevelItem(i)
+            if not needle:
+                cascade_item.setHidden(False)
+                for j in range(cascade_item.childCount()):
+                    cascade_item.child(j).setHidden(False)
+                continue
+
+            # Check cascade-level columns
+            cascade_match = any(
+                needle in (cascade_item.text(c) or "").lower()
+                for c in range(self.tree.columnCount())
+            )
+
+            # Check each child step row
+            any_child_match = False
+            for j in range(cascade_item.childCount()):
+                child = cascade_item.child(j)
+                child_match = any(
+                    needle in (child.text(c) or "").lower()
+                    for c in range(self.tree.columnCount())
+                )
+                child.setHidden(not child_match and not cascade_match)
+                if child_match:
+                    any_child_match = True
+
+            cascade_item.setHidden(not cascade_match and not any_child_match)
+
+    # ----- event filter (Esc clears search) ---------------------------------
+
+    def eventFilter(self, obj, event):
+        if obj is self.search_bar and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                if self.search_bar.text():
+                    self.search_bar.clear()
+                    return True
+        return super().eventFilter(obj, event)
+
+
+# ---------------------------------------------------------------------------
 # Cascade picker dialog
 # ---------------------------------------------------------------------------
 
@@ -4991,6 +5451,12 @@ class CascadeSidebar(QDockWidget):
         self._argv_warned_captures: set[str] = set()
         self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
+        # Cascade history tracking (Phase 2)
+        self._cascade_run_id: str | None = None
+        self._cascade_steps: list[dict] = []
+        self._cascade_step_start: float | None = None
+        self._cascade_finish_status: str | None = None
+        self._cascade_run_loop_index: int = 0
         self._current_cascade_name: str | None = None
 
         # Load saved state (populates self._slots and builds widgets)
@@ -5425,6 +5891,67 @@ class CascadeSidebar(QDockWidget):
         self._update_remove_button_state()
         self._update_loaded_label()
 
+    def _restore_cascade_config(self, config: dict) -> None:
+        """Restore cascade sidebar state from a history config snapshot.
+
+        Similar to _import_cascade_data but operates on the config snapshot
+        format (absolute paths, no _format marker, flat slot dicts).
+        Missing tool/preset files are silently nulled out (shown as empty slots).
+        """
+        # Tear down existing slot widgets
+        for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+
+        # Build new slots from config snapshot
+        new_slots: list[dict] = []
+        for slot in config.get("slots", []):
+            tp = slot.get("tool_path")
+            if tp and not Path(tp).exists():
+                tp = None
+            pp = slot.get("preset_path")
+            if pp and not Path(pp).exists():
+                pp = None
+            new_slots.append({
+                "tool_path": tp,
+                "preset_path": pp,
+                "delay": slot.get("delay", 0),
+                "captures": slot.get("captures", []),
+            })
+
+        # Pad to minimum slot count
+        while len(new_slots) < CASCADE_INITIAL_SLOTS:
+            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
+
+        self._slots = new_slots
+        for i in range(len(self._slots)):
+            self._add_slot_widget(i)
+
+        # Restore loop mode
+        self._loop_enabled = bool(config.get("loop_mode", False))
+        self._style_loop_btn()
+
+        # Restore stop-on-error
+        self._stop_on_error = bool(config.get("stop_on_error", False))
+        self._style_stop_on_error_btn()
+
+        # Restore variables
+        self._cascade_variables = [dict(v) for v in config.get("variables", [])]
+
+        # Restore cascade name
+        name = config.get("cascade_name", "")
+        self._current_cascade_name = name if name else None
+
+        self._save_cascade()
+        self._refresh_button_labels()
+        self._update_add_button_state()
+        self._update_remove_button_state()
+        self._update_loaded_label()
+
     def _on_save_cascade_file(self) -> None:
         """Save the current cascade slots to a named JSON file."""
         has_any = any(s.get("tool_path") for s in self._slots)
@@ -5790,6 +6317,24 @@ class CascadeSidebar(QDockWidget):
     # Chain runner
     # ------------------------------------------------------------------
 
+    def _build_cascade_config_snapshot(self) -> dict:
+        """Build a config snapshot for cascade history recording."""
+        return {
+            "slots": [
+                {
+                    "tool_path": s.get("tool_path"),
+                    "preset_path": s.get("preset_path"),
+                    "delay": s.get("delay", 0),
+                    "captures": s.get("captures", []),
+                }
+                for s in self._slots
+            ],
+            "variables": [dict(v) for v in self._cascade_variables],
+            "loop_mode": self._loop_enabled,
+            "stop_on_error": self._stop_on_error,
+            "cascade_name": self._current_cascade_name or "",
+        }
+
     def _on_run_chain(self) -> None:
         """Start running all assigned cascade steps sequentially."""
         queue = []
@@ -5812,6 +6357,25 @@ class CascadeSidebar(QDockWidget):
         self._chain_current = -1
         self._chain_loop_count = 0
         self._chain_state = CHAIN_LOADING
+
+        # Record cascade run start
+        self._cascade_run_loop_index = 0
+        self._cascade_steps = []
+        self._cascade_step_start = None
+        self._cascade_finish_status = None
+        self._cascade_run_id = uuid.uuid4().hex
+        run_entry = {
+            "id": self._cascade_run_id,
+            "name": self._current_cascade_name or "",
+            "status": "running",
+            "started_at": time.time(),
+            "finished_at": None,
+            "loop_index": 0,
+            "stop_on_error": self._stop_on_error,
+            "steps": [],
+            "config": self._build_cascade_config_snapshot(),
+        }
+        self._main_window._append_cascade_run(run_entry)
 
         # Disable UI during chain
         self.run_chain_btn.setEnabled(False)
@@ -5861,6 +6425,7 @@ class CascadeSidebar(QDockWidget):
                         COLOR_WARN,
                     )
                 if self._stop_on_error:
+                    self._cascade_finish_status = "error_halted"
                     self._chain_cleanup(
                         f"Cascade stopped: capture '{name}' resolved to "
                         f"argv-flag-like value '{value}'"
@@ -5879,6 +6444,7 @@ class CascadeSidebar(QDockWidget):
                 )
         if unset_names and self._stop_on_error:
             first = unset_names[0]
+            self._cascade_finish_status = "error_halted"
             self._chain_cleanup(
                 f"Cascade stopped: capture '{first}' was not set"
             )
@@ -5935,8 +6501,32 @@ class CascadeSidebar(QDockWidget):
 
         if self._chain_current >= len(self._chain_queue):
             if self._loop_enabled:
+                # Finish current cascade run record
+                if self._cascade_run_id is not None:
+                    self._main_window._update_cascade_run(self._cascade_run_id, {
+                        "status": "completed",
+                        "finished_at": time.time(),
+                        "steps": list(self._cascade_steps),
+                    })
                 self._chain_loop_count += 1
                 self._chain_current = -1
+                # Start new cascade run for next loop iteration
+                self._cascade_run_loop_index += 1
+                self._cascade_steps = []
+                self._cascade_step_start = None
+                self._cascade_run_id = uuid.uuid4().hex
+                run_entry = {
+                    "id": self._cascade_run_id,
+                    "name": self._current_cascade_name or "",
+                    "status": "running",
+                    "started_at": time.time(),
+                    "finished_at": None,
+                    "loop_index": self._cascade_run_loop_index,
+                    "stop_on_error": self._stop_on_error,
+                    "steps": [],
+                    "config": self._build_cascade_config_snapshot(),
+                }
+                self._main_window._append_cascade_run(run_entry)
                 self._main_window.statusBar().showMessage(
                     f"Cascade: starting loop {self._chain_loop_count + 1}"
                 )
@@ -5947,6 +6537,7 @@ class CascadeSidebar(QDockWidget):
                 return
             else:
                 runs = self._chain_loop_count + 1
+                self._cascade_finish_status = "completed"
                 self._chain_cleanup(f"Cascade complete ({runs} run(s))")
                 return
 
@@ -5999,6 +6590,7 @@ class CascadeSidebar(QDockWidget):
         try:
             self._main_window._load_tool_path(tool_path)
         except Exception as e:
+            self._cascade_finish_status = "error_halted"
             self._chain_cleanup(f"Cascade failed loading tool: {e}")
             return
 
@@ -6015,6 +6607,7 @@ class CascadeSidebar(QDockWidget):
                 # are automated and cannot prompt for password re-entry.
                 self._main_window.form.apply_values(preset_data)
             except (json.JSONDecodeError, OSError) as e:
+                self._cascade_finish_status = "error_halted"
                 self._chain_cleanup(f"Cascade failed loading preset: {e}")
                 return
 
@@ -6071,6 +6664,7 @@ class CascadeSidebar(QDockWidget):
         # Validate required fields
         missing = self._main_window.form.validate_required()
         if missing:
+            self._cascade_finish_status = "error_halted"
             self._chain_cleanup("Cascade stopped: required fields missing")
             return
 
@@ -6094,6 +6688,7 @@ class CascadeSidebar(QDockWidget):
                 # Extract captures from this step's output
                 slot_idx = self._chain_queue[self._chain_current]
                 slot_captures = self._slots[slot_idx].get("captures", [])
+                captured = {}
                 if slot_captures:
                     captured = extract_captures(
                         slot_captures,
@@ -6102,11 +6697,37 @@ class CascadeSidebar(QDockWidget):
                         exit_code,
                     )
                     self._chain_variable_values.update(captured)
+                # Record cascade history step
+                if self._cascade_run_id is not None:
+                    _err_tok = None
+                    if self._main_window._timed_out:
+                        _err_tok = "timed_out"
+                    elif exit_status == QProcess.ExitStatus.CrashExit:
+                        _err_tok = "crashed"
+                    _cslot = self._slots[slot_idx]
+                    _step = {
+                        "index": self._chain_current,
+                        "tool_name": Path(_cslot["tool_path"]).stem,
+                        "tool_path": _cslot["tool_path"],
+                        "preset_path": _cslot.get("preset_path"),
+                        "command": getattr(self._main_window, '_history_display', '') or '',
+                        "exit_code": exit_code,
+                        "error": _err_tok,
+                        "started_at": self._cascade_step_start,
+                        "finished_at": time.time(),
+                        "captures": dict(captured),
+                    }
+                    self._cascade_steps.append(_step)
+                    self._main_window._update_cascade_run(
+                        self._cascade_run_id,
+                        {"steps": list(self._cascade_steps)},
+                    )
                 if self._chain_state == CHAIN_RUNNING:
                     if self._stop_on_error and exit_code != 0:
                         slot_idx = self._chain_queue[self._chain_current]
                         step_num = self._chain_current + 1
                         tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
+                        self._cascade_finish_status = "error_halted"
                         self._chain_cleanup(
                             f"Cascade stopped: step {step_num} ({tool_name}) "
                             f"exited with code {exit_code}"
@@ -6136,6 +6757,9 @@ class CascadeSidebar(QDockWidget):
             if self._stored_original_on_finished is None:
                 self._stored_original_on_finished = original_on_finished
 
+            # Record step start time for cascade history
+            self._cascade_step_start = time.time()
+
             # Start the command
             self._main_window._on_run_stop()
 
@@ -6143,12 +6767,30 @@ class CascadeSidebar(QDockWidget):
             # _on_error fires and sets process=None without _on_finished.
             # Detect this and clean up.
             if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+                # Record the failed step in cascade history
+                if self._cascade_run_id is not None:
+                    _fidx = self._chain_queue[self._chain_current]
+                    _fsl = self._slots[_fidx]
+                    self._cascade_steps.append({
+                        "index": self._chain_current,
+                        "tool_name": Path(_fsl["tool_path"]).stem,
+                        "tool_path": _fsl["tool_path"],
+                        "preset_path": _fsl.get("preset_path"),
+                        "command": getattr(self._main_window, '_history_display', '') or '',
+                        "exit_code": None,
+                        "error": "failed_to_start",
+                        "started_at": self._cascade_step_start,
+                        "finished_at": time.time(),
+                        "captures": {},
+                    })
+                self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
         except Exception as e:
             try:
                 self._main_window._on_finished = original_on_finished
             except Exception:
                 pass
+            self._cascade_finish_status = "error_halted"
             self._chain_cleanup(f"Cascade crashed: {e}")
 
     def _on_pause_chain(self) -> None:
@@ -6175,10 +6817,23 @@ class CascadeSidebar(QDockWidget):
         if was_running == CHAIN_RUNNING:
             if self._main_window.process and self._main_window.process.state() != QProcess.ProcessState.NotRunning:
                 self._main_window._on_run_stop()  # Triggers the stop path
+        self._cascade_finish_status = "stopped"
         self._chain_cleanup("Cascade cancelled")
 
     def _chain_cleanup(self, message: str) -> None:
         """Reset chain state and re-enable UI."""
+        # Record terminal cascade history transition
+        if self._cascade_run_id is not None and self._cascade_finish_status:
+            self._main_window._update_cascade_run(self._cascade_run_id, {
+                "status": self._cascade_finish_status,
+                "finished_at": time.time(),
+                "steps": list(self._cascade_steps),
+            })
+        self._cascade_run_id = None
+        self._cascade_steps = []
+        self._cascade_step_start = None
+        self._cascade_finish_status = None
+
         self._chain_state = CHAIN_IDLE
         self._chain_paused = False
         self._chain_queue = []
@@ -6283,6 +6938,10 @@ class MainWindow(QMainWindow):
         self._chain_preserve_output = False
         self._copy_password_choice: bool | None = None
         self._cleanup_stale_recovery_files()
+        try:
+            self._recover_crashed_cascade_runs()
+        except Exception as exc:
+            print(f"Cascade crash recovery failed: {exc}", file=sys.stderr)
 
         # Restore geometry
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
@@ -6435,6 +7094,10 @@ class MainWindow(QMainWindow):
         self.act_history.triggered.connect(self._on_show_history)
         self.act_history.setEnabled(False)
 
+        self.act_cascade_history = view_menu.addAction("Cascade History...")
+        self.act_cascade_history.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        self.act_cascade_history.triggered.connect(self._on_show_cascade_history)
+
         # Help menu
         help_menu = self.menuBar().addMenu("Help")
         act_about = help_menu.addAction("About Scaffold")
@@ -6559,6 +7222,13 @@ class MainWindow(QMainWindow):
             "<p>Named cascade configurations can be saved and loaded from the cascade "
             "menu. Import and export allow sharing cascade files between machines or "
             "users.</p>"
+
+            "<h3>History</h3>"
+            "<p>Cascade runs are recorded automatically. Open the history dialog from "
+            "View \u2192 Cascade History or Ctrl+Shift+H to browse past runs, restore "
+            "individual steps or full cascades, and export history to JSON. In loop "
+            "mode, each iteration is a separate entry, so loop-heavy runs fill "
+            "history faster.</p>"
         )
 
         scroll = QScrollArea()
@@ -8355,6 +9025,62 @@ class MainWindow(QMainWindow):
             return
         self.settings.remove(f"history/{self.data['tool']}")
 
+    # ------------------------------------------------------------------
+    # Cascade history (storage layer)
+    # ------------------------------------------------------------------
+
+    def _load_cascade_history(self) -> list[dict]:
+        """Load cascade run history from QSettings."""
+        ver = self.settings.value("cascade_history/_version", None)
+        if ver is None or int(ver) != CASCADE_HISTORY_VERSION:
+            return []
+        raw = self.settings.value("cascade_history/entries", "[]")
+        try:
+            entries = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(entries, list):
+                return []
+            return entries
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def _save_cascade_history(self, entries: list[dict]) -> None:
+        """Write cascade run history to QSettings."""
+        self.settings.setValue("cascade_history/_version", CASCADE_HISTORY_VERSION)
+        self.settings.setValue("cascade_history/entries", json.dumps(entries))
+
+    def _append_cascade_run(self, entry: dict) -> None:
+        """Append a cascade run entry, enforcing the FIFO cap."""
+        entries = self._load_cascade_history()
+        entries.insert(0, entry)
+        entries = entries[:CASCADE_HISTORY_MAX_ENTRIES]
+        self._save_cascade_history(entries)
+
+    def _update_cascade_run(self, run_id: str, updates: dict) -> None:
+        """Update fields on an existing cascade run entry by id."""
+        entries = self._load_cascade_history()
+        for entry in entries:
+            if entry.get("id") == run_id:
+                entry.update(updates)
+                break
+        self._save_cascade_history(entries)
+
+    def _clear_cascade_history(self) -> None:
+        """Remove all cascade run history."""
+        self.settings.remove("cascade_history/entries")
+        self.settings.remove("cascade_history/_version")
+
+    def _recover_crashed_cascade_runs(self) -> None:
+        """Transition any 'running' cascade entries to 'crashed' status."""
+        entries = self._load_cascade_history()
+        changed = False
+        for entry in entries:
+            if entry.get("status") == "running":
+                entry["status"] = "crashed"
+                entry["finished_at"] = time.time()
+                changed = True
+        if changed:
+            self._save_cascade_history(entries)
+
     def _on_show_history(self) -> None:
         """Show the command history dialog for the current tool."""
         if self.data is None:
@@ -8374,6 +9100,49 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self._show_status("Form restored from history")
+
+    def _on_show_cascade_history(self) -> None:
+        """Show cascade history dialog and handle restore actions."""
+        history = self._load_cascade_history()
+        if not history:
+            self._show_status("No cascade history")
+            return
+        dlg = CascadeHistoryDialog(history, parent=self)
+        result_code = dlg.exec()
+        # Persist any in-dialog deletes / clears
+        self._save_cascade_history(dlg.history)
+        if result_code != QDialog.DialogCode.Accepted or dlg.restore_result is None:
+            return
+        result = dlg.restore_result
+        if result["action"] == "step":
+            step = result["step"]
+            tool_path = step.get("tool_path")
+            if not tool_path or not Path(tool_path).exists():
+                return  # dialog already warned
+            self._load_tool_path(tool_path)
+            preset_path = step.get("preset_path")
+            if preset_path and Path(preset_path).exists():
+                try:
+                    preset_data = _read_json_file(preset_path)
+                    had_pw = self.form.apply_values(preset_data)
+                    self._default_form_snapshot = self.form.serialize_values()
+                    msg = "Form restored from cascade step"
+                    if had_pw:
+                        msg += " \u2014 password fields were not restored"
+                    self._show_status(msg)
+                except (OSError, json.JSONDecodeError):
+                    self._show_status("Preset file could not be loaded")
+            else:
+                self._show_status("Tool loaded from cascade step")
+        elif result["action"] == "cascade":
+            config = result["config"]
+            self.cascade_dock._restore_cascade_config(config)
+            # Ensure cascade sidebar is visible
+            if not self.cascade_dock.isVisible():
+                self.cascade_dock.setVisible(True)
+                self.act_cascade_toggle.setChecked(True)
+                self.setMinimumWidth(MIN_WINDOW_WIDTH + 320)
+            self._show_status("Cascade restored from history")
 
     def _append_output(self, text: str, color: str) -> None:
         """Append text to the output panel in the given hex color string."""

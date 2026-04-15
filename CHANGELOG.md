@@ -2,6 +2,14 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.8.6] — 2026-04-14
+
+Cascade History documentation.
+
+### Added
+
+- **Cascade History** — record and browse past cascade runs, restore individual steps or full cascades, export history to JSON. Documented in README, CHANGELOG, and in-app Cascade Guide.
+
 ## [v2.8.5.11] — 2026-04-14
 
 History crash/error reporting, test stabilization, README corrections.

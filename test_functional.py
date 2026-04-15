@@ -15898,6 +15898,2314 @@ app.processEvents()
 
 
 # =====================================================================
+print("\n=== SECTION 146: Cascade History Storage Layer ===")
+# =====================================================================
+
+# Use a fresh window for cascade history tests
+_s146_win = scaffold.MainWindow()
+_s146_win.show()
+app.processEvents()
+
+# Helper: build a valid cascade run entry
+def _s146_make_run(*, run_id=None, name="Test Cascade", status="completed",
+                   started_at=None, finished_at=None, loop_index=0,
+                   stop_on_error=True, steps=None):
+    import uuid as _uuid
+    return {
+        "id": run_id or str(_uuid.uuid4()),
+        "name": name,
+        "status": status,
+        "started_at": started_at or time.time(),
+        "finished_at": finished_at or time.time() + 5.0,
+        "loop_index": loop_index,
+        "stop_on_error": stop_on_error,
+        "steps": steps or [
+            {
+                "index": 0,
+                "tool_name": "nmap",
+                "tool_path": "/path/to/nmap.json",
+                "preset_path": None,
+                "command": "nmap -sV 10.0.0.1",
+                "exit_code": 0,
+                "error": None,
+                "started_at": time.time(),
+                "finished_at": time.time() + 2.0,
+                "captures": {},
+            }
+        ],
+    }
+
+# Clear any leftover state
+_s146_win._clear_cascade_history()
+app.processEvents()
+
+# 146a: Empty load returns empty list
+_s146_entries = _s146_win._load_cascade_history()
+check(isinstance(_s146_entries, list) and len(_s146_entries) == 0,
+      "146a: _load_cascade_history returns [] when empty")
+
+# 146b: Round-trip — append then load
+_s146_run1 = _s146_make_run(name="Run Alpha", status="completed")
+_s146_win._append_cascade_run(_s146_run1)
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == 1, "146b: one entry after append")
+check(_s146_loaded[0]["id"] == _s146_run1["id"], "146b: round-trip preserves id")
+check(_s146_loaded[0]["name"] == "Run Alpha", "146b: round-trip preserves name")
+check(_s146_loaded[0]["status"] == "completed", "146b: round-trip preserves status")
+
+# 146c: Schema shape — run entry has all required keys
+_s146_run_keys = {"id", "name", "status", "started_at", "finished_at",
+                  "loop_index", "stop_on_error", "steps"}
+check(_s146_run_keys == set(_s146_loaded[0].keys()),
+      "146c: run entry has exactly the expected keys")
+
+# 146d: Schema shape — step entry has all required keys
+_s146_step_keys = {"index", "tool_name", "tool_path", "preset_path", "command",
+                   "exit_code", "error", "started_at", "finished_at", "captures"}
+_s146_step0 = _s146_loaded[0]["steps"][0]
+check(_s146_step_keys == set(_s146_step0.keys()),
+      "146d: step entry has exactly the expected keys")
+
+# 146e: Newest-first ordering — newest entry is at index 0
+_s146_run2 = _s146_make_run(name="Run Beta", started_at=time.time() + 100)
+_s146_win._append_cascade_run(_s146_run2)
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == 2, "146e: two entries after second append")
+check(_s146_loaded[0]["name"] == "Run Beta",
+      "146e: newest entry is at index 0")
+check(_s146_loaded[1]["name"] == "Run Alpha",
+      "146e: older entry is at index 1")
+
+# 146f: Cap enforcement — FIFO eviction at CASCADE_HISTORY_MAX_ENTRIES
+_s146_win._clear_cascade_history()
+for _s146_i in range(scaffold.CASCADE_HISTORY_MAX_ENTRIES + 5):
+    _s146_win._append_cascade_run(
+        _s146_make_run(name=f"Run {_s146_i}", started_at=time.time() + _s146_i)
+    )
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == scaffold.CASCADE_HISTORY_MAX_ENTRIES,
+      f"146f: capped at {scaffold.CASCADE_HISTORY_MAX_ENTRIES} entries")
+# The most recent entry (highest index) should be at position 0
+check(_s146_loaded[0]["name"] == f"Run {scaffold.CASCADE_HISTORY_MAX_ENTRIES + 4}",
+      "146f: newest entry survives eviction")
+# The oldest entries (0..4) should have been evicted
+_s146_names = {e["name"] for e in _s146_loaded}
+check("Run 0" not in _s146_names, "146f: oldest entry was evicted")
+check("Run 4" not in _s146_names, "146f: fifth-oldest entry was evicted")
+check(f"Run 5" in _s146_names, "146f: sixth entry (first survivor) still present")
+
+# 146g: update_cascade_run modifies existing entry
+_s146_win._clear_cascade_history()
+_s146_run_upd = _s146_make_run(run_id="update-test-id", status="running",
+                               finished_at=None)
+_s146_win._append_cascade_run(_s146_run_upd)
+_s146_win._update_cascade_run("update-test-id",
+                              {"status": "completed", "finished_at": 99999.0})
+_s146_loaded = _s146_win._load_cascade_history()
+check(_s146_loaded[0]["status"] == "completed",
+      "146g: update_cascade_run changed status")
+check(_s146_loaded[0]["finished_at"] == 99999.0,
+      "146g: update_cascade_run changed finished_at")
+check(_s146_loaded[0]["id"] == "update-test-id",
+      "146g: update_cascade_run preserved id")
+
+# 146h: update with non-existent id is a no-op (no crash)
+_s146_win._update_cascade_run("does-not-exist", {"status": "stopped"})
+_s146_loaded = _s146_win._load_cascade_history()
+check(_s146_loaded[0]["status"] == "completed",
+      "146h: update with bad id is a no-op")
+
+# 146i: clear_cascade_history removes everything
+_s146_win._clear_cascade_history()
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == 0, "146i: clear removes all entries")
+
+# 146j: Corrupted JSON fallback — returns [] without raising
+_s146_win.settings.setValue("cascade_history/_version",
+                            scaffold.CASCADE_HISTORY_VERSION)
+_s146_win.settings.setValue("cascade_history/entries", "NOT VALID JSON {{{")
+_s146_loaded = _s146_win._load_cascade_history()
+check(isinstance(_s146_loaded, list) and len(_s146_loaded) == 0,
+      "146j: corrupted JSON returns empty list")
+
+# 146k: Non-list JSON fallback — returns []
+_s146_win.settings.setValue("cascade_history/entries", '"just a string"')
+_s146_loaded = _s146_win._load_cascade_history()
+check(isinstance(_s146_loaded, list) and len(_s146_loaded) == 0,
+      "146k: non-list JSON value returns empty list")
+
+# 146l: Version mismatch — returns []
+_s146_win.settings.setValue("cascade_history/_version", 99999)
+_s146_win.settings.setValue("cascade_history/entries",
+                            json.dumps([_s146_make_run()]))
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == 0,
+      "146l: version mismatch discards entries")
+
+# 146m: Missing version key — returns []
+_s146_win.settings.remove("cascade_history/_version")
+_s146_win.settings.setValue("cascade_history/entries",
+                            json.dumps([_s146_make_run()]))
+_s146_loaded = _s146_win._load_cascade_history()
+check(len(_s146_loaded) == 0,
+      "146m: missing version key discards entries")
+
+# 146n: Crashed-entry recovery — running -> crashed
+_s146_win._clear_cascade_history()
+_s146_running1 = _s146_make_run(run_id="crash-1", status="running",
+                                finished_at=None)
+_s146_running2 = _s146_make_run(run_id="crash-2", status="running",
+                                finished_at=None)
+_s146_ok = _s146_make_run(run_id="ok-1", status="completed")
+_s146_win._append_cascade_run(_s146_ok)
+_s146_win._append_cascade_run(_s146_running2)
+_s146_win._append_cascade_run(_s146_running1)
+_s146_before = _s146_win._load_cascade_history()
+_s146_running_count_before = sum(1 for e in _s146_before
+                                 if e["status"] == "running")
+check(_s146_running_count_before == 2,
+      "146n: two running entries before recovery")
+
+_s146_win._recover_crashed_cascade_runs()
+_s146_after = _s146_win._load_cascade_history()
+_s146_running_count_after = sum(1 for e in _s146_after
+                                if e["status"] == "running")
+_s146_crashed_count = sum(1 for e in _s146_after
+                          if e["status"] == "crashed")
+check(_s146_running_count_after == 0,
+      "146n: no running entries after recovery")
+check(_s146_crashed_count == 2,
+      "146n: both entries transitioned to crashed")
+
+# Verify finished_at was set on crashed entries
+for _s146_e in _s146_after:
+    if _s146_e["id"] in ("crash-1", "crash-2"):
+        check(_s146_e["finished_at"] is not None,
+              f"146n: {_s146_e['id']} has finished_at set")
+
+# Verify completed entry was untouched
+_s146_ok_after = [e for e in _s146_after if e["id"] == "ok-1"][0]
+check(_s146_ok_after["status"] == "completed",
+      "146n: completed entry untouched by recovery")
+
+# 146o: Recovery is idempotent — calling again changes nothing
+_s146_win._recover_crashed_cascade_runs()
+_s146_idem = _s146_win._load_cascade_history()
+_s146_crashed_after2 = sum(1 for e in _s146_idem if e["status"] == "crashed")
+check(_s146_crashed_after2 == 2,
+      "146o: recovery is idempotent — crashed count unchanged")
+
+# 146p: Empty-name cascade (unsaved) round-trips correctly
+_s146_win._clear_cascade_history()
+_s146_unnamed = _s146_make_run(name="", status="completed")
+_s146_win._append_cascade_run(_s146_unnamed)
+_s146_loaded = _s146_win._load_cascade_history()
+check(_s146_loaded[0]["name"] == "",
+      "146p: empty name round-trips correctly")
+
+# 146q: Step with null exit_code/finished_at (partial run) round-trips
+_s146_win._clear_cascade_history()
+_s146_partial_step = {
+    "index": 1,
+    "tool_name": "ffmpeg",
+    "tool_path": "/path/to/ffmpeg.json",
+    "preset_path": "/path/to/preset.json",
+    "command": "ffmpeg -i input.mp4",
+    "exit_code": None,
+    "error": None,
+    "started_at": None,
+    "finished_at": None,
+    "captures": {},
+}
+_s146_partial = _s146_make_run(status="stopped", steps=[
+    _s146_make_run()["steps"][0],
+    _s146_partial_step,
+])
+_s146_win._append_cascade_run(_s146_partial)
+_s146_loaded = _s146_win._load_cascade_history()
+_s146_s1 = _s146_loaded[0]["steps"][1]
+check(_s146_s1["exit_code"] is None,
+      "146q: null exit_code preserved on partial step")
+check(_s146_s1["finished_at"] is None,
+      "146q: null finished_at preserved on partial step")
+check(_s146_s1["tool_name"] == "ffmpeg",
+      "146q: tool_name preserved on partial step")
+
+# 146r: Constant value matches design doc
+check(scaffold.CASCADE_HISTORY_MAX_ENTRIES == 50,
+      "146r: CASCADE_HISTORY_MAX_ENTRIES is 50")
+check(scaffold.CASCADE_HISTORY_VERSION == 1,
+      "146r: CASCADE_HISTORY_VERSION is 1")
+
+# Cleanup
+_s146_win._clear_cascade_history()
+_s146_win.close()
+_s146_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 147 — Cascade History Recording Instrumentation (Phase 2)
+# =====================================================================
+print("\n=== SECTION 147: Cascade History Recording Instrumentation ===")
+
+_s147_tmpdir = tempfile.mkdtemp(prefix="scaffold_test147_")
+
+# Tool that succeeds (exit 0)
+_s147_ok_tool = {
+    "tool": "s147_ok",
+    "binary": sys.executable,
+    "description": "Test OK tool",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+    ],
+}
+_s147_ok_path = os.path.join(_s147_tmpdir, "s147_ok.json")
+Path(_s147_ok_path).write_text(json.dumps(_s147_ok_tool))
+
+# Tool that fails (exit 42)
+_s147_fail_tool = {
+    "tool": "s147_fail",
+    "binary": sys.executable,
+    "description": "Test fail tool",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string",
+         "default": "import sys; sys.exit(42)"},
+    ],
+}
+_s147_fail_path = os.path.join(_s147_tmpdir, "s147_fail.json")
+Path(_s147_fail_path).write_text(json.dumps(_s147_fail_tool))
+
+# Slow tool for stop testing (sleeps 30s)
+_s147_slow_tool = {
+    "tool": "s147_slow",
+    "binary": sys.executable,
+    "description": "Test slow tool",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string",
+         "default": "import time; time.sleep(30)"},
+    ],
+}
+_s147_slow_path = os.path.join(_s147_tmpdir, "s147_slow.json")
+Path(_s147_slow_path).write_text(json.dumps(_s147_slow_tool))
+
+# Tool with --target flag for variable injection test
+_s147_var_tool = {
+    "tool": "s147_var",
+    "binary": sys.executable,
+    "description": "Test variable tool",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+        {"name": "Target", "flag": "--target", "type": "string"},
+    ],
+}
+_s147_var_path = os.path.join(_s147_tmpdir, "s147_var.json")
+Path(_s147_var_path).write_text(json.dumps(_s147_var_tool))
+
+
+def _s147_wait(dock, timeout_iters=200):
+    """Wait for cascade to finish (CHAIN_IDLE), up to ~10 seconds."""
+    for _ in range(timeout_iters):
+        app.processEvents()
+        time.sleep(0.05)
+        if dock._chain_state == scaffold.CHAIN_IDLE:
+            app.processEvents()
+            return True
+    return False
+
+
+def _s147_setup_slots(dock, paths):
+    """Configure cascade slots with the given tool paths."""
+    for i, p in enumerate(paths):
+        dock._slots[i]["tool_path"] = p
+        dock._slots[i]["preset_path"] = None
+        dock._slots[i]["delay"] = 0
+    for i in range(len(paths), len(dock._slots)):
+        dock._slots[i]["tool_path"] = None
+        dock._slots[i]["preset_path"] = None
+
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s147_win = scaffold.MainWindow()
+_s147_win.show()
+app.processEvents()
+_s147_dock = _s147_win.cascade_dock
+_s147_dock.show()
+app.processEvents()
+
+# --- 147a: Normal completion — 2-step cascade, both succeed ---
+print("  147a: Normal completion")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._loop_enabled = False
+_s147_dock._stop_on_error = False
+_s147_setup_slots(_s147_dock, [_s147_ok_path, _s147_ok_path])
+
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock)
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) == 1,
+      f"147a: exactly 1 history entry (got {len(_s147_entries)})")
+check(_s147_entries[0]["status"] == "completed",
+      f"147a: status is 'completed' (got {_s147_entries[0].get('status')!r})")
+check(len(_s147_entries[0]["steps"]) == 2,
+      f"147a: 2 steps recorded (got {len(_s147_entries[0]['steps'])})")
+check(_s147_entries[0]["steps"][0]["index"] == 0,
+      "147a: first step has index 0")
+check(_s147_entries[0]["steps"][1]["index"] == 1,
+      "147a: second step has index 1")
+check(_s147_entries[0]["steps"][0]["exit_code"] == 0,
+      "147a: first step exit_code is 0")
+check(_s147_entries[0]["steps"][1]["exit_code"] == 0,
+      "147a: second step exit_code is 0")
+check(_s147_entries[0]["steps"][0]["error"] is None,
+      "147a: first step error is None")
+check(_s147_entries[0]["started_at"] is not None,
+      "147a: started_at is set")
+check(_s147_entries[0]["finished_at"] is not None,
+      "147a: finished_at is set")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147a: no running entries after completion")
+
+# --- 147b: Display-string substitution ---
+print("  147b: Display-string substitution")
+_s147_win._clear_cascade_history()
+
+class _S147MockVarDialog(QDialog):
+    def __init__(self, variables, parent=None):
+        super().__init__(parent)
+        self._values = {"--target": "10.0.0.1"}
+    def exec(self):
+        return QDialog.DialogCode.Accepted
+    def get_values(self):
+        return self._values
+
+_s147_orig_var_dlg = scaffold.CascadeVariableDialog
+scaffold.CascadeVariableDialog = _S147MockVarDialog
+_s147_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "type_hint": "string", "apply_to": "all"},
+]
+_s147_dock._loop_enabled = False
+_s147_dock._stop_on_error = False
+_s147_setup_slots(_s147_dock, [_s147_var_path])
+
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock)
+scaffold.CascadeVariableDialog = _s147_orig_var_dlg
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147b: at least 1 entry")
+_s147_step_cmd = _s147_entries[0]["steps"][0]["command"]
+check("10.0.0.1" in _s147_step_cmd,
+      f"147b: display string has substituted value '10.0.0.1' (got {_s147_step_cmd!r})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147b: no running entries")
+
+# --- 147c: User stop mid-cascade ---
+print("  147c: User stop")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._stop_on_error = False
+_s147_dock._loop_enabled = False
+_s147_setup_slots(_s147_dock, [_s147_ok_path, _s147_slow_path])
+
+_s147_dock._on_run_chain()
+
+# Wait for at least 1 step to be recorded in history
+for _s147_i in range(200):
+    app.processEvents()
+    time.sleep(0.05)
+    _s147_entries = _s147_win._load_cascade_history()
+    if _s147_entries and len(_s147_entries[0].get("steps", [])) >= 1:
+        break
+
+_s147_dock._on_stop_chain()
+for _ in range(20):
+    app.processEvents()
+    time.sleep(0.05)
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147c: at least 1 entry after stop")
+_s147_stop_entry = _s147_entries[0]
+check(_s147_stop_entry["status"] == "stopped",
+      f"147c: status is 'stopped' (got {_s147_stop_entry.get('status')!r})")
+check(len(_s147_stop_entry["steps"]) >= 1,
+      f"147c: at least 1 step recorded before stop (got {len(_s147_stop_entry['steps'])})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147c: no running entries after stop")
+
+# --- 147d: Stop-on-error halt ---
+print("  147d: Stop-on-error halt")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._stop_on_error = True
+_s147_dock._loop_enabled = False
+_s147_setup_slots(_s147_dock, [_s147_fail_path, _s147_ok_path])
+
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock)
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147d: at least 1 entry")
+_s147_err_entry = _s147_entries[0]
+check(_s147_err_entry["status"] == "error_halted",
+      f"147d: status is 'error_halted' (got {_s147_err_entry.get('status')!r})")
+check(len(_s147_err_entry["steps"]) == 1,
+      f"147d: 1 step recorded (got {len(_s147_err_entry['steps'])})")
+check(_s147_err_entry["steps"][-1]["exit_code"] == 42,
+      f"147d: erroring step exit_code is 42 (got {_s147_err_entry['steps'][-1].get('exit_code')})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147d: no running entries after error halt")
+
+# --- 147e: Error without halt (stop_on_error=False) ---
+print("  147e: Error without halt")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._stop_on_error = False
+_s147_dock._loop_enabled = False
+_s147_setup_slots(_s147_dock, [_s147_fail_path, _s147_ok_path])
+
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock)
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147e: at least 1 entry")
+_s147_noerr = _s147_entries[0]
+check(_s147_noerr["status"] == "completed",
+      f"147e: status is 'completed' despite step error (got {_s147_noerr.get('status')!r})")
+check(len(_s147_noerr["steps"]) == 2,
+      f"147e: 2 steps recorded (got {len(_s147_noerr['steps'])})")
+check(_s147_noerr["steps"][0]["exit_code"] != 0,
+      f"147e: failing step has non-zero exit_code (got {_s147_noerr['steps'][0].get('exit_code')})")
+check(_s147_noerr["steps"][1]["exit_code"] == 0,
+      f"147e: second step succeeded (got {_s147_noerr['steps'][1].get('exit_code')})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147e: no running entries")
+
+# --- 147f: Loop mode — 3 iterations ---
+print("  147f: Loop mode")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._stop_on_error = False
+_s147_dock._loop_enabled = True
+_s147_setup_slots(_s147_dock, [_s147_ok_path])
+
+_s147_dock._on_run_chain()
+
+# Wait for 3 completed entries
+for _s147_i in range(400):
+    app.processEvents()
+    time.sleep(0.05)
+    _s147_entries = _s147_win._load_cascade_history()
+    _s147_completed = [e for e in _s147_entries if e.get("status") == "completed"]
+    if len(_s147_completed) >= 3:
+        break
+
+_s147_dock._on_stop_chain()
+for _ in range(20):
+    app.processEvents()
+    time.sleep(0.05)
+
+_s147_entries = _s147_win._load_cascade_history()
+_s147_completed = [e for e in _s147_entries if e.get("status") == "completed"]
+check(len(_s147_completed) >= 3,
+      f"147f: at least 3 completed loop entries (got {len(_s147_completed)})")
+_s147_loop_indices = set(e.get("loop_index") for e in _s147_completed)
+check({0, 1, 2} <= _s147_loop_indices,
+      f"147f: loop indices include 0, 1, 2 (got {sorted(_s147_loop_indices)})")
+# Each loop iteration has its own unique run id
+_s147_loop_ids = set(e.get("id") for e in _s147_completed)
+check(len(_s147_loop_ids) >= 3,
+      f"147f: at least 3 distinct run ids (got {len(_s147_loop_ids)})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147f: no running entries after loop stop")
+
+# --- 147g: Unsaved cascade (empty name) ---
+print("  147g: Unsaved cascade")
+_s147_win._clear_cascade_history()
+_s147_dock._cascade_variables = []
+_s147_dock._current_cascade_name = None
+_s147_dock._stop_on_error = False
+_s147_dock._loop_enabled = False
+_s147_setup_slots(_s147_dock, [_s147_ok_path])
+
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock)
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147g: at least 1 entry")
+check(_s147_entries[0]["name"] == "",
+      f"147g: unsaved cascade has empty name (got {_s147_entries[0].get('name')!r})")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147g: no running entries")
+
+# --- 147h: Config snapshot round-trip ---
+print("  147h: Config snapshot")
+_s147_win._clear_cascade_history()
+_s147_dock._current_cascade_name = "TestCascade"
+_s147_dock._cascade_variables = [
+    {"name": "Target", "flag": "--target", "type_hint": "string", "apply_to": "all"},
+]
+_s147_dock._stop_on_error = True
+_s147_dock._loop_enabled = False
+_s147_setup_slots(_s147_dock, [_s147_ok_path])
+_s147_dock._slots[0]["delay"] = 2
+
+scaffold.CascadeVariableDialog = _S147MockVarDialog
+_s147_dock._on_run_chain()
+_s147_wait(_s147_dock, timeout_iters=300)
+scaffold.CascadeVariableDialog = _s147_orig_var_dlg
+
+_s147_entries = _s147_win._load_cascade_history()
+check(len(_s147_entries) >= 1, "147h: at least 1 entry")
+_s147_cfg = _s147_entries[0].get("config", {})
+check("slots" in _s147_cfg, "147h: config has 'slots'")
+check("variables" in _s147_cfg, "147h: config has 'variables'")
+check("loop_mode" in _s147_cfg, "147h: config has 'loop_mode'")
+check("stop_on_error" in _s147_cfg, "147h: config has 'stop_on_error'")
+check("cascade_name" in _s147_cfg, "147h: config has 'cascade_name'")
+check(_s147_cfg["stop_on_error"] is True,
+      "147h: stop_on_error is True in config")
+check(_s147_cfg["cascade_name"] == "TestCascade",
+      f"147h: cascade_name matches (got {_s147_cfg.get('cascade_name')!r})")
+check(_s147_cfg["loop_mode"] is False,
+      "147h: loop_mode is False in config")
+check(len(_s147_cfg["slots"]) >= 1, "147h: config has slots")
+_s147_slot0_cfg = _s147_cfg["slots"][0]
+check(_s147_slot0_cfg.get("tool_path") == _s147_ok_path,
+      "147h: slot tool_path matches")
+check(_s147_slot0_cfg.get("delay") == 2,
+      f"147h: slot delay is 2 (got {_s147_slot0_cfg.get('delay')})")
+check(len(_s147_cfg["variables"]) == 1, "147h: config has 1 variable")
+check(_s147_cfg["variables"][0]["flag"] == "--target",
+      "147h: variable flag matches")
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0, "147h: no running entries")
+
+# --- 147i: Final sweep — no leaked running entries across all tests ---
+print("  147i: No leaked running entries")
+_s147_entries = _s147_win._load_cascade_history()
+_s147_running = [e for e in _s147_entries if e.get("status") == "running"]
+check(len(_s147_running) == 0,
+      f"147i: no leaked running entries in storage (found {len(_s147_running)})")
+
+# Cleanup section 147
+_s147_dock._stop_on_error = False
+_s147_dock._loop_enabled = False
+_s147_dock._cascade_variables = []
+_s147_dock._current_cascade_name = None
+_s147_win._clear_cascade_history()
+_s147_win.close()
+_s147_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s147_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 148 — CascadeHistoryDialog (UI only, Phase 3)
+# =====================================================================
+print("\n=== SECTION 148: CascadeHistoryDialog (UI only) ===")
+
+# Synthetic history covering: multiple statuses, loop iterations, untitled
+# cascade, step error, skipped step.
+_s148_now = time.time()
+_s148_history = [
+    {
+        "id": "s148_aaa",
+        "name": "Alpha Cascade",
+        "status": "completed",
+        "started_at": _s148_now - 120,
+        "finished_at": _s148_now - 60,
+        "loop_index": 0,
+        "stop_on_error": True,
+        "steps": [
+            {"index": 0, "tool_name": "nmap", "tool_path": "/path/nmap.json",
+             "preset_path": None, "command": "nmap -sV 10.0.0.1",
+             "exit_code": 0, "error": None,
+             "started_at": _s148_now - 120, "finished_at": _s148_now - 90,
+             "captures": {}},
+            {"index": 1, "tool_name": "nikto", "tool_path": "/path/nikto.json",
+             "preset_path": None, "command": "nikto -h 10.0.0.1",
+             "exit_code": 0, "error": None,
+             "started_at": _s148_now - 90, "finished_at": _s148_now - 60,
+             "captures": {"IP": "10.0.0.1"}},
+        ],
+    },
+    {
+        "id": "s148_bbb",
+        "name": "Bravo Cascade",
+        "status": "error_halted",
+        "started_at": _s148_now - 3600,
+        "finished_at": _s148_now - 3500,
+        "loop_index": 0,
+        "stop_on_error": True,
+        "steps": [
+            {"index": 0, "tool_name": "curl", "tool_path": "/path/curl.json",
+             "preset_path": None, "command": "curl http://example.com",
+             "exit_code": 0, "error": None,
+             "started_at": _s148_now - 3600, "finished_at": _s148_now - 3550,
+             "captures": {}},
+            {"index": 1, "tool_name": "wget", "tool_path": "/path/wget.json",
+             "preset_path": None, "command": "wget http://example.com",
+             "exit_code": None, "error": "failed_to_start",
+             "started_at": _s148_now - 3550, "finished_at": _s148_now - 3500,
+             "captures": {}},
+            {"index": 2, "tool_name": "dig", "tool_path": "/path/dig.json",
+             "preset_path": None, "command": "dig example.com",
+             "exit_code": None, "error": None,
+             "started_at": None, "finished_at": None,
+             "captures": {}},
+        ],
+    },
+    # Loop cascade — iteration 0
+    {
+        "id": "s148_ccc",
+        "name": "Loop Cascade",
+        "status": "completed",
+        "started_at": _s148_now - 7200,
+        "finished_at": _s148_now - 7100,
+        "loop_index": 0,
+        "stop_on_error": False,
+        "steps": [
+            {"index": 0, "tool_name": "ping", "tool_path": "/path/ping.json",
+             "preset_path": None, "command": "ping -c 1 10.0.0.1",
+             "exit_code": 0, "error": None,
+             "started_at": _s148_now - 7200, "finished_at": _s148_now - 7100,
+             "captures": {}},
+        ],
+    },
+    # Loop cascade — iteration 1
+    {
+        "id": "s148_ddd",
+        "name": "Loop Cascade",
+        "status": "stopped",
+        "started_at": _s148_now - 7000,
+        "finished_at": _s148_now - 6900,
+        "loop_index": 1,
+        "stop_on_error": False,
+        "steps": [
+            {"index": 0, "tool_name": "ping", "tool_path": "/path/ping.json",
+             "preset_path": None, "command": "ping -c 1 10.0.0.1",
+             "exit_code": 0, "error": None,
+             "started_at": _s148_now - 7000, "finished_at": _s148_now - 6900,
+             "captures": {}},
+        ],
+    },
+    # Unsaved (empty name) cascade with crashed step
+    {
+        "id": "s148_eee",
+        "name": "",
+        "status": "crashed",
+        "started_at": _s148_now - 86400,
+        "finished_at": _s148_now - 86300,
+        "loop_index": 0,
+        "stop_on_error": True,
+        "steps": [
+            {"index": 0, "tool_name": "nmap", "tool_path": "/path/nmap.json",
+             "preset_path": None, "command": "nmap -sS 192.168.1.1",
+             "exit_code": None, "error": "crashed",
+             "started_at": _s148_now - 86400, "finished_at": _s148_now - 86300,
+             "captures": {}},
+        ],
+    },
+]
+
+_s148_dlg = scaffold.CascadeHistoryDialog(_s148_history)
+app.processEvents()
+
+# 148a: tree populates with correct parent/child structure
+check(_s148_dlg.tree.topLevelItemCount() == 5,
+      "148a: five top-level (cascade) rows")
+
+_s148_child_counts = [
+    _s148_dlg.tree.topLevelItem(i).childCount()
+    for i in range(_s148_dlg.tree.topLevelItemCount())
+]
+check(_s148_child_counts == [2, 3, 1, 1, 1],
+      f"148b: child (step) counts match input: {_s148_child_counts}")
+
+# 148c: status glyphs render correctly for each status
+_s148_glyph_map = {
+    "completed": "+", "error_halted": "!", "stopped": "-", "crashed": "x",
+}
+_s148_actual_glyphs = [
+    _s148_dlg.tree.topLevelItem(i).text(0)
+    for i in range(_s148_dlg.tree.topLevelItemCount())
+]
+check(_s148_actual_glyphs == ["+", "!", "+", "-", "x"],
+      f"148c: status glyphs match expected: {_s148_actual_glyphs}")
+
+# 148d: glyph colors
+_s148_color_0 = _s148_dlg.tree.topLevelItem(0).foreground(0).color().name()
+_s148_color_1 = _s148_dlg.tree.topLevelItem(1).foreground(0).color().name()
+_s148_color_3 = _s148_dlg.tree.topLevelItem(3).foreground(0).color().name()
+_s148_color_4 = _s148_dlg.tree.topLevelItem(4).foreground(0).color().name()
+check(_s148_color_0 == "#22bb45", f"148d: completed glyph green ({_s148_color_0})")
+check(_s148_color_1 == "#dd3333", f"148d: error_halted glyph red ({_s148_color_1})")
+check(_s148_color_3 == "#dd8800", f"148d: stopped glyph orange ({_s148_color_3})")
+check(_s148_color_4 == "#dd3333", f"148d: crashed glyph red ({_s148_color_4})")
+
+# 148e: cascade name display — named vs untitled
+check(_s148_dlg.tree.topLevelItem(0).text(1) == "Alpha Cascade",
+      "148e: named cascade shows name")
+check(_s148_dlg.tree.topLevelItem(4).text(1) == "(untitled)",
+      "148e: unnamed cascade shows (untitled)")
+check(_s148_dlg.tree.topLevelItem(4).font(1).italic(),
+      "148e: (untitled) is italic")
+
+# 148f: steps column shows ran/total
+check(_s148_dlg.tree.topLevelItem(0).text(2) == "2/2",
+      "148f: completed cascade steps 2/2")
+check(_s148_dlg.tree.topLevelItem(1).text(2) == "2/3",
+      "148f: error_halted cascade steps 2/3 (one skipped)")
+
+# 148g: step child rows — exit code and error rendering
+_s148_bravo = _s148_dlg.tree.topLevelItem(1)
+_s148_step0 = _s148_bravo.child(0)  # exit_code=0, no error
+_s148_step1 = _s148_bravo.child(1)  # error=failed_to_start
+_s148_step2 = _s148_bravo.child(2)  # skipped (null exit_code, null error)
+check(_s148_step0.text(2) == "0",
+      f"148g: step with exit 0 shows '0' ({_s148_step0.text(2)})")
+check(_s148_step0.foreground(2).color().name() == "#22bb45",
+      "148g: step exit 0 is green")
+check(_s148_step1.text(2) == "not found",
+      f"148g: failed_to_start step shows 'not found' ({_s148_step1.text(2)})")
+check(_s148_step1.foreground(2).color().name() == "#dd3333",
+      "148g: failed_to_start step is red")
+check(_s148_step2.text(2) == "\u2014",
+      f"148g: skipped step shows em dash ({_s148_step2.text(2)})")
+check(_s148_step2.foreground(2).color().name() == "#888888",
+      "148g: skipped step is grey")
+
+# 148h: step child rows — tool name and command
+check(_s148_step0.text(1) == "curl",
+      f"148h: step tool name ({_s148_step0.text(1)})")
+check(_s148_step1.text(3) == "wget http://example.com",
+      f"148h: step command text ({_s148_step1.text(3)})")
+
+# 148i: step index column is 1-based
+check(_s148_step0.text(0) == "1", "148i: first step index is 1")
+check(_s148_step1.text(0) == "2", "148i: second step index is 2")
+check(_s148_step2.text(0) == "3", "148i: third step index is 3")
+
+# 148j: loop cascade entries are separate top-level rows
+_s148_loop0 = _s148_dlg.tree.topLevelItem(2)
+_s148_loop1 = _s148_dlg.tree.topLevelItem(3)
+check(_s148_loop0.text(1) == "Loop Cascade" and _s148_loop1.text(1) == "Loop Cascade",
+      "148j: both loop iterations appear as separate rows")
+check(_s148_loop0.text(0) == "+" and _s148_loop1.text(0) == "-",
+      "148j: loop iterations have distinct status glyphs")
+
+# --- Button enablement: no selection ---
+# 148k: nothing selected — action buttons disabled, Clear All enabled
+_s148_dlg.tree.clearSelection()
+app.processEvents()
+check(not _s148_dlg.restore_step_btn.isEnabled(),
+      "148k: Restore Step disabled with no selection")
+check(not _s148_dlg.restore_cascade_btn.isEnabled(),
+      "148k: Restore Cascade disabled with no selection")
+check(not _s148_dlg.export_btn.isEnabled(),
+      "148k: Export disabled with no selection")
+check(not _s148_dlg.delete_btn.isEnabled(),
+      "148k: Delete Entry disabled with no selection")
+check(_s148_dlg.clear_btn.isEnabled(),
+      "148k: Clear All enabled when history non-empty")
+check(_s148_dlg.close_btn.isEnabled(),
+      "148k: Close always enabled")
+
+# --- Button enablement: cascade row selected ---
+# 148l: select a cascade row
+_s148_dlg.tree.setCurrentItem(_s148_dlg.tree.topLevelItem(0))
+app.processEvents()
+check(not _s148_dlg.restore_step_btn.isEnabled(),
+      "148l: Restore Step disabled with cascade selected")
+check(_s148_dlg.restore_cascade_btn.isEnabled(),
+      "148l: Restore Cascade enabled with cascade selected")
+check(_s148_dlg.export_btn.isEnabled(),
+      "148l: Export enabled with cascade selected")
+check(_s148_dlg.delete_btn.isEnabled(),
+      "148l: Delete Entry enabled with cascade selected")
+
+# --- Button enablement: step row selected ---
+# 148m: select a step (child) row
+_s148_dlg.tree.topLevelItem(0).setExpanded(True)
+_s148_dlg.tree.setCurrentItem(_s148_dlg.tree.topLevelItem(0).child(0))
+app.processEvents()
+check(_s148_dlg.restore_step_btn.isEnabled(),
+      "148m: Restore Step enabled with step selected")
+check(_s148_dlg.restore_cascade_btn.isEnabled(),
+      "148m: Restore Cascade enabled with step selected")
+check(_s148_dlg.export_btn.isEnabled(),
+      "148m: Export enabled with step selected")
+check(_s148_dlg.delete_btn.isEnabled(),
+      "148m: Delete Entry enabled with step selected")
+
+# --- Filter ---
+# 148n: filter narrows visible rows
+_s148_dlg.search_bar.setText("Alpha")
+app.processEvents()
+_s148_visible_top = [
+    not _s148_dlg.tree.topLevelItem(i).isHidden()
+    for i in range(_s148_dlg.tree.topLevelItemCount())
+]
+check(_s148_visible_top == [True, False, False, False, False],
+      f"148n: filter 'Alpha' shows only first cascade: {_s148_visible_top}")
+
+# 148o: filter matches step content (tool name)
+_s148_dlg.search_bar.setText("wget")
+app.processEvents()
+_s148_visible_top2 = [
+    not _s148_dlg.tree.topLevelItem(i).isHidden()
+    for i in range(_s148_dlg.tree.topLevelItemCount())
+]
+check(_s148_visible_top2[1] is True,
+      "148o: filter 'wget' shows Bravo cascade (has wget step)")
+check(sum(_s148_visible_top2) == 1,
+      f"148o: only one cascade visible for 'wget': {_s148_visible_top2}")
+
+# 148p: clearing filter restores all rows
+_s148_dlg.search_bar.clear()
+app.processEvents()
+_s148_visible_all = [
+    not _s148_dlg.tree.topLevelItem(i).isHidden()
+    for i in range(_s148_dlg.tree.topLevelItemCount())
+]
+check(all(_s148_visible_all),
+      f"148p: clearing filter restores all rows: {_s148_visible_all}")
+
+# --- Expand / collapse ---
+# 148q: expand/collapse toggles child visibility
+_s148_dlg.tree.topLevelItem(0).setExpanded(True)
+app.processEvents()
+check(_s148_dlg.tree.topLevelItem(0).isExpanded(),
+      "148q: cascade row expanded")
+_s148_dlg.tree.topLevelItem(0).setExpanded(False)
+app.processEvents()
+check(not _s148_dlg.tree.topLevelItem(0).isExpanded(),
+      "148q: cascade row collapsed")
+
+# --- Delete Entry ---
+# 148r: delete a cascade entry by selecting cascade row
+_s148_dlg.tree.setCurrentItem(_s148_dlg.tree.topLevelItem(1))  # Bravo
+app.processEvents()
+_s148_dlg._on_delete()
+app.processEvents()
+check(len(_s148_dlg.history) == 4,
+      f"148r: delete removes entry from history ({len(_s148_dlg.history)})")
+check(_s148_dlg.tree.topLevelItemCount() == 4,
+      f"148r: tree refreshes after delete ({_s148_dlg.tree.topLevelItemCount()})")
+# Verify the correct entry was removed (Bravo had id s148_bbb)
+_s148_remaining_ids = [e["id"] for e in _s148_dlg.history]
+check("s148_bbb" not in _s148_remaining_ids,
+      f"148r: deleted entry no longer in history: {_s148_remaining_ids}")
+
+# 148s: delete via step selection deletes parent cascade
+_s148_dlg.tree.topLevelItem(0).setExpanded(True)
+_s148_dlg.tree.setCurrentItem(_s148_dlg.tree.topLevelItem(0).child(0))
+app.processEvents()
+_s148_dlg._on_delete()
+app.processEvents()
+check(len(_s148_dlg.history) == 3,
+      f"148s: step-level delete removes parent cascade ({len(_s148_dlg.history)})")
+check("s148_aaa" not in [e["id"] for e in _s148_dlg.history],
+      "148s: Alpha cascade removed via step selection")
+
+# --- Clear All ---
+# 148t: clear all with confirmation (monkeypatch Yes)
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+_s148_dlg._on_clear()
+app.processEvents()
+check(len(_s148_dlg.history) == 0,
+      f"148t: clear all empties history ({len(_s148_dlg.history)})")
+check(_s148_dlg.tree.topLevelItemCount() == 0,
+      f"148t: tree empty after clear ({_s148_dlg.tree.topLevelItemCount()})")
+check(not _s148_dlg.clear_btn.isEnabled(),
+      "148t: Clear All disabled after clearing")
+check(not _s148_dlg.empty_label.isHidden(),
+      "148t: empty-state label visible after clearing")
+# Restore monkeypatch
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
+
+# 148u: Clear All declined does NOT clear
+# Rebuild dialog with fresh data for this test
+_s148_dlg2 = scaffold.CascadeHistoryDialog([{
+    "id": "s148_uu", "name": "Keep Me", "status": "completed",
+    "started_at": _s148_now - 10, "finished_at": _s148_now - 5,
+    "loop_index": 0, "stop_on_error": False, "steps": [],
+}])
+app.processEvents()
+# question returns No (default monkeypatch)
+_s148_dlg2._on_clear()
+app.processEvents()
+check(len(_s148_dlg2.history) == 1,
+      f"148u: clear declined keeps history ({len(_s148_dlg2.history)})")
+check(_s148_dlg2.tree.topLevelItemCount() == 1,
+      "148u: tree unchanged after declined clear")
+
+# --- Close behaviour ---
+# 148v: close button triggers reject
+_s148_closed = []
+_s148_dlg2.rejected.connect(lambda: _s148_closed.append(True))
+_s148_dlg2.close_btn.click()
+app.processEvents()
+check(len(_s148_closed) == 1,
+      "148v: close button emits rejected signal")
+
+# --- Empty history ---
+# 148w: dialog with empty history shows empty state
+_s148_empty = scaffold.CascadeHistoryDialog([])
+app.processEvents()
+check(not _s148_empty.empty_label.isHidden(),
+      "148w: empty-state label visible for empty history")
+check(not _s148_empty.tree.isVisible(),
+      "148w: tree hidden for empty history")
+check(not _s148_empty.search_bar.isVisible(),
+      "148w: search bar hidden for empty history")
+check(not _s148_empty.clear_btn.isEnabled(),
+      "148w: Clear All disabled for empty history")
+
+# --- running status glyph (graceful handling) ---
+# 148x: running status renders without error
+_s148_running_dlg = scaffold.CascadeHistoryDialog([{
+    "id": "s148_run", "name": "Running Test", "status": "running",
+    "started_at": _s148_now - 5, "finished_at": None,
+    "loop_index": 0, "stop_on_error": False, "steps": [],
+}])
+app.processEvents()
+check(_s148_running_dlg.tree.topLevelItem(0).text(0) == "~",
+      "148x: running status shows ~ glyph")
+check(_s148_running_dlg.tree.topLevelItem(0).foreground(0).color().name() == "#3388dd",
+      "148x: running glyph is blue")
+
+# Cleanup section 148
+_s148_dlg.close()
+_s148_dlg.deleteLater()
+_s148_dlg2.close()
+_s148_dlg2.deleteLater()
+_s148_empty.close()
+_s148_empty.deleteLater()
+_s148_running_dlg.close()
+_s148_running_dlg.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 149 — Cascade History Restore Actions (Phase 4)
+# =====================================================================
+print("\n=== SECTION 149: Cascade History Restore Actions ===")
+
+_s149_win = scaffold.MainWindow()
+_s149_win.show()
+app.processEvents()
+
+_s149_tmpdir = tempfile.mkdtemp(prefix="scaffold_test149_")
+
+# --- Create real tool files on disk for restore tests ---
+_s149_tool_a = {
+    "_format": "scaffold_schema",
+    "tool": "s149_alpha",
+    "binary": "echo",
+    "description": "Test tool A for cascade restore",
+    "arguments": [
+        {"name": "Target", "flag": "--target", "type": "string", "default": "localhost"},
+        {"name": "Port", "flag": "--port", "type": "integer", "default": 80},
+        {"name": "Verbose", "flag": "-v", "type": "boolean"},
+    ],
+}
+_s149_tool_a_path = os.path.join(_s149_tmpdir, "s149_alpha.json")
+Path(_s149_tool_a_path).write_text(json.dumps(_s149_tool_a))
+
+_s149_tool_b = {
+    "_format": "scaffold_schema",
+    "tool": "s149_bravo",
+    "binary": "echo",
+    "description": "Test tool B for cascade restore",
+    "arguments": [
+        {"name": "URL", "flag": "--url", "type": "string", "default": "http://example.com"},
+    ],
+}
+_s149_tool_b_path = os.path.join(_s149_tmpdir, "s149_bravo.json")
+Path(_s149_tool_b_path).write_text(json.dumps(_s149_tool_b))
+
+# Create a preset file for tool A
+_s149_preset_a = {
+    "_format": "scaffold_preset",
+    "_schema_hash": "",
+    "--target": "192.168.1.1",
+    "--port": 8080,
+    "-v": True,
+}
+_s149_preset_a_path = os.path.join(_s149_tmpdir, "s149_alpha_preset.json")
+Path(_s149_preset_a_path).write_text(json.dumps(_s149_preset_a))
+
+_s149_now = time.time()
+
+# --- Build a config snapshot matching _build_cascade_config_snapshot format ---
+_s149_config = {
+    "slots": [
+        {
+            "tool_path": _s149_tool_a_path,
+            "preset_path": _s149_preset_a_path,
+            "delay": 5,
+            "captures": [{"name": "OUT_IP", "pattern": r"\d+\.\d+\.\d+\.\d+", "source": "stdout"}],
+        },
+        {
+            "tool_path": _s149_tool_b_path,
+            "preset_path": None,
+            "delay": 0,
+            "captures": [],
+        },
+    ],
+    "variables": [
+        {"name": "target_ip", "flag": "--target", "type_hint": "string",
+         "description": "Target IP", "apply_to": "all"},
+    ],
+    "loop_mode": True,
+    "stop_on_error": True,
+    "cascade_name": "Test Cascade Alpha",
+}
+
+# Cascade run entry with config snapshot
+_s149_run_entry = {
+    "id": "s149_run1",
+    "name": "Test Cascade Alpha",
+    "status": "completed",
+    "started_at": _s149_now - 120,
+    "finished_at": _s149_now - 60,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [
+        {"index": 0, "tool_name": "s149_alpha", "tool_path": _s149_tool_a_path,
+         "preset_path": _s149_preset_a_path, "command": "echo --target 192.168.1.1 --port 8080 -v",
+         "exit_code": 0, "error": None,
+         "started_at": _s149_now - 120, "finished_at": _s149_now - 90,
+         "captures": {"OUT_IP": "192.168.1.1"}},
+        {"index": 1, "tool_name": "s149_bravo", "tool_path": _s149_tool_b_path,
+         "preset_path": None, "command": "echo --url http://example.com",
+         "exit_code": 0, "error": None,
+         "started_at": _s149_now - 90, "finished_at": _s149_now - 60,
+         "captures": {}},
+    ],
+    "config": _s149_config,
+}
+
+# =====================================================================
+# 149a: Restore Step — tool loads, preset applied, form state matches
+# =====================================================================
+print("  149a: Restore Step — tool loads, preset applied")
+
+_s149_dlg_a = scaffold.CascadeHistoryDialog([_s149_run_entry], parent=_s149_win)
+app.processEvents()
+
+# Select the first step (child) row
+_s149_dlg_a.tree.topLevelItem(0).setExpanded(True)
+_s149_dlg_a.tree.setCurrentItem(_s149_dlg_a.tree.topLevelItem(0).child(0))
+app.processEvents()
+
+# Trigger restore step
+_s149_dlg_a._on_restore_step()
+app.processEvents()
+
+check(_s149_dlg_a.restore_result is not None,
+      "149a: restore_result is set after restore step")
+check(_s149_dlg_a.restore_result["action"] == "step",
+      "149a: restore_result action is 'step'")
+check(_s149_dlg_a.restore_result["step"]["tool_path"] == _s149_tool_a_path,
+      "149a: step tool_path matches")
+
+# Simulate what _on_show_cascade_history does (load tool + apply preset)
+_s149_win._load_tool_path(_s149_dlg_a.restore_result["step"]["tool_path"])
+app.processEvents()
+check(_s149_win.data is not None and _s149_win.data["tool"] == "s149_alpha",
+      "149a: tool loaded into main form")
+
+_s149_pdata = scaffold._read_json_file(_s149_dlg_a.restore_result["step"]["preset_path"])
+_s149_win.form.apply_values(_s149_pdata)
+app.processEvents()
+
+# Verify form state matches preset
+_s149_form_vals = _s149_win.form.serialize_values()
+check(_s149_form_vals.get("--target") == "192.168.1.1",
+      f"149a: --target field restored ({_s149_form_vals.get('--target')})")
+check(_s149_form_vals.get("--port") == 8080,
+      f"149a: --port field restored ({_s149_form_vals.get('--port')})")
+check(_s149_form_vals.get("-v") is True,
+      f"149a: -v field restored ({_s149_form_vals.get('-v')})")
+
+_s149_dlg_a.close()
+_s149_dlg_a.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149b: Restore Step — tool no longer exists: graceful error, no crash
+# =====================================================================
+print("  149b: Restore Step — missing tool shows error")
+
+_s149_missing_step_entry = {
+    "id": "s149_miss",
+    "name": "Missing Tool Cascade",
+    "status": "completed",
+    "started_at": _s149_now - 300,
+    "finished_at": _s149_now - 250,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [
+        {"index": 0, "tool_name": "nonexistent", "tool_path": "/nonexistent/tool.json",
+         "preset_path": None, "command": "nonexistent --foo",
+         "exit_code": 0, "error": None,
+         "started_at": _s149_now - 300, "finished_at": _s149_now - 250,
+         "captures": {}},
+    ],
+    "config": {"slots": [{"tool_path": "/nonexistent/tool.json", "preset_path": None,
+                           "delay": 0, "captures": []}],
+               "variables": [], "loop_mode": False, "stop_on_error": False,
+               "cascade_name": ""},
+}
+
+_s149_dlg_b = scaffold.CascadeHistoryDialog(
+    [_s149_missing_step_entry], parent=_s149_win
+)
+app.processEvents()
+
+# Select the step row
+_s149_dlg_b.tree.topLevelItem(0).setExpanded(True)
+_s149_dlg_b.tree.setCurrentItem(_s149_dlg_b.tree.topLevelItem(0).child(0))
+app.processEvents()
+
+# Monkeypatch QMessageBox.warning to capture the call instead of blocking
+_s149_warnings = []
+_s149_orig_warn = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: _s149_warnings.append(a[1] if len(a) > 1 else "")
+_s149_dlg_b._on_restore_step()
+app.processEvents()
+QMessageBox.warning = _s149_orig_warn
+
+check(len(_s149_warnings) == 1,
+      f"149b: warning shown for missing tool ({len(_s149_warnings)} warnings)")
+check("Tool Not Found" in str(_s149_warnings),
+      f"149b: warning title is 'Tool Not Found' ({_s149_warnings})")
+check(_s149_dlg_b.restore_result is None,
+      "149b: restore_result stays None (dialog did not accept)")
+# History entry remains
+check(len(_s149_dlg_b.history) == 1,
+      "149b: history entry not deleted on missing tool")
+
+_s149_dlg_b.close()
+_s149_dlg_b.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149c: Restore Cascade — all fields applied to CascadeSidebar
+# =====================================================================
+print("  149c: Restore Cascade — full config snapshot restore")
+
+_s149_dock = _s149_win.cascade_dock
+
+# Pre-populate sidebar with unrelated state to verify clean replace (149g)
+_s149_dock._cascade_variables = [
+    {"name": "old_var", "flag": "--old", "type_hint": "string",
+     "description": "stale", "apply_to": "all"},
+    {"name": "another", "flag": "--another", "type_hint": "integer",
+     "description": "stale2", "apply_to": "none"},
+]
+_s149_dock._loop_enabled = False
+_s149_dock._style_loop_btn()
+_s149_dock._stop_on_error = False
+_s149_dock._style_stop_on_error_btn()
+_s149_dock._current_cascade_name = "Old Name"
+_s149_dock._save_cascade()
+app.processEvents()
+
+_s149_dlg_c = scaffold.CascadeHistoryDialog([_s149_run_entry], parent=_s149_win)
+app.processEvents()
+
+# Select cascade row and trigger restore
+_s149_dlg_c.tree.setCurrentItem(_s149_dlg_c.tree.topLevelItem(0))
+app.processEvents()
+_s149_dlg_c._on_restore_cascade()
+app.processEvents()
+
+check(_s149_dlg_c.restore_result is not None,
+      "149c: restore_result is set after restore cascade")
+check(_s149_dlg_c.restore_result["action"] == "cascade",
+      "149c: restore_result action is 'cascade'")
+
+# Apply config to sidebar (mirrors _on_show_cascade_history)
+_s149_dock._restore_cascade_config(_s149_dlg_c.restore_result["config"])
+app.processEvents()
+
+# Assert each field explicitly
+# Slot tools
+check(len(_s149_dock._slots) == 2,
+      f"149c: slot count matches config ({len(_s149_dock._slots)})")
+check(_s149_dock._slots[0]["tool_path"] == _s149_tool_a_path,
+      f"149c: slot 0 tool_path restored ({_s149_dock._slots[0]['tool_path']})")
+check(_s149_dock._slots[1]["tool_path"] == _s149_tool_b_path,
+      f"149c: slot 1 tool_path restored ({_s149_dock._slots[1]['tool_path']})")
+
+# Slot presets
+check(_s149_dock._slots[0]["preset_path"] == _s149_preset_a_path,
+      f"149c: slot 0 preset_path restored ({_s149_dock._slots[0]['preset_path']})")
+check(_s149_dock._slots[1]["preset_path"] is None,
+      "149c: slot 1 preset_path is None")
+
+# Slot delays
+check(_s149_dock._slots[0]["delay"] == 5,
+      f"149c: slot 0 delay restored ({_s149_dock._slots[0]['delay']})")
+check(_s149_dock._slots[1]["delay"] == 0,
+      f"149c: slot 1 delay restored ({_s149_dock._slots[1]['delay']})")
+
+# Slot captures
+check(len(_s149_dock._slots[0]["captures"]) == 1,
+      f"149c: slot 0 captures restored ({_s149_dock._slots[0]['captures']})")
+check(_s149_dock._slots[0]["captures"][0]["name"] == "OUT_IP",
+      "149c: slot 0 capture name is OUT_IP")
+check(len(_s149_dock._slots[1]["captures"]) == 0,
+      "149c: slot 1 captures empty")
+
+# Variables
+check(len(_s149_dock._cascade_variables) == 1,
+      f"149c: variable count restored ({len(_s149_dock._cascade_variables)})")
+check(_s149_dock._cascade_variables[0]["name"] == "target_ip",
+      f"149c: variable name restored ({_s149_dock._cascade_variables[0]['name']})")
+check(_s149_dock._cascade_variables[0]["flag"] == "--target",
+      "149c: variable flag restored")
+
+# loop_mode
+check(_s149_dock._loop_enabled is True,
+      f"149c: loop_mode restored ({_s149_dock._loop_enabled})")
+
+# stop_on_error
+check(_s149_dock._stop_on_error is True,
+      f"149c: stop_on_error restored ({_s149_dock._stop_on_error})")
+
+# cascade_name
+check(_s149_dock._current_cascade_name == "Test Cascade Alpha",
+      f"149c: cascade_name restored ({_s149_dock._current_cascade_name})")
+
+_s149_dlg_c.close()
+_s149_dlg_c.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149d: Restore Cascade does NOT auto-start
+# =====================================================================
+print("  149d: Restore Cascade does not auto-start")
+
+check(_s149_dock._chain_state == scaffold.CHAIN_IDLE,
+      f"149d: chain state is CHAIN_IDLE after restore ({_s149_dock._chain_state})")
+check(_s149_win.process is None or _s149_win.process.state() == QProcess.ProcessState.NotRunning,
+      "149d: no process running after cascade restore")
+
+# =====================================================================
+# 149e: Restore Cascade — one slot's tool missing: graceful error
+# =====================================================================
+print("  149e: Restore Cascade — missing tool slot becomes empty")
+
+_s149_missing_config = {
+    "slots": [
+        {"tool_path": _s149_tool_a_path, "preset_path": None, "delay": 0, "captures": []},
+        {"tool_path": "/nonexistent/s149_gone.json", "preset_path": None, "delay": 3, "captures": []},
+    ],
+    "variables": [],
+    "loop_mode": False,
+    "stop_on_error": False,
+    "cascade_name": "Partial Cascade",
+}
+
+_s149_partial_entry = {
+    "id": "s149_partial",
+    "name": "Partial Cascade",
+    "status": "completed",
+    "started_at": _s149_now - 60,
+    "finished_at": _s149_now - 30,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    "config": _s149_missing_config,
+}
+
+_s149_dlg_e = scaffold.CascadeHistoryDialog([_s149_partial_entry], parent=_s149_win)
+app.processEvents()
+
+_s149_dlg_e.tree.setCurrentItem(_s149_dlg_e.tree.topLevelItem(0))
+app.processEvents()
+
+# Monkeypatch to capture the missing-tool warning
+_s149_e_warnings = []
+_s149_orig_warn2 = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: _s149_e_warnings.append(a[1] if len(a) > 1 else "")
+_s149_dlg_e._on_restore_cascade()
+app.processEvents()
+QMessageBox.warning = _s149_orig_warn2
+
+check(len(_s149_e_warnings) == 1,
+      f"149e: warning shown for missing tool ({len(_s149_e_warnings)})")
+check("Missing Tools" in str(_s149_e_warnings),
+      f"149e: warning title mentions missing tools ({_s149_e_warnings})")
+check(_s149_dlg_e.restore_result is not None,
+      "149e: restore still proceeds (result set)")
+
+# Apply the config to sidebar
+_s149_dock._restore_cascade_config(_s149_dlg_e.restore_result["config"])
+app.processEvents()
+
+# Slot 0 should have the valid tool
+check(_s149_dock._slots[0]["tool_path"] == _s149_tool_a_path,
+      f"149e: slot 0 tool restored ({_s149_dock._slots[0]['tool_path']})")
+# Slot 1 should be empty (missing tool nulled out)
+check(_s149_dock._slots[1]["tool_path"] is None,
+      f"149e: missing tool slot is None ({_s149_dock._slots[1]['tool_path']})")
+# Delay on slot 1 preserved even though tool is missing
+check(_s149_dock._slots[1]["delay"] == 3,
+      f"149e: slot 1 delay preserved ({_s149_dock._slots[1]['delay']})")
+
+_s149_dlg_e.close()
+_s149_dlg_e.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149f: Restore Cascade — empty cascade_name (unsaved)
+# =====================================================================
+print("  149f: Restore Cascade — empty name restores cleanly")
+
+_s149_unnamed_config = {
+    "slots": [
+        {"tool_path": _s149_tool_a_path, "preset_path": None, "delay": 0, "captures": []},
+    ],
+    "variables": [],
+    "loop_mode": False,
+    "stop_on_error": False,
+    "cascade_name": "",
+}
+
+_s149_unnamed_entry = {
+    "id": "s149_unnamed",
+    "name": "",
+    "status": "completed",
+    "started_at": _s149_now - 10,
+    "finished_at": _s149_now - 5,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    "config": _s149_unnamed_config,
+}
+
+_s149_dlg_f = scaffold.CascadeHistoryDialog([_s149_unnamed_entry], parent=_s149_win)
+app.processEvents()
+
+_s149_dlg_f.tree.setCurrentItem(_s149_dlg_f.tree.topLevelItem(0))
+app.processEvents()
+_s149_dlg_f._on_restore_cascade()
+app.processEvents()
+
+check(_s149_dlg_f.restore_result is not None,
+      "149f: restore_result set for unnamed cascade")
+_s149_dock._restore_cascade_config(_s149_dlg_f.restore_result["config"])
+app.processEvents()
+
+check(_s149_dock._current_cascade_name is None,
+      f"149f: cascade name is None for empty name ({_s149_dock._current_cascade_name})")
+
+_s149_dlg_f.close()
+_s149_dlg_f.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149g: Restore Cascade — clean replace invariant (no leaked state)
+# =====================================================================
+print("  149g: Restore Cascade — clean replace, no leaked state")
+
+# Pre-populate sidebar with different state
+_s149_dock._cascade_variables = [
+    {"name": "leaked_var1", "flag": "--leak1", "type_hint": "string",
+     "description": "should be gone", "apply_to": "all"},
+    {"name": "leaked_var2", "flag": "--leak2", "type_hint": "integer",
+     "description": "should be gone", "apply_to": "none"},
+    {"name": "leaked_var3", "flag": "--leak3", "type_hint": "float",
+     "description": "should be gone", "apply_to": "all"},
+]
+_s149_dock._loop_enabled = True
+_s149_dock._style_loop_btn()
+_s149_dock._stop_on_error = True
+_s149_dock._style_stop_on_error_btn()
+_s149_dock._current_cascade_name = "Stale Cascade Name"
+_s149_dock._save_cascade()
+app.processEvents()
+
+# Verify pre-state is set
+check(len(_s149_dock._cascade_variables) == 3, "149g-pre: 3 stale variables set")
+check(_s149_dock._loop_enabled is True, "149g-pre: loop_mode is True")
+
+# Now restore a different cascade with different state
+_s149_clean_config = {
+    "slots": [
+        {"tool_path": _s149_tool_b_path, "preset_path": None, "delay": 10, "captures": []},
+    ],
+    "variables": [
+        {"name": "clean_var", "flag": "--clean", "type_hint": "string",
+         "description": "fresh", "apply_to": "all"},
+    ],
+    "loop_mode": False,
+    "stop_on_error": False,
+    "cascade_name": "Clean Cascade",
+}
+
+_s149_dock._restore_cascade_config(_s149_clean_config)
+app.processEvents()
+
+# Assert no leaked state from prior config
+check(len(_s149_dock._cascade_variables) == 1,
+      f"149g: variable count is 1 not 3 ({len(_s149_dock._cascade_variables)})")
+check(_s149_dock._cascade_variables[0]["name"] == "clean_var",
+      f"149g: variable is clean_var not leaked ({_s149_dock._cascade_variables[0]['name']})")
+check(_s149_dock._loop_enabled is False,
+      f"149g: loop_mode replaced to False ({_s149_dock._loop_enabled})")
+check(_s149_dock._stop_on_error is False,
+      f"149g: stop_on_error replaced to False ({_s149_dock._stop_on_error})")
+check(_s149_dock._current_cascade_name == "Clean Cascade",
+      f"149g: cascade name replaced ({_s149_dock._current_cascade_name})")
+# Slot count should match new config (1 slot, padded to CASCADE_INITIAL_SLOTS=2)
+check(len(_s149_dock._slots) >= 1,
+      f"149g: at least 1 slot ({len(_s149_dock._slots)})")
+check(_s149_dock._slots[0]["tool_path"] == _s149_tool_b_path,
+      f"149g: slot 0 is from new config ({_s149_dock._slots[0]['tool_path']})")
+check(_s149_dock._slots[0]["delay"] == 10,
+      f"149g: slot 0 delay is from new config ({_s149_dock._slots[0]['delay']})")
+# If padded, extra slots should be empty
+if len(_s149_dock._slots) > 1:
+    check(_s149_dock._slots[1]["tool_path"] is None,
+          "149g: padded slot 1 is empty")
+
+# =====================================================================
+# 149h: Restore Cascade — entry without config key shows error
+# =====================================================================
+print("  149h: Restore Cascade — no config snapshot shows error")
+
+_s149_no_config_entry = {
+    "id": "s149_noconfig",
+    "name": "No Config",
+    "status": "completed",
+    "started_at": _s149_now - 500,
+    "finished_at": _s149_now - 450,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    # no "config" key
+}
+
+_s149_dlg_h = scaffold.CascadeHistoryDialog([_s149_no_config_entry], parent=_s149_win)
+app.processEvents()
+
+_s149_dlg_h.tree.setCurrentItem(_s149_dlg_h.tree.topLevelItem(0))
+app.processEvents()
+
+_s149_h_warnings = []
+_s149_orig_warn3 = QMessageBox.warning
+QMessageBox.warning = lambda *a, **kw: _s149_h_warnings.append(a[1] if len(a) > 1 else "")
+_s149_dlg_h._on_restore_cascade()
+app.processEvents()
+QMessageBox.warning = _s149_orig_warn3
+
+check(len(_s149_h_warnings) == 1,
+      f"149h: warning shown for missing config ({len(_s149_h_warnings)})")
+check(_s149_dlg_h.restore_result is None,
+      "149h: restore_result stays None (no config)")
+
+_s149_dlg_h.close()
+_s149_dlg_h.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149i: Restore Step — selecting cascade row does nothing
+# =====================================================================
+print("  149i: Restore Step — cascade row selection does nothing")
+
+_s149_dlg_i = scaffold.CascadeHistoryDialog([_s149_run_entry], parent=_s149_win)
+app.processEvents()
+
+# Select cascade (parent) row, NOT a step
+_s149_dlg_i.tree.setCurrentItem(_s149_dlg_i.tree.topLevelItem(0))
+app.processEvents()
+_s149_dlg_i._on_restore_step()
+app.processEvents()
+
+check(_s149_dlg_i.restore_result is None,
+      "149i: restore step does nothing on cascade row")
+
+_s149_dlg_i.close()
+_s149_dlg_i.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 149j: Restore Cascade via step row selection restores parent cascade
+# =====================================================================
+print("  149j: Restore Cascade — step selection restores parent cascade")
+
+_s149_dlg_j = scaffold.CascadeHistoryDialog([_s149_run_entry], parent=_s149_win)
+app.processEvents()
+
+# Select a step (child) row
+_s149_dlg_j.tree.topLevelItem(0).setExpanded(True)
+_s149_dlg_j.tree.setCurrentItem(_s149_dlg_j.tree.topLevelItem(0).child(1))
+app.processEvents()
+_s149_dlg_j._on_restore_cascade()
+app.processEvents()
+
+check(_s149_dlg_j.restore_result is not None,
+      "149j: restore cascade works from step selection")
+check(_s149_dlg_j.restore_result["action"] == "cascade",
+      "149j: action is 'cascade'")
+check(_s149_dlg_j.restore_result["config"]["cascade_name"] == "Test Cascade Alpha",
+      "149j: config from parent cascade entry")
+
+_s149_dlg_j.close()
+_s149_dlg_j.deleteLater()
+app.processEvents()
+
+# --- Cleanup section 149 ---
+# Reset sidebar to neutral state
+_s149_dock._cascade_variables = []
+_s149_dock._loop_enabled = False
+_s149_dock._style_loop_btn()
+_s149_dock._stop_on_error = False
+_s149_dock._style_stop_on_error_btn()
+_s149_dock._current_cascade_name = None
+_s149_dock._save_cascade()
+_s149_dock._update_loaded_label()
+app.processEvents()
+
+try:
+    shutil.rmtree(_s149_tmpdir)
+except OSError:
+    pass
+
+_s149_win.close()
+_s149_win.deleteLater()
+app.processEvents()
+
+
+# Section 150 — Cascade History Export (Phase 5)
+# =====================================================================
+print("\n=== SECTION 150: Cascade History Export ===")
+
+_s150_win = scaffold.MainWindow()
+_s150_win.show()
+app.processEvents()
+
+_s150_tmpdir = tempfile.mkdtemp(prefix="scaffold_test150_")
+
+_s150_now = time.time()
+
+# Build two cascade run entries with different names and step counts
+_s150_entry_a = {
+    "id": "s150_run_a",
+    "name": "Export Alpha",
+    "status": "completed",
+    "started_at": _s150_now - 300,
+    "finished_at": _s150_now - 200,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [
+        {"index": 0, "tool_name": "nmap", "tool_path": "/fake/nmap.json",
+         "preset_path": None, "command": "nmap -sV 10.0.0.1",
+         "exit_code": 0, "error": None,
+         "started_at": _s150_now - 300, "finished_at": _s150_now - 250,
+         "captures": {"OUT_IP": "10.0.0.1"}},
+        {"index": 1, "tool_name": "curl", "tool_path": "/fake/curl.json",
+         "preset_path": "/fake/curl_preset.json", "command": "curl http://10.0.0.1",
+         "exit_code": 0, "error": None,
+         "started_at": _s150_now - 250, "finished_at": _s150_now - 200,
+         "captures": {}},
+    ],
+    "config": {"slots": [], "variables": [], "loop_mode": False,
+               "stop_on_error": True, "cascade_name": "Export Alpha"},
+}
+
+_s150_entry_b = {
+    "id": "s150_run_b",
+    "name": "Export Bravo",
+    "status": "error_halted",
+    "started_at": _s150_now - 600,
+    "finished_at": _s150_now - 500,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [
+        {"index": 0, "tool_name": "ping", "tool_path": "/fake/ping.json",
+         "preset_path": None, "command": "ping -c 4 10.0.0.2",
+         "exit_code": 1, "error": None,
+         "started_at": _s150_now - 600, "finished_at": _s150_now - 500,
+         "captures": {}},
+    ],
+    "config": {"slots": [], "variables": [], "loop_mode": False,
+               "stop_on_error": True, "cascade_name": "Export Bravo"},
+}
+
+_s150_history = [_s150_entry_a, _s150_entry_b]
+
+# Patch QFileDialog.getSaveFileName for controlled export targets
+from PySide6.QtWidgets import QFileDialog
+_s150_orig_getsave = QFileDialog.getSaveFileName
+
+# =====================================================================
+# 150a: Export with cascade row selected — format, version, entry correct
+# =====================================================================
+print("  150a: Export cascade row — format marker, version, entry contents")
+
+_s150_dest_a = os.path.join(_s150_tmpdir, "export_a.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_a, ""))
+
+_s150_dlg_a = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+# Select first cascade (top-level) row
+_s150_dlg_a.tree.setCurrentItem(_s150_dlg_a.tree.topLevelItem(0))
+app.processEvents()
+_s150_dlg_a._on_export()
+app.processEvents()
+
+check(os.path.exists(_s150_dest_a), "150a: export file created")
+
+_s150_parsed_a = json.loads(Path(_s150_dest_a).read_text(encoding="utf-8"))
+check(_s150_parsed_a.get("_format") == "scaffold_cascade_history",
+      "150a: _format is 'scaffold_cascade_history'")
+check(_s150_parsed_a.get("_version") == 1,
+      "150a: _version is 1")
+check(isinstance(_s150_parsed_a.get("entries"), list),
+      "150a: entries is a list")
+check(len(_s150_parsed_a["entries"]) == 1,
+      "150a: entries has exactly 1 entry")
+check(_s150_parsed_a["entries"][0]["id"] == "s150_run_a",
+      "150a: exported entry is the selected cascade (run_a)")
+check(_s150_parsed_a["entries"][0]["name"] == "Export Alpha",
+      "150a: entry name matches")
+check(len(_s150_parsed_a["entries"][0]["steps"]) == 2,
+      "150a: entry includes all steps")
+
+_s150_dlg_a.close()
+_s150_dlg_a.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150b: Export with step row selected — parent cascade exported with ALL steps
+# =====================================================================
+print("  150b: Export step row — parent cascade with all steps")
+
+_s150_dest_b = os.path.join(_s150_tmpdir, "export_b.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_b, ""))
+
+_s150_dlg_b = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+# Select second step (child) of first cascade
+_s150_dlg_b.tree.topLevelItem(0).setExpanded(True)
+app.processEvents()
+_s150_dlg_b.tree.setCurrentItem(_s150_dlg_b.tree.topLevelItem(0).child(1))
+app.processEvents()
+_s150_dlg_b._on_export()
+app.processEvents()
+
+check(os.path.exists(_s150_dest_b), "150b: export file created from step selection")
+
+_s150_parsed_b = json.loads(Path(_s150_dest_b).read_text(encoding="utf-8"))
+check(_s150_parsed_b["entries"][0]["id"] == "s150_run_a",
+      "150b: exported parent cascade (not just the step)")
+check(len(_s150_parsed_b["entries"][0]["steps"]) == 2,
+      "150b: ALL steps of parent cascade included")
+check(_s150_parsed_b["entries"][0]["steps"][0]["tool_name"] == "nmap",
+      "150b: step 0 is nmap")
+check(_s150_parsed_b["entries"][0]["steps"][1]["tool_name"] == "curl",
+      "150b: step 1 is curl")
+
+_s150_dlg_b.close()
+_s150_dlg_b.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150c: User cancels save dialog — no file written, no error
+# =====================================================================
+print("  150c: Cancel save dialog — no file written")
+
+_s150_dest_c = os.path.join(_s150_tmpdir, "export_c.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: ("", ""))
+
+_s150_dlg_c = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_c.tree.setCurrentItem(_s150_dlg_c.tree.topLevelItem(0))
+app.processEvents()
+_s150_dlg_c._on_export()
+app.processEvents()
+
+check(not os.path.exists(_s150_dest_c),
+      "150c: no file written when user cancels")
+
+_s150_dlg_c.close()
+_s150_dlg_c.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150d: Round-trip — parsed entries match input entry structure
+# =====================================================================
+print("  150d: Round-trip — write, read, parse, compare")
+
+_s150_dest_d = os.path.join(_s150_tmpdir, "export_d.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_d, ""))
+
+_s150_dlg_d = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+# Select second cascade (entry_b)
+_s150_dlg_d.tree.setCurrentItem(_s150_dlg_d.tree.topLevelItem(1))
+app.processEvents()
+_s150_dlg_d._on_export()
+app.processEvents()
+
+_s150_parsed_d = json.loads(Path(_s150_dest_d).read_text(encoding="utf-8"))
+_s150_rt_entry = _s150_parsed_d["entries"][0]
+
+check(_s150_rt_entry["id"] == _s150_entry_b["id"],
+      "150d: round-trip id matches")
+check(_s150_rt_entry["name"] == _s150_entry_b["name"],
+      "150d: round-trip name matches")
+check(_s150_rt_entry["status"] == _s150_entry_b["status"],
+      "150d: round-trip status matches")
+check(_s150_rt_entry["started_at"] == _s150_entry_b["started_at"],
+      "150d: round-trip started_at matches")
+check(_s150_rt_entry["finished_at"] == _s150_entry_b["finished_at"],
+      "150d: round-trip finished_at matches")
+check(_s150_rt_entry["steps"] == _s150_entry_b["steps"],
+      "150d: round-trip steps match exactly")
+check(_s150_rt_entry["config"] == _s150_entry_b["config"],
+      "150d: round-trip config matches")
+
+_s150_dlg_d.close()
+_s150_dlg_d.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150e: No .tmp file left behind after successful export
+# =====================================================================
+print("  150e: No .tmp residue after successful export")
+
+_s150_dest_e = os.path.join(_s150_tmpdir, "export_e.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_e, ""))
+
+_s150_dlg_e = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_e.tree.setCurrentItem(_s150_dlg_e.tree.topLevelItem(0))
+app.processEvents()
+_s150_dlg_e._on_export()
+app.processEvents()
+
+check(os.path.exists(_s150_dest_e), "150e: export file exists")
+check(not os.path.exists(_s150_dest_e + ".tmp"),
+      "150e: no .tmp file left behind")
+
+_s150_dlg_e.close()
+_s150_dlg_e.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150f: Export with no selection — no-op (defensive, button is disabled)
+# =====================================================================
+print("  150f: Export with no selection — no-op")
+
+_s150_dest_f = os.path.join(_s150_tmpdir, "export_f.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_f, ""))
+
+_s150_dlg_f = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+# Clear selection explicitly
+_s150_dlg_f.tree.clearSelection()
+app.processEvents()
+_s150_dlg_f._on_export()
+app.processEvents()
+
+check(not os.path.exists(_s150_dest_f),
+      "150f: no file written when nothing selected")
+
+_s150_dlg_f.close()
+_s150_dlg_f.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150g: Export All writes every entry (3 cascades)
+# =====================================================================
+print("  150g: Export All — all entries written")
+
+_s150_entry_c = {
+    "id": "s150_run_c",
+    "name": "Export Charlie",
+    "status": "stopped",
+    "started_at": _s150_now - 900,
+    "finished_at": _s150_now - 800,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [
+        {"index": 0, "tool_name": "traceroute", "tool_path": "/fake/tr.json",
+         "preset_path": None, "command": "traceroute 10.0.0.3",
+         "exit_code": None, "error": None,
+         "started_at": _s150_now - 900, "finished_at": None,
+         "captures": {}},
+    ],
+    "config": {"slots": [], "variables": [], "loop_mode": False,
+               "stop_on_error": False, "cascade_name": "Export Charlie"},
+}
+_s150_history_3 = [_s150_entry_a, _s150_entry_b, _s150_entry_c]
+
+_s150_dest_g = os.path.join(_s150_tmpdir, "export_g.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_g, ""))
+
+_s150_dlg_g = scaffold.CascadeHistoryDialog(list(_s150_history_3), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_g._on_export_all()
+app.processEvents()
+
+check(os.path.exists(_s150_dest_g), "150g: export-all file created")
+
+_s150_parsed_g = json.loads(Path(_s150_dest_g).read_text(encoding="utf-8"))
+check(_s150_parsed_g.get("_format") == "scaffold_cascade_history",
+      "150g: _format is 'scaffold_cascade_history'")
+check(_s150_parsed_g.get("_version") == 1,
+      "150g: _version is 1")
+check(isinstance(_s150_parsed_g.get("entries"), list),
+      "150g: entries is a list")
+check(len(_s150_parsed_g["entries"]) == 3,
+      "150g: entries has all 3 cascades")
+check(_s150_parsed_g["entries"][0]["id"] == "s150_run_a",
+      "150g: first entry is run_a")
+check(_s150_parsed_g["entries"][1]["id"] == "s150_run_b",
+      "150g: second entry is run_b")
+check(_s150_parsed_g["entries"][2]["id"] == "s150_run_c",
+      "150g: third entry is run_c")
+
+_s150_dlg_g.close()
+_s150_dlg_g.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150h: Export All button enablement — disabled when empty, enabled when not
+# =====================================================================
+print("  150h: Export All button enablement")
+
+_s150_dlg_h_empty = scaffold.CascadeHistoryDialog([], parent=_s150_win)
+app.processEvents()
+check(not _s150_dlg_h_empty.export_all_btn.isEnabled(),
+      "150h: export_all_btn disabled when history is empty")
+_s150_dlg_h_empty.close()
+_s150_dlg_h_empty.deleteLater()
+app.processEvents()
+
+_s150_dlg_h_pop = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+check(_s150_dlg_h_pop.export_all_btn.isEnabled(),
+      "150h: export_all_btn enabled when history is non-empty")
+_s150_dlg_h_pop.close()
+_s150_dlg_h_pop.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150i: Export All cancel — no file written
+# =====================================================================
+print("  150i: Export All cancel — no file written")
+
+_s150_dest_i = os.path.join(_s150_tmpdir, "export_i.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: ("", ""))
+
+_s150_dlg_i = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_i._on_export_all()
+app.processEvents()
+
+check(not os.path.exists(_s150_dest_i),
+      "150i: no file written when user cancels export-all")
+
+_s150_dlg_i.close()
+_s150_dlg_i.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150j: Export All round-trip — write, read, json.loads, compare
+# =====================================================================
+print("  150j: Export All round-trip")
+
+_s150_dest_j = os.path.join(_s150_tmpdir, "export_j.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_j, ""))
+
+_s150_dlg_j = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_j._on_export_all()
+app.processEvents()
+
+_s150_parsed_j = json.loads(Path(_s150_dest_j).read_text(encoding="utf-8"))
+check(_s150_parsed_j["entries"] == list(_s150_history),
+      "150j: round-trip entries match input history exactly")
+check(_s150_parsed_j["entries"][0]["steps"] == _s150_entry_a["steps"],
+      "150j: round-trip entry_a steps preserved")
+check(_s150_parsed_j["entries"][1]["steps"] == _s150_entry_b["steps"],
+      "150j: round-trip entry_b steps preserved")
+
+_s150_dlg_j.close()
+_s150_dlg_j.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150k: Export All — no .tmp file left behind after success
+# =====================================================================
+print("  150k: Export All — no .tmp residue")
+
+_s150_dest_k = os.path.join(_s150_tmpdir, "export_k.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_k, ""))
+
+_s150_dlg_k = scaffold.CascadeHistoryDialog(list(_s150_history), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_k._on_export_all()
+app.processEvents()
+
+check(os.path.exists(_s150_dest_k), "150k: export-all file exists")
+check(not os.path.exists(_s150_dest_k + ".tmp"),
+      "150k: no .tmp file left behind")
+
+_s150_dlg_k.close()
+_s150_dlg_k.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 150l: Export All preserves storage order (newest-first)
+# =====================================================================
+print("  150l: Export All preserves storage order")
+
+_s150_dest_l = os.path.join(_s150_tmpdir, "export_l.json")
+QFileDialog.getSaveFileName = staticmethod(lambda *a, **kw: (_s150_dest_l, ""))
+
+# Build history in newest-first order (entry_a newest, entry_c oldest)
+_s150_ordered = [_s150_entry_a, _s150_entry_b, _s150_entry_c]
+
+_s150_dlg_l = scaffold.CascadeHistoryDialog(list(_s150_ordered), parent=_s150_win)
+app.processEvents()
+
+_s150_dlg_l._on_export_all()
+app.processEvents()
+
+_s150_parsed_l = json.loads(Path(_s150_dest_l).read_text(encoding="utf-8"))
+_s150_ids_l = [e["id"] for e in _s150_parsed_l["entries"]]
+check(_s150_ids_l == ["s150_run_a", "s150_run_b", "s150_run_c"],
+      "150l: entries in storage order (newest-first)")
+
+_s150_dlg_l.close()
+_s150_dlg_l.deleteLater()
+app.processEvents()
+
+# --- Cleanup section 150 ---
+QFileDialog.getSaveFileName = _s150_orig_getsave
+
+try:
+    shutil.rmtree(_s150_tmpdir)
+except OSError:
+    pass
+
+_s150_win.close()
+_s150_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 151 — Menu Wiring & Startup Crash Recovery (Phase 6)
+# =====================================================================
+print("\n=== SECTION 151: Menu Wiring & Startup Crash Recovery ===")
+
+from PySide6.QtGui import QAction as _s151_QAction, QKeySequence as _s151_QKeySequence
+
+_s151_win = scaffold.MainWindow()
+_s151_win.show()
+app.processEvents()
+
+# =====================================================================
+# 151a: act_cascade_history exists with correct attributes
+# =====================================================================
+print("  151a: act_cascade_history attributes")
+
+check(hasattr(_s151_win, "act_cascade_history"),
+      "151a: act_cascade_history attribute exists")
+check(isinstance(_s151_win.act_cascade_history, _s151_QAction),
+      "151a: act_cascade_history is a QAction")
+check(_s151_win.act_cascade_history.text() == "Cascade History...",
+      "151a: action text is 'Cascade History...'")
+check(_s151_win.act_cascade_history.shortcut() == _s151_QKeySequence("Ctrl+Shift+H"),
+      "151a: shortcut is Ctrl+Shift+H")
+
+# =====================================================================
+# 151b: Action is in the View menu
+# =====================================================================
+print("  151b: action present in View menu")
+
+_s151_view_menu = None
+for _s151_act in _s151_win.menuBar().actions():
+    if _s151_act.text() == "View":
+        _s151_view_menu = _s151_act.menu()
+        break
+
+check(_s151_view_menu is not None, "151b: View menu found")
+_s151_view_actions = _s151_view_menu.actions() if _s151_view_menu else []
+check(_s151_win.act_cascade_history in _s151_view_actions,
+      "151b: act_cascade_history is in View menu")
+
+# =====================================================================
+# 151c: Triggering action opens CascadeHistoryDialog
+# =====================================================================
+print("  151c: action opens CascadeHistoryDialog")
+
+_s151_now = time.time()
+_s151_history_c = [{
+    "id": "s151_c_run",
+    "name": "Test Cascade C",
+    "status": "completed",
+    "started_at": _s151_now - 120,
+    "finished_at": _s151_now - 60,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [{
+        "index": 0, "tool_name": "echo", "tool_path": "/fake/echo.json",
+        "preset_path": None, "command": "echo hello",
+        "exit_code": 0, "error": None,
+        "started_at": _s151_now - 120, "finished_at": _s151_now - 60,
+        "captures": {},
+    }],
+    "config": {"slots": [], "variables": [], "loop_mode": False,
+               "stop_on_error": True, "cascade_name": "Test Cascade C"},
+}]
+_s151_win._save_cascade_history(_s151_history_c)
+
+_s151_dialog_opened = []
+_s151_orig_exec = scaffold.CascadeHistoryDialog.exec
+def _s151_mock_exec(self):
+    _s151_dialog_opened.append(self)
+    self.show()
+    app.processEvents()
+    self.close()
+    return QDialog.DialogCode.Rejected
+scaffold.CascadeHistoryDialog.exec = _s151_mock_exec
+
+_s151_win._on_show_cascade_history()
+app.processEvents()
+
+check(len(_s151_dialog_opened) == 1, "151c: CascadeHistoryDialog opened")
+check(isinstance(_s151_dialog_opened[0], scaffold.CascadeHistoryDialog),
+      "151c: opened dialog is CascadeHistoryDialog instance")
+
+scaffold.CascadeHistoryDialog.exec = _s151_orig_exec
+
+# =====================================================================
+# 151d: Dialog loads history from QSettings via action path
+# =====================================================================
+print("  151d: dialog loads history from QSettings")
+
+_s151_history_d = [{
+    "id": "s151_d_alpha",
+    "name": "Alpha Run",
+    "status": "completed",
+    "started_at": _s151_now - 500,
+    "finished_at": _s151_now - 400,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [],
+    "config": {},
+}, {
+    "id": "s151_d_bravo",
+    "name": "Bravo Run",
+    "status": "error_halted",
+    "started_at": _s151_now - 300,
+    "finished_at": _s151_now - 200,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [],
+    "config": {},
+}]
+_s151_win._save_cascade_history(_s151_history_d)
+
+_s151_dlg_d_ref = []
+def _s151_mock_exec_d(self):
+    _s151_dlg_d_ref.append(self)
+    self.show()
+    app.processEvents()
+    self.close()
+    return QDialog.DialogCode.Rejected
+scaffold.CascadeHistoryDialog.exec = _s151_mock_exec_d
+
+_s151_win._on_show_cascade_history()
+app.processEvents()
+
+check(len(_s151_dlg_d_ref) == 1, "151d: dialog opened for history check")
+_s151_dlg_d = _s151_dlg_d_ref[0]
+_s151_dlg_ids = [e["id"] for e in _s151_dlg_d.history]
+check(_s151_dlg_ids == ["s151_d_alpha", "s151_d_bravo"],
+      "151d: dialog history matches QSettings entries")
+
+scaffold.CascadeHistoryDialog.exec = _s151_orig_exec
+
+# =====================================================================
+# 151e: Startup crash recovery transitions running → crashed
+# =====================================================================
+print("  151e: crash recovery transitions running to crashed")
+
+_s151_running_entry = {
+    "id": "s151_crash_run",
+    "name": "Crashed Cascade",
+    "status": "running",
+    "started_at": _s151_now - 600,
+    "finished_at": None,
+    "loop_index": 0,
+    "stop_on_error": True,
+    "steps": [],
+    "config": {},
+}
+# Write directly to QSettings before constructing a new MainWindow
+_s151_settings_e = scaffold._create_settings()
+_s151_settings_e.setValue("cascade_history/_version", scaffold.CASCADE_HISTORY_VERSION)
+_s151_settings_e.setValue("cascade_history/entries",
+                          json.dumps([_s151_running_entry]))
+_s151_settings_e.sync()
+
+_s151_win_e = scaffold.MainWindow()
+_s151_win_e.show()
+app.processEvents()
+
+_s151_recovered = _s151_win_e._load_cascade_history()
+check(len(_s151_recovered) == 1, "151e: one entry after recovery")
+check(_s151_recovered[0]["status"] == "crashed",
+      "151e: running entry transitioned to crashed")
+check(_s151_recovered[0]["finished_at"] is not None,
+      "151e: finished_at set on crashed entry")
+check(isinstance(_s151_recovered[0]["finished_at"], float),
+      "151e: finished_at is a float timestamp")
+
+_s151_win_e.close()
+_s151_win_e.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 151f: Crash recovery is idempotent
+# =====================================================================
+print("  151f: crash recovery idempotent")
+
+# The entry from 151e is now status=crashed. Build another MainWindow —
+# finished_at should NOT change.
+_s151_after_first = _s151_recovered[0]["finished_at"]
+
+_s151_win_f = scaffold.MainWindow()
+_s151_win_f.show()
+app.processEvents()
+
+_s151_second = _s151_win_f._load_cascade_history()
+check(len(_s151_second) == 1, "151f: still one entry")
+check(_s151_second[0]["status"] == "crashed",
+      "151f: status remains crashed")
+check(_s151_second[0]["finished_at"] == _s151_after_first,
+      "151f: finished_at unchanged on second init")
+
+_s151_win_f.close()
+_s151_win_f.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 151g: Crash recovery does not disturb normal entries
+# =====================================================================
+print("  151g: crash recovery leaves normal entries untouched")
+
+_s151_mixed = [
+    {"id": "s151_g_completed", "name": "Done", "status": "completed",
+     "started_at": _s151_now - 1000, "finished_at": _s151_now - 900,
+     "loop_index": 0, "stop_on_error": True, "steps": [], "config": {}},
+    {"id": "s151_g_running", "name": "Stuck", "status": "running",
+     "started_at": _s151_now - 800, "finished_at": None,
+     "loop_index": 0, "stop_on_error": True, "steps": [], "config": {}},
+    {"id": "s151_g_stopped", "name": "Halted", "status": "stopped",
+     "started_at": _s151_now - 700, "finished_at": _s151_now - 650,
+     "loop_index": 0, "stop_on_error": True, "steps": [], "config": {}},
+    {"id": "s151_g_error", "name": "Errored", "status": "error_halted",
+     "started_at": _s151_now - 600, "finished_at": _s151_now - 550,
+     "loop_index": 0, "stop_on_error": True, "steps": [], "config": {}},
+]
+_s151_settings_g = scaffold._create_settings()
+_s151_settings_g.setValue("cascade_history/_version", scaffold.CASCADE_HISTORY_VERSION)
+_s151_settings_g.setValue("cascade_history/entries", json.dumps(_s151_mixed))
+_s151_settings_g.sync()
+
+_s151_win_g = scaffold.MainWindow()
+_s151_win_g.show()
+app.processEvents()
+
+_s151_post_g = _s151_win_g._load_cascade_history()
+_s151_by_id_g = {e["id"]: e for e in _s151_post_g}
+
+check(_s151_by_id_g["s151_g_completed"]["status"] == "completed",
+      "151g: completed entry unchanged")
+check(_s151_by_id_g["s151_g_completed"]["finished_at"] == _s151_now - 900,
+      "151g: completed finished_at unchanged")
+check(_s151_by_id_g["s151_g_running"]["status"] == "crashed",
+      "151g: running entry transitioned to crashed")
+check(_s151_by_id_g["s151_g_running"]["finished_at"] is not None,
+      "151g: running entry got finished_at")
+check(_s151_by_id_g["s151_g_stopped"]["status"] == "stopped",
+      "151g: stopped entry unchanged")
+check(_s151_by_id_g["s151_g_stopped"]["finished_at"] == _s151_now - 650,
+      "151g: stopped finished_at unchanged")
+check(_s151_by_id_g["s151_g_error"]["status"] == "error_halted",
+      "151g: error_halted entry unchanged")
+check(_s151_by_id_g["s151_g_error"]["finished_at"] == _s151_now - 550,
+      "151g: error_halted finished_at unchanged")
+
+_s151_win_g.close()
+_s151_win_g.deleteLater()
+app.processEvents()
+
+# =====================================================================
+# 151h: Crash recovery failure does not block startup
+# =====================================================================
+print("  151h: recovery failure does not block startup")
+
+_s151_orig_recover = scaffold.MainWindow._recover_crashed_cascade_runs
+
+def _s151_boom(self):
+    raise RuntimeError("Simulated crash recovery failure")
+
+scaffold.MainWindow._recover_crashed_cascade_runs = _s151_boom
+
+_s151_win_h = scaffold.MainWindow()
+_s151_win_h.show()
+app.processEvents()
+
+# Window should come up usable — check it has essential attributes
+check(hasattr(_s151_win_h, "stack"), "151h: window has stack widget")
+check(hasattr(_s151_win_h, "picker"), "151h: window has picker widget")
+check(hasattr(_s151_win_h, "act_cascade_history"),
+      "151h: window has cascade history action")
+
+scaffold.MainWindow._recover_crashed_cascade_runs = _s151_orig_recover
+
+_s151_win_h.close()
+_s151_win_h.deleteLater()
+app.processEvents()
+
+# --- Cleanup section 151 ---
+# Clear cascade history from QSettings to avoid polluting later runs
+_s151_win._save_cascade_history([])
+
+_s151_win.close()
+_s151_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

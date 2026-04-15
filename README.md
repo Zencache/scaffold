@@ -83,6 +83,7 @@ To launch directly into a specific tool: `python scaffold.py tools/nmap.json`
 - **10 widget types** — checkbox, text, spinbox, dropdown, file picker, password with show/hide, and more
 - **Subcommand support** — multi-level commands like `git clone` or `ansible-galaxy role install`
 - **Command history** — browse and restore past runs per tool (Ctrl+H), with filter bar
+- **Cascade history** — record, browse, and restore past cascade runs (Ctrl+Shift+H), with export
 - **Password masking** — values replaced with `********` in command preview, output, history, and clipboard
 - **Auto-save and crash recovery** — form state saved automatically, restored on next launch
 - **Collapsible display groups** — organize large forms into sections
@@ -236,6 +237,10 @@ Tools like `git` with multiple subcommands work seamlessly. Multi-word subcomman
 
 Every executed command is automatically recorded. Browse recent runs per tool via View > Command History (Ctrl+H), see exit codes and timestamps, and restore any past form state with one click. A filter bar lets you search across entries.
 
+### Cascade history
+
+Every cascade run is automatically recorded with its full configuration snapshot and each step's post-substitution command. Open the history dialog via View > Cascade History (Ctrl+Shift+H) to browse past runs. Restore Step reloads a single step's form state; Restore Cascade reloads the entire cascade configuration into the sidebar without auto-running it. Export saves one cascade's history to JSON; Export All saves everything. Up to 50 entries are retained (oldest evicted first). In loop mode, each iteration is a separate history entry, so loop-heavy runs fill history faster. Runs interrupted by a crash appear in history as "crashed" after the next startup.
+
 ### Auto-save and crash recovery
 
 Form state is automatically saved 2 seconds after each change. If the app crashes, the next launch offers to restore your work. Unchanged forms are not saved. Stale recovery files are cleaned up on startup.
@@ -279,6 +284,7 @@ Generate presets from natural language using `--preset-prompt` and `PRESET_PROMP
 | **Ctrl+S** | Save preset |
 | **Ctrl+L** | Preset list |
 | **Ctrl+H** | Command history |
+| **Ctrl+Shift+H** | Cascade history |
 | **Ctrl+O** | Load tool from file |
 | **Ctrl+R** | Reload current tool |
 | **Ctrl+F** | Focus field search bar |
