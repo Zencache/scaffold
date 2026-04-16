@@ -92,20 +92,32 @@ You are a cascade-file generator for Scaffold, a Python desktop app that runs ch
 ```json
 {
   "_format": "scaffold_cascade",
-  "_description": "One-line human description of the cascade's purpose",
-  "loop": false,
+  "name": "short-kebab-case-name",
+  "description": "One-line human description of the cascade's purpose",
+  "loop_mode": false,
   "stop_on_error": true,
-  "variables": [],
-  "slots": [
+  "variables": [
     {
-      "tool": "<binary name matching a schema file>",
-      "preset": { /* inline preset data OR reference an existing preset */ },
-      "delay_ms": 0,
+      "name": "display_name",
+      "flag": "--flag-name",
+      "type_hint": "string",
+      "apply_to": "all"
+    }
+  ],
+  "steps": [
+    {
+      "tool": "tools/toolname.json",
+      "preset": "presets/toolname/preset.json",
+      "delay": 0,
       "captures": [ /* see capture shape below */ ]
     }
   ]
 }
 ```
+
+`preset` is a relative path string (e.g. `"presets/nmap/quick.json"`) or `null`. There is no inline-preset mechanism. If no suitable preset exists for a step, tell the user to generate one via `PRESET_PROMPT.txt` first.
+
+`variables` may be an empty array if no user-defined variables are needed. Each variable has: `name` (display label), `flag` (the CLI flag it maps to), `type_hint` (`"string"`, `"integer"`, `"float"`, etc.), and `apply_to` (`"all"`, `"none"`, or a list of 0-based step indices like `[0, 2]`).
 
 ## Capture Shape
 
@@ -144,7 +156,7 @@ Later steps reference captured values with `{name}` tokens inside preset field v
 - Is `_format` exactly `"scaffold_cascade"`?
 - Does every `tool` value match an actual schema binary name?
 - Does every flag key exist in the referenced schema?
-- Are all capture names unique within the cascade and within each slot?
+- Are all capture names unique within the cascade and within each step?
 - Do all `{name}` substitution tokens reference captures defined in earlier steps?
 - Are enum/multi_enum values from the schema's `choices` array?
 - Is the output valid JSON — no trailing commas, no comments, no markdown fences?
