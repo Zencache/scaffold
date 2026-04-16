@@ -13490,7 +13490,7 @@ else:
 if _s116_has_func:
     try:
         _s116_caps_g = [
-            {"name": "outfile", "source": "file", "pattern": "/tmp/results.txt", "group": 0},
+            {"name": "outfile", "source": "file", "path": "/tmp/results.txt"},
         ]
         _s116_res_g = scaffold.extract_captures(_s116_caps_g, "", "", 0)
         check(_s116_res_g.get("outfile") == "/tmp/results.txt",
@@ -13519,28 +13519,44 @@ else:
     check(False, "116h: exit_code source returns '0' for exit code 0 (function missing)")
     check(False, "116h: exit_code source returns '1' for exit code 1 (function missing)")
 
-# 116i: stdout_full / stderr_full return the whole stream truncated to last 64KB
+# 116i: stdout_tail / stderr_tail return the stream tail truncated to last 64KB
 if _s116_has_func:
     try:
         _s116_big_out = "A" * (70 * 1024)  # 70KB
         _s116_caps_i = [
-            {"name": "full_out", "source": "stdout_full", "pattern": "", "group": 0},
-            {"name": "full_err", "source": "stderr_full", "pattern": "", "group": 0},
+            {"name": "full_out", "source": "stdout_tail", "pattern": "", "group": 0},
+            {"name": "full_err", "source": "stderr_tail", "pattern": "", "group": 0},
         ]
         _s116_res_i = scaffold.extract_captures(
             _s116_caps_i, _s116_big_out, "short stderr", 0)
         _s116_64kb = 64 * 1024
         check(isinstance(_s116_res_i.get("full_out"), str)
               and len(_s116_res_i.get("full_out", "")) <= _s116_64kb,
-              "116i: stdout_full truncated to last 64KB")
+              "116i: stdout_tail truncated to last 64KB")
         check(_s116_res_i.get("full_err") == "short stderr",
-              "116i: stderr_full returns whole stream when under 64KB")
+              "116i: stderr_tail returns whole stream when under 64KB")
     except Exception as _s116_exc_i:
-        check(False, f"116i: stdout_full truncated to last 64KB (raised {type(_s116_exc_i).__name__})")
-        check(False, f"116i: stderr_full returns whole stream when under 64KB (raised {type(_s116_exc_i).__name__})")
+        check(False, f"116i: stdout_tail truncated to last 64KB (raised {type(_s116_exc_i).__name__})")
+        check(False, f"116i: stderr_tail returns whole stream when under 64KB (raised {type(_s116_exc_i).__name__})")
 else:
-    check(False, "116i: stdout_full truncated to last 64KB (function missing)")
-    check(False, "116i: stderr_full returns whole stream when under 64KB (function missing)")
+    check(False, "116i: stdout_tail truncated to last 64KB (function missing)")
+    check(False, "116i: stderr_tail returns whole stream when under 64KB (function missing)")
+
+# Documents that source='file' requires the 'path' key as of v2.8.6 —
+# pattern-key fallback removed (CC-3). Only 'path' is accepted.
+# 116j: file capture source with "pattern" key returns nothing (CC-3)
+if _s116_has_func:
+    try:
+        _s116_caps_j = [
+            {"name": "outpath", "source": "file", "pattern": "/tmp/result.xml"},
+        ]
+        _s116_res_j = scaffold.extract_captures(_s116_caps_j, "", "", 0)
+        check("outpath" not in _s116_res_j,
+              f'116j: file source with "pattern" key returns nothing (CC-3) (got {_s116_res_j!r})')
+    except Exception as _s116_exc_j:
+        check(False, f'116j: file source with "pattern" key returns nothing (CC-3) (raised {type(_s116_exc_j).__name__})')
+else:
+    check(False, '116j: file source with "pattern" key returns nothing (CC-3) (function missing)')
 
 # No cleanup needed — extract_captures is a pure function, no window/QSettings
 
@@ -13777,7 +13793,7 @@ if _s118_has_dialog:
         _s118_dlg2.show()
         app.processEvents()
         _s118_combos = _s118_dlg2.findChildren(QComboBox)
-        _s118_expected_sources = {"stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"}
+        _s118_expected_sources = {"stdout", "stderr", "file", "exit_code", "stdout_tail", "stderr_tail"}
         _s118_found_source_combo = False
         for _s118_cb in _s118_combos:
             _s118_items = {_s118_cb.itemText(i) for i in range(_s118_cb.count())}
@@ -13785,14 +13801,14 @@ if _s118_has_dialog:
                 _s118_found_source_combo = True
                 break
         check(_s118_found_source_combo,
-              "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_full, stderr_full")
+              "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_tail, stderr_tail")
         _s118_dlg2.close()
         _s118_dlg2.deleteLater()
         app.processEvents()
     except Exception as _s118_exc_f:
         check(False, f"118f: Source column QComboBox has correct items (raised {type(_s118_exc_f).__name__})")
 else:
-    check(False, "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_full, stderr_full (class missing)")
+    check(False, "118f: Source column QComboBox has items: stdout, stderr, file, exit_code, stdout_tail, stderr_tail (class missing)")
 
 # 118g: Dialog exposes get_captures() returning list[dict]
 if _s118_has_dialog:
@@ -14238,7 +14254,20 @@ _s123_win._history_timestamp = time.time()
 _s123_win.output.clear()
 app.processEvents()
 
-# Record history length before
+# Clear history so the cap (HISTORY_MAX_ENTRIES) doesn't interfere
+_s123_win._clear_history()
+app.processEvents()
+
+# Prefill with a small, known number of entries
+for _s123_i in range(5):
+    _s123_win.settings.setValue(
+        f"history/{_s123_win.data['tool']}",
+        json.dumps(_s123_win._load_history() + [{
+            "display": f"prefill {_s123_i}", "exit_code": 0,
+            "timestamp": time.time(), "preset_data": {},
+            "crashed": False, "error": None,
+        }]),
+    )
 _s123_hist_before = len(_s123_win._load_history())
 
 # Simulate crash: _on_error fires, then _on_finished fires
@@ -16882,6 +16911,9 @@ check(not _s148_dlg.tree.topLevelItem(0).isExpanded(),
       "148q: cascade row collapsed")
 
 # --- Delete Entry ---
+# Monkeypatch QMessageBox.question to auto-confirm delete (CH-4 added confirmation)
+_s148_orig_question_del = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
 # 148r: delete a cascade entry by selecting cascade row
 _s148_dlg.tree.setCurrentItem(_s148_dlg.tree.topLevelItem(1))  # Bravo
 app.processEvents()
@@ -16906,6 +16938,7 @@ check(len(_s148_dlg.history) == 3,
       f"148s: step-level delete removes parent cascade ({len(_s148_dlg.history)})")
 check("s148_aaa" not in [e["id"] for e in _s148_dlg.history],
       "148s: Alpha cascade removed via step selection")
+QMessageBox.question = _s148_orig_question_del  # restore before Clear All block
 
 # --- Clear All ---
 # 148t: clear all with confirmation (monkeypatch Yes)
@@ -18369,6 +18402,432 @@ _s151_win._save_cascade_history([])
 
 _s151_win.close()
 _s151_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 152 — CH-1: Corrupt cascade history version key
+# =====================================================================
+# _load_cascade_history must not raise when _version is a non-numeric string.
+# Expected to FAIL on current code (int("abc") raises ValueError).
+print("\n=== SECTION 152: CH-1 — Corrupt cascade history version key ===")
+
+_s152_tmpdir = tempfile.mkdtemp(prefix="scaffold_test152_")
+_s152_tool = {
+    "tool": "tool_152",
+    "binary": "echo",
+    "description": "CH-1 test",
+    "arguments": [],
+}
+_s152_path = os.path.join(_s152_tmpdir, "tool_152.json")
+Path(_s152_path).write_text(json.dumps(_s152_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s152_win = scaffold.MainWindow()
+_s152_win.show()
+app.processEvents()
+_s152_win._load_tool_path(_s152_path)
+app.processEvents()
+
+# Inject a corrupt version key directly into QSettings
+_s152_win.settings.setValue("cascade_history/_version", "abc")
+_s152_win.settings.setValue("cascade_history/entries", json.dumps([]))
+
+_s152_raised = False
+_s152_result = None
+try:
+    _s152_result = _s152_win._load_cascade_history()
+except (ValueError, TypeError) as _s152_exc:
+    _s152_raised = True
+
+check(not _s152_raised,
+      "152a: _load_cascade_history does not raise on non-numeric version (CH-1)")
+check(_s152_result == [],
+      f"152b: _load_cascade_history returns [] on corrupt version (got {_s152_result!r})")
+
+# Cleanup section 152
+_s152_win.settings.remove("cascade_history/_version")
+_s152_win.settings.remove("cascade_history/entries")
+_s152_win.close()
+_s152_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s152_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 153 — CH-3: _update_cascade_run no-op for missing run_id
+# =====================================================================
+# _update_cascade_run should NOT write to QSettings when run_id doesn't match.
+# Expected to FAIL on current code (always calls _save_cascade_history).
+print("\n=== SECTION 153: CH-3 — _update_cascade_run no-op for missing run_id ===")
+
+_s153_tmpdir = tempfile.mkdtemp(prefix="scaffold_test153_")
+_s153_tool = {
+    "tool": "tool_153",
+    "binary": "echo",
+    "description": "CH-3 test",
+    "arguments": [],
+}
+_s153_path = os.path.join(_s153_tmpdir, "tool_153.json")
+Path(_s153_path).write_text(json.dumps(_s153_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s153_win = scaffold.MainWindow()
+_s153_win.show()
+app.processEvents()
+_s153_win._load_tool_path(_s153_path)
+app.processEvents()
+
+# Seed history with one entry
+_s153_seed = [{
+    "id": "real-id",
+    "name": "Test Run",
+    "status": "running",
+    "started_at": time.time(),
+    "finished_at": None,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    "config": {},
+}]
+_s153_win._save_cascade_history(_s153_seed)
+
+# Wrap _save_cascade_history to count calls
+_s153_save_calls = []
+_s153_orig_save = _s153_win._save_cascade_history
+
+def _s153_counting_save(entries):
+    _s153_save_calls.append(entries)
+    _s153_orig_save(entries)
+
+_s153_win._save_cascade_history = _s153_counting_save
+
+# Call with nonexistent run_id — should NOT save
+_s153_win._update_cascade_run("nonexistent-id", {"status": "stopped"})
+check(len(_s153_save_calls) == 0,
+      f"153a: _save_cascade_history not called for nonexistent run_id (calls={len(_s153_save_calls)}) (CH-3)")
+
+# Positive control: call with real run_id — SHOULD save
+_s153_save_calls.clear()
+_s153_win._update_cascade_run("real-id", {"status": "completed"})
+check(len(_s153_save_calls) == 1,
+      f"153b: _save_cascade_history called once for matching run_id (calls={len(_s153_save_calls)})")
+
+# Cleanup section 153
+_s153_win._save_cascade_history = _s153_orig_save
+_s153_win._save_cascade_history([])
+_s153_win.close()
+_s153_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s153_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 154 — CH-2: Stopped cascade preserves in-progress step
+# =====================================================================
+# When a cascade is stopped mid-step, the in-progress step should appear
+# in the cascade history entry with an error token indicating it was stopped.
+# Expected to FAIL on current code (step is lost because _chain_cleanup
+# writes _cascade_steps before the in-progress step is recorded).
+print("\n=== SECTION 154: CH-2 — Stopped cascade preserves in-progress step ===")
+
+_s154_tmpdir = tempfile.mkdtemp(prefix="scaffold_test154_")
+_s154_tool = {
+    "tool": "tool_154",
+    "binary": "echo",
+    "description": "CH-2 test",
+    "arguments": [{"name": "Msg", "flag": "", "type": "string"}],
+}
+_s154_path = os.path.join(_s154_tmpdir, "tool_154.json")
+Path(_s154_path).write_text(json.dumps(_s154_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s154_win = scaffold.MainWindow()
+_s154_win.show()
+app.processEvents()
+_s154_win._load_tool_path(_s154_path)
+app.processEvents()
+
+_s154_dock = _s154_win.cascade_dock
+_s154_dock.show()
+app.processEvents()
+
+# Seed a "running" cascade history entry
+_s154_run_id = "test-ch2-run-154"
+_s154_now = time.time()
+_s154_entry = {
+    "id": _s154_run_id,
+    "name": "CH-2 Test Cascade",
+    "status": "running",
+    "started_at": _s154_now,
+    "finished_at": None,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    "config": {},
+}
+_s154_win._save_cascade_history([_s154_entry])
+
+# Configure cascade dock state as if step 0 is currently executing
+_s154_dock._slots[0]["tool_path"] = _s154_path
+_s154_dock._chain_state = scaffold.CHAIN_RUNNING
+_s154_dock._cascade_run_id = _s154_run_id
+_s154_dock._cascade_steps = []           # No completed steps yet
+_s154_dock._cascade_step_start = _s154_now  # Step 0 started
+_s154_dock._cascade_finish_status = None
+_s154_dock._chain_current = 0
+_s154_dock._chain_queue = [0]
+
+# Ensure no real QProcess to kill
+_s154_win.process = None
+
+# Stop the cascade while step 0 is "running"
+_s154_dock._on_stop_chain()
+app.processEvents()
+
+# Read cascade history and find the entry
+_s154_history = _s154_win._load_cascade_history()
+_s154_found = next((e for e in _s154_history if e["id"] == _s154_run_id), None)
+
+check(_s154_found is not None,
+      "154a: cascade entry found after stop")
+_s154_got_status = _s154_found.get("status") if _s154_found else "N/A"
+check(_s154_found is not None and _s154_found.get("status") == "stopped",
+      f"154b: cascade status is 'stopped' (got {_s154_got_status!r})")
+
+_s154_steps = _s154_found.get("steps", []) if _s154_found else []
+check(len(_s154_steps) >= 1,
+      f"154c: at least 1 step recorded for in-progress step (got {len(_s154_steps)}) (CH-2)")
+if _s154_steps:
+    _s154_step_err = _s154_steps[0].get("error", "")
+    check("stop" in str(_s154_step_err).lower(),
+          f"154d: in-progress step error contains 'stop' (got {_s154_step_err!r}) (CH-2)")
+else:
+    check(False, "154d: in-progress step error contains 'stop' (no steps recorded) (CH-2)")
+
+# Cleanup section 154
+_s154_win._save_cascade_history([])
+_s154_win.close()
+_s154_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s154_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 155 — XF-1: ToolPicker folder-header backgrounds refresh
+#                      on theme change
+# =====================================================================
+# Folder-header row background colors should update when the theme changes.
+# Expected to FAIL on current code (header items baked at populate time,
+# never refreshed by theme-toggle path).
+print("\n=== SECTION 155: XF-1 — ToolPicker folder-header theme refresh ===")
+
+from PySide6.QtGui import QFont as _s155_QFont
+
+# Ensure we start in light mode
+scaffold.apply_theme(False)
+app.processEvents()
+
+# Create a temp tools dir with a subfolder containing a tool
+_s155_tmpdir = tempfile.mkdtemp(prefix="scaffold_test155_tools_")
+_s155_subdir = os.path.join(_s155_tmpdir, "myfolder")
+os.makedirs(_s155_subdir)
+_s155_sub_tool = {
+    "tool": "tool_155_sub",
+    "binary": "echo",
+    "description": "Subfolder tool for XF-1",
+    "arguments": [],
+}
+Path(os.path.join(_s155_subdir, "tool_155_sub.json")).write_text(
+    json.dumps(_s155_sub_tool))
+# Also create a root-level tool so root vs folder grouping is present
+_s155_root_tool = {
+    "tool": "tool_155_root",
+    "binary": "echo",
+    "description": "Root tool for XF-1",
+    "arguments": [],
+}
+Path(os.path.join(_s155_tmpdir, "tool_155_root.json")).write_text(
+    json.dumps(_s155_root_tool))
+
+# Monkeypatch _tools_dir to use the temp directory
+_s155_orig_tools_dir = scaffold._tools_dir
+scaffold._tools_dir = lambda: Path(_s155_tmpdir)
+
+_s155_picker = scaffold.ToolPicker()
+_s155_picker.show()
+_s155_picker.scan()
+app.processEvents()
+
+# Find the first folder-header row (row_map entry is None)
+_s155_header_row = None
+for _s155_r in range(_s155_picker.table.rowCount()):
+    if _s155_r < len(_s155_picker._row_map) and _s155_picker._row_map[_s155_r] is None:
+        _s155_header_row = _s155_r
+        break
+
+check(_s155_header_row is not None,
+      "155a: folder-header row found in ToolPicker")
+
+if _s155_header_row is not None:
+    # Capture the background color of the header row in light mode
+    _s155_item_light = _s155_picker.table.item(_s155_header_row, 0)
+    _s155_light_bg = _s155_item_light.background().color().name()
+
+    # Toggle to dark mode
+    scaffold.apply_theme(True)
+    app.processEvents()
+
+    # Read the same item's background — should have changed but won't (bug)
+    _s155_item_dark = _s155_picker.table.item(_s155_header_row, 0)
+    _s155_dark_bg = _s155_item_dark.background().color().name()
+
+    check(_s155_light_bg != _s155_dark_bg,
+          f"155b: folder-header background changed on theme toggle "
+          f"(light={_s155_light_bg}, dark={_s155_dark_bg}) (XF-1)")
+else:
+    check(False, "155b: folder-header background changed on theme toggle (no header found) (XF-1)")
+
+# Cleanup section 155
+scaffold.apply_theme(False)  # restore light mode
+app.processEvents()
+scaffold._tools_dir = _s155_orig_tools_dir
+_s155_picker.close()
+_s155_picker.deleteLater()
+app.processEvents()
+shutil.rmtree(_s155_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 156 — CC-1: stdout_full → stdout_tail migration on cascade load
+# =====================================================================
+# When a cascade is loaded that contains capture source "stdout_full",
+# the source should be rewritten to "stdout_tail" (future rename).
+# Also: extract_captures should accept "stdout_tail" as a source.
+# Expected to FAIL on current code (no migration, no stdout_tail handler).
+print("\n=== SECTION 156: CC-1 — stdout_full to stdout_tail migration ===")
+
+_s156_tmpdir = tempfile.mkdtemp(prefix="scaffold_test156_")
+_s156_tool = {
+    "tool": "tool_156",
+    "binary": "echo",
+    "description": "CC-1 migration test",
+    "arguments": [],
+}
+_s156_path = os.path.join(_s156_tmpdir, "tool_156.json")
+Path(_s156_path).write_text(json.dumps(_s156_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+# 156a: extract_captures should accept "stdout_tail" as a valid source
+# and return the last 64KB of stdout (same as current stdout_full behavior).
+_s156_test_stdout = "Hello from stdout tail test"
+_s156_caps_a = [{"name": "tail_out", "source": "stdout_tail", "pattern": "", "group": 0}]
+try:
+    _s156_res_a = scaffold.extract_captures(_s156_caps_a, _s156_test_stdout, "", 0)
+    check(_s156_res_a.get("tail_out") == _s156_test_stdout,
+          f'156a: extract_captures handles "stdout_tail" source (got {_s156_res_a.get("tail_out")!r})')
+except Exception as _s156_exc_a:
+    check(False, f'156a: extract_captures handles "stdout_tail" source (raised {type(_s156_exc_a).__name__})')
+
+# 156b: Loading a cascade from QSettings that has stdout_full captures
+# should rewrite the source to stdout_tail.
+# Write cascade slot data directly to QSettings with stdout_full capture
+_s156_slot_data = [{
+    "tool_path": _s156_path,
+    "preset_path": None,
+    "delay": 0,
+    "captures": [{"name": "fullout", "source": "stdout_full", "pattern": "", "group": 0}],
+}]
+_s156_settings = QSettings("Scaffold", "Scaffold")
+_s156_settings.setValue("cascade/slots", json.dumps(_s156_slot_data))
+
+_s156_win = scaffold.MainWindow()
+_s156_win.show()
+app.processEvents()
+
+_s156_dock = _s156_win.cascade_dock
+_s156_loaded_caps = _s156_dock._slots[0].get("captures", [])
+_s156_loaded_source = _s156_loaded_caps[0].get("source") if _s156_loaded_caps else None
+check(_s156_loaded_source == "stdout_tail",
+      f'156b: cascade load migrates stdout_full to stdout_tail (got {_s156_loaded_source!r}) (CC-1)')
+
+# Cleanup section 156
+_s156_win._save_cascade_history([])
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s156_win.close()
+_s156_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s156_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 157 — CH-4: Confirmation dialog before single Delete in
+#                      CascadeHistoryDialog
+# =====================================================================
+# The single-entry Delete handler should show a QMessageBox.question
+# confirmation before removing an entry. Declining should preserve the entry.
+print("\n=== SECTION 157: CH-4 — cascade history single-delete confirmation ===")
+
+_s157_history = [
+    {
+        "name": "test_cascade_157",
+        "started_at": 1735689600,
+        "steps": [
+            {
+                "tool_name": "echo",
+                "command": "echo hello",
+                "index": 0,
+                "started_at": 1735689600,
+                "exit_code": 0,
+                "stdout_tail": "hello",
+                "stderr_tail": "",
+            }
+        ],
+    }
+]
+
+_s157_dlg = scaffold.CascadeHistoryDialog(list(_s157_history))
+_s157_dlg.show()
+app.processEvents()
+
+# Select the first top-level entry
+_s157_top = _s157_dlg.tree.topLevelItem(0)
+check(_s157_top is not None, "157a: cascade history dialog has a top-level entry")
+
+if _s157_top is not None:
+    _s157_dlg.tree.setCurrentItem(_s157_top)
+    app.processEvents()
+
+    # 157b: Decline deletion — entry should remain
+    _s157_orig_question = QMessageBox.question
+    QMessageBox.question = staticmethod(
+        lambda *a, **kw: QMessageBox.StandardButton.No)
+    _s157_dlg._on_delete()
+    app.processEvents()
+    check(len(_s157_dlg.history) == 1,
+          "157b: declining delete preserves cascade entry")
+    QMessageBox.question = _s157_orig_question
+
+    # Re-select (populate may have reset selection)
+    _s157_top2 = _s157_dlg.tree.topLevelItem(0)
+    if _s157_top2 is not None:
+        _s157_dlg.tree.setCurrentItem(_s157_top2)
+        app.processEvents()
+
+    # 157c: Accept deletion — entry should be removed
+    _s157_orig_question2 = QMessageBox.question
+    QMessageBox.question = staticmethod(
+        lambda *a, **kw: QMessageBox.StandardButton.Yes)
+    _s157_dlg._on_delete()
+    app.processEvents()
+    check(len(_s157_dlg.history) == 0,
+          "157c: accepting delete removes cascade entry")
+    QMessageBox.question = _s157_orig_question2
+
+# Cleanup section 157
+_s157_dlg.close()
+_s157_dlg.deleteLater()
 app.processEvents()
 
 

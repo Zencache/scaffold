@@ -112,7 +112,7 @@ You are a cascade-file generator for Scaffold, a Python desktop app that runs ch
 ```json
 {
   "name": "<identifier, [A-Za-z_][A-Za-z0-9_]*>",
-  "source": "stdout | stderr | file | exit_code | stdout_full | stderr_full",
+  "source": "stdout | stderr | file | exit_code | stdout_tail | stderr_tail",
   "pattern": "<regex, max 200 chars, required for stdout/stderr sources>",
   "group": 1,
   "path": "<literal filesystem path, required for source 'file'>"
@@ -121,9 +121,9 @@ You are a cascade-file generator for Scaffold, a Python desktop app that runs ch
 
 Source reference:
 - `stdout` / `stderr` — regex match against the step's output (last 64KB). Use `pattern` + `group`.
-- `file` — literal filesystem path passed through unchanged. Use `path`.
+- `file` — the literal filesystem path string from the capture's `path` key, passed through unchanged. Does NOT read the file's contents. Use when one tool writes a file (e.g. `nmap -oX out.xml`) and a later tool consumes that path as an argument.
 - `exit_code` — the step's exit code as a string.
-- `stdout_full` / `stderr_full` — entire stream contents (last 64KB), no regex needed.
+- `stdout_tail` / `stderr_tail` — last 64KB of the stream contents, no regex needed. Use these when you want the whole tail of output captured into a variable.
 
 ## Substitution Syntax
 
@@ -135,7 +135,7 @@ Later steps reference captured values with `{name}` tokens inside preset field v
 2. For each step, search project knowledge for presets matching that step's intent. Prefer matches.
 3. If a preset fits, reference it and only override fields that must change for the cascade (usually targets or captured-value substitutions).
 4. If no preset fits, select flags from the schema directly. Keep the set minimal.
-5. Wire captures between steps. For each capture, write a regex against the tool's documented output format. If output format is unclear from the schema, prefer `stdout_full` over a guessed regex.
+5. Wire captures between steps. For each capture, write a regex against the tool's documented output format. If output format is unclear from the schema, prefer `stdout_tail` over a guessed regex.
 6. Set `stop_on_error: true` by default unless the user specifies otherwise.
 7. Validate your output against the Hard Rules before returning.
 

@@ -3,10 +3,10 @@ Scaffold — Your CLI Tools, but with Buttons
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
-![Lines of Code](https://img.shields.io/badge/lines-8%2C500%2B-informational)
-![Tests](https://img.shields.io/badge/tests-2%2C553%20assertions-brightgreen)
+![Lines of Code](https://img.shields.io/badge/lines-9%2C400%2B-informational)
+![Tests](https://img.shields.io/badge/tests-2%2C569%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
-![Bundled Tools](https://img.shields.io/badge/bundled%20tools-15%20schemas-orange)
+![Bundled Tools](https://img.shields.io/badge/bundled%20tools-20%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
@@ -32,7 +32,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,260 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,569 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
@@ -99,7 +99,7 @@ To launch directly into a specific tool: `python scaffold.py tools/nmap.json`
 - **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
 - **Copy as shell formats** — Bash, PowerShell, or CMD via right-click
 - **Single Python file** — one file, one dependency (PySide6), fully offline
-- **LLM-powered cascade generation (experimental)** — generate cascade files from natural language via a preconfigured Claude Project (or equivalent). See `CASCADE_GENERATION_GUIDE.md`
+- **LLM-powered cascade generation (experimental)** — generate cascade files from natural language via a preconfigured Claude Project (or equivalent). See `CASCADE_LLM_GENERATION_GUIDE.md`
 
 
 
@@ -256,7 +256,7 @@ Form state is automatically saved 2 seconds after each change. If the app crashe
 
 Chain multiple tool runs into sequential workflows from the cascade sidebar (Ctrl+G). Each cascade holds up to 20 numbered slots, each assignable to any loaded tool and an optional preset. Configure per-step delays (0–3600 seconds) to pace the chain, enable loop mode to repeat the full sequence indefinitely, or use stop-on-error mode to halt on the first non-zero exit code. Cascade variables let you define named parameters (with type hints: `string`, `file`, `directory`, `integer`, `float`) that are prompted at run time and injected into form fields across steps — useful for target IPs, output directories, or any value that changes between runs.
 
-**Cascade captures** let later steps reuse values extracted from earlier step output. A capture can pull data from stdout or stderr via regex, read a file path, grab an exit code, or take the full output stream, then inject it into subsequent steps as a `{name}` substitution.
+**Cascade captures** let later steps reuse values extracted from earlier step output. A capture can pull data from stdout or stderr via regex, read a file path, grab an exit code, or take the output stream tail, then inject it into subsequent steps as a `{name}` substitution.
 
 Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State persists across sessions. Cascades run through the same QProcess list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees. Two example cascade files are bundled in `cascades/`.
 
@@ -273,7 +273,7 @@ Generating cascades with an LLM is harder than generating schemas or presets bec
 
 Generation quality is bounded by preset coverage. Presets are pre-validated flag combinations with human-written descriptions, which the LLM can reason about far more reliably than raw schemas. The instructions direct the LLM to prefer presets and fall back to full-schema flag selection only when no suitable preset exists — so the more curated your preset library, the better your generated cascades.
 
-This feature is **experimental** and documentation-only. See `CASCADE_GENERATION_GUIDE.md` for setup, usage, and known limitations.
+This feature is **experimental** and documentation-only. See `CASCADE_LLM_GENERATION_GUIDE.md` for setup, usage, and known limitations.
 
 
 
@@ -355,7 +355,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (2,192 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (2,569 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through multi-part review: cleanup, error handling audit, performance profiling, and linting
 5. **Iteration, not generation** — most features took multiple rounds of build-test-fix. The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging

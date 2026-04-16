@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.5.10"
+__version__ = "2.8.7"
 
 import atexit
 import datetime
@@ -41,9 +41,9 @@ from pathlib import Path
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
 VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
-CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_full", "stderr_full", "file"})
+CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_full", "stderr_full", "stdout_tail", "stderr_tail", "file"})
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
-_SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00")
+_SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00#\\'\"")
 
 
 def _user_id() -> str:
@@ -202,7 +202,7 @@ def validate_tool(data: dict) -> list[str]:
             if "\x00" in binary:
                 errors.append("\"binary\" contains null bytes")
             # Check for shell metacharacters (never valid in a binary name)
-            bad_chars = sorted(set(binary) & (_SHELL_METACHAR - {"\x00"}))
+            bad_chars = sorted(set(binary) & (_SHELL_METACHAR - {"\x00", "\\"}))
             if bad_chars:
                 errors.append(
                     f"\"binary\" contains shell metacharacters: {' '.join(bad_chars)}"
@@ -644,7 +644,7 @@ def _elevation_label():
 # GUI renderer
 # ---------------------------------------------------------------------------
 
-from PySide6.QtCore import QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
@@ -2831,6 +2831,26 @@ class ToolPicker(QWidget):
         self.table.resizeColumnToContents(1)
         _fit_last_column(self.table)
 
+    def _update_header_colors(self) -> None:
+        """Refresh folder-header row backgrounds for current theme."""
+        if not hasattr(self, "_row_map"):
+            return
+        header_bg = QColor(DARK_COLORS["widget"]) if _dark_mode else QColor("#e8e8e8")
+        header_fg = QColor(DARK_COLORS["text"]) if _dark_mode else QColor("#333333")
+        for r, entry in enumerate(self._row_map):
+            if entry is None:  # header row
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(r, col)
+                    if item is not None:
+                        item.setBackground(header_bg)
+                        if col == 1:
+                            item.setForeground(header_fg)
+
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.PaletteChange:
+            self._update_header_colors()
+        super().changeEvent(event)
+
     def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
         """Redistribute space so the last column fills remaining viewport width."""
         _clamp_for_last_column(self.table, logical_index, old_size, new_size)
@@ -3521,7 +3541,7 @@ class HistoryDialog(QDialog):
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet("color: #888; font-size: 13px;")
+        self.empty_label.setStyleSheet(f"color: {DARK_COLORS['disabled']}; font-size: 13px;")
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label, 1)
 
@@ -3736,7 +3756,7 @@ class CascadeHistoryDialog(QDialog):
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet("color: #888; font-size: 13px;")
+        self.empty_label.setStyleSheet(f"color: {DARK_COLORS['disabled']}; font-size: 13px;")
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label, 1)
 
@@ -4005,7 +4025,7 @@ class CascadeHistoryDialog(QDialog):
 
         data = {
             "_format": "scaffold_cascade_history",
-            "_version": 1,
+            "_version": CASCADE_HISTORY_VERSION,
             "entries": [entry],
         }
         try:
@@ -4035,7 +4055,7 @@ class CascadeHistoryDialog(QDialog):
 
         data = {
             "_format": "scaffold_cascade_history",
-            "_version": 1,
+            "_version": CASCADE_HISTORY_VERSION,
             "entries": list(self.history),
         }
         try:
@@ -4057,10 +4077,26 @@ class CascadeHistoryDialog(QDialog):
             return
         item = items[0]
         # Resolve to parent cascade row
-        if item.parent() is not None:
+        is_child = item.parent() is not None
+        if is_child:
             item = item.parent()
         entry = item.data(0, Qt.ItemDataRole.UserRole)
         if entry is not None and entry in self.history:
+            msg = (
+                "Deleting this step will remove the entire parent "
+                "cascade entry from history. Continue?"
+                if is_child
+                else "Delete this cascade history entry? This cannot be undone."
+            )
+            answer = QMessageBox.question(
+                self,
+                "Delete Cascade Entry",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
             self.history.remove(entry)
         self._populate()
 
@@ -4968,7 +5004,7 @@ class CascadeVariableDefinitionDialog(QDialog):
 class CascadeCaptureDefinitionDialog(QDialog):
     """Modal dialog for defining captures for a single cascade slot."""
 
-    _SOURCES = ["stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"]
+    _SOURCES = ["stdout", "stderr", "file", "exit_code", "stdout_tail", "stderr_tail"]
 
     def __init__(
         self,
@@ -4996,13 +5032,13 @@ class CascadeCaptureDefinitionDialog(QDialog):
                        "(last 64KB)\n"
                        "\u2022 file \u2014 a literal filesystem path, passed through as-is\n"
                        "\u2022 exit_code \u2014 the step's exit code as a string\n"
-                       "\u2022 stdout_full / stderr_full \u2014 the entire output stream "
-                       "(last 64KB), no regex"),
+                       "\u2022 stdout_tail / stderr_tail \u2014 last 64KB of the output stream, "
+                       "no regex needed"),
             ("Pattern/Path", "For stdout/stderr sources: a regular expression "
                              "(max 200 characters). The capture group specified in the "
                              "Group column is extracted on match.\n"
                              "For file source: the literal path string to pass to later steps.\n"
-                             "Disabled for exit_code and stdout_full/stderr_full sources."),
+                             "Disabled for exit_code and stdout_tail/stderr_tail sources."),
             ("Group", "Regex capture group index to extract (1 = first parenthesized group). "
                       "Only used when source is stdout or stderr. Defaults to 1."),
         ]
@@ -5118,7 +5154,7 @@ class CascadeCaptureDefinitionDialog(QDialog):
             pat_item.setBackground(clear_bg)
             grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             grp_item.setBackground(dim_bg)
-        else:  # exit_code, stdout_full, stderr_full
+        else:  # exit_code, stdout_tail, stderr_tail
             pat_item.setFlags(pat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             pat_item.setBackground(dim_bg)
             grp_item.setFlags(grp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -5212,7 +5248,7 @@ CHAIN_FINISHED = "finished"     # Chain completed all steps
 CHAIN_PAUSED = "paused"         # Chain paused between steps
 
 _CAPTURE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_CAPTURE_VALID_SOURCES = frozenset({"stdout", "stderr", "file", "exit_code", "stdout_full", "stderr_full"})
+_CAPTURE_VALID_SOURCES = frozenset({"stdout", "stderr", "file", "exit_code", "stdout_tail", "stderr_tail"})
 
 
 def _validate_capture_entry(entry: dict, cascade_variables: list) -> None:
@@ -5283,16 +5319,18 @@ def extract_captures(
                 except IndexError:
                     continue
         elif source == "file":
+            # Returns the literal path string from the capture definition,
+            # not the contents of the file at that path. Intentional: file
+            # captures are designed to hand a filename produced by one tool
+            # (e.g. nmap -oX out.xml) to a downstream tool as an input arg.
             path_val = entry.get("path")
-            if not path_val or not isinstance(path_val, str):
-                path_val = entry.get("pattern")
             if path_val and isinstance(path_val, str):
                 result[name] = path_val
         elif source == "exit_code":
             result[name] = str(exit_code)
-        elif source == "stdout_full":
+        elif source == "stdout_tail":
             result[name] = stdout_tail
-        elif source == "stderr_full":
+        elif source == "stderr_tail":
             result[name] = stderr_tail
     return result
 
@@ -5753,6 +5791,14 @@ class CascadeSidebar(QDockWidget):
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # Migrate renamed capture sources (stdout_full → stdout_tail, etc.)
+        _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
+        if loaded_slots:
+            for slot in loaded_slots:
+                for cap in slot.get("captures", []):
+                    if isinstance(cap, dict) and cap.get("source") in _SOURCE_MIGRATION:
+                        cap["source"] = _SOURCE_MIGRATION[cap["source"]]
+
         if loaded_slots is None:
             loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
                             for _ in range(CASCADE_INITIAL_SLOTS)]
@@ -5850,6 +5896,13 @@ class CascadeSidebar(QDockWidget):
                 f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
             )
 
+        # Migrate renamed capture sources before validation
+        _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
+        for step in steps:
+            for cap in step.get("captures", []):
+                if isinstance(cap, dict) and cap.get("source") in _SOURCE_MIGRATION:
+                    cap["source"] = _SOURCE_MIGRATION[cap["source"]]
+
         # Validate captures in all steps before making any changes
         cascade_vars = data.get("variables", [])
         for step_idx, step in enumerate(steps):
@@ -5940,6 +5993,7 @@ class CascadeSidebar(QDockWidget):
         self._arrow_buttons.clear()
 
         # Build new slots from config snapshot
+        _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
         new_slots: list[dict] = []
         for slot in config.get("slots", []):
             tp = slot.get("tool_path")
@@ -5948,11 +6002,15 @@ class CascadeSidebar(QDockWidget):
             pp = slot.get("preset_path")
             if pp and not Path(pp).exists():
                 pp = None
+            captures = slot.get("captures", [])
+            for cap in captures:
+                if isinstance(cap, dict) and cap.get("source") in _SOURCE_MIGRATION:
+                    cap["source"] = _SOURCE_MIGRATION[cap["source"]]
             new_slots.append({
                 "tool_path": tp,
                 "preset_path": pp,
                 "delay": slot.get("delay", 0),
-                "captures": slot.get("captures", []),
+                "captures": captures,
             })
 
         # Pad to minimum slot count
@@ -6737,18 +6795,10 @@ class CascadeSidebar(QDockWidget):
                     elif exit_status == QProcess.ExitStatus.CrashExit:
                         _err_tok = "crashed"
                     _cslot = self._slots[slot_idx]
-                    _step = {
-                        "index": self._chain_current,
-                        "tool_name": Path(_cslot["tool_path"]).stem,
-                        "tool_path": _cslot["tool_path"],
-                        "preset_path": _cslot.get("preset_path"),
-                        "command": getattr(self._main_window, '_history_display', '') or '',
-                        "exit_code": exit_code,
-                        "error": _err_tok,
-                        "started_at": self._cascade_step_start,
-                        "finished_at": time.time(),
-                        "captures": dict(captured),
-                    }
+                    _step = self._build_chain_step_record(
+                        self._chain_current, _cslot, exit_code, _err_tok,
+                        captures=dict(captured),
+                    )
                     self._cascade_steps.append(_step)
                     self._main_window._update_cascade_run(
                         self._cascade_run_id,
@@ -6803,18 +6853,9 @@ class CascadeSidebar(QDockWidget):
                 if self._cascade_run_id is not None:
                     _fidx = self._chain_queue[self._chain_current]
                     _fsl = self._slots[_fidx]
-                    self._cascade_steps.append({
-                        "index": self._chain_current,
-                        "tool_name": Path(_fsl["tool_path"]).stem,
-                        "tool_path": _fsl["tool_path"],
-                        "preset_path": _fsl.get("preset_path"),
-                        "command": getattr(self._main_window, '_history_display', '') or '',
-                        "exit_code": None,
-                        "error": "failed_to_start",
-                        "started_at": self._cascade_step_start,
-                        "finished_at": time.time(),
-                        "captures": {},
-                    })
+                    self._cascade_steps.append(self._build_chain_step_record(
+                        self._chain_current, _fsl, None, "failed_to_start",
+                    ))
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
         except Exception as e:
@@ -6842,10 +6883,55 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage("Cascade resumed")
             QTimer.singleShot(100, self._chain_advance)
 
+    def _build_chain_step_record(
+        self,
+        step_index: int,
+        slot: dict,
+        exit_code: int | None,
+        error: str | None,
+        captures: dict | None = None,
+        finished_at: float | None = None,
+    ) -> dict:
+        """Build a cascade history step record dict.
+
+        Shared by _chain_on_finished, the failed-to-start path, and
+        _on_stop_chain so the step record shape stays consistent.
+        """
+        return {
+            "index": step_index,
+            "tool_name": Path(slot["tool_path"]).stem,
+            "tool_path": slot["tool_path"],
+            "preset_path": slot.get("preset_path"),
+            "command": getattr(self._main_window, '_history_display', '') or '',
+            "exit_code": exit_code,
+            "error": error,
+            "started_at": self._cascade_step_start,
+            "finished_at": finished_at if finished_at is not None else time.time(),
+            "captures": captures if captures is not None else {},
+        }
+
     def _on_stop_chain(self) -> None:
         """Cancel the chain and stop the current process."""
         was_running = self._chain_state
         self._chain_state = CHAIN_IDLE
+        # Synthesize a step record for the in-progress step before killing
+        # the process.  Must happen before _on_run_stop() so that the async
+        # _chain_on_finished callback (which early-returns on CHAIN_IDLE)
+        # won't duplicate the record.
+        try:
+            if (
+                was_running == CHAIN_RUNNING
+                and self._cascade_run_id is not None
+                and self._cascade_steps is not None
+                and 0 <= self._chain_current < len(self._chain_queue)
+            ):
+                _sidx = self._chain_queue[self._chain_current]
+                _sslot = self._slots[_sidx]
+                self._cascade_steps.append(self._build_chain_step_record(
+                    self._chain_current, _sslot, None, "stopped",
+                ))
+        except Exception:
+            pass  # Never crash the stop path
         if was_running == CHAIN_RUNNING:
             if self._main_window.process and self._main_window.process.state() != QProcess.ProcessState.NotRunning:
                 self._main_window._on_run_stop()  # Triggers the stop path
@@ -9069,7 +9155,11 @@ class MainWindow(QMainWindow):
     def _load_cascade_history(self) -> list[dict]:
         """Load cascade run history from QSettings."""
         ver = self.settings.value("cascade_history/_version", None)
-        if ver is None or int(ver) != CASCADE_HISTORY_VERSION:
+        try:
+            ver_int = int(ver) if ver is not None else None
+        except (ValueError, TypeError):
+            return []
+        if ver_int != CASCADE_HISTORY_VERSION:
             return []
         raw = self.settings.value("cascade_history/entries", "[]")
         try:
@@ -9095,11 +9185,14 @@ class MainWindow(QMainWindow):
     def _update_cascade_run(self, run_id: str, updates: dict) -> None:
         """Update fields on an existing cascade run entry by id."""
         entries = self._load_cascade_history()
+        found = False
         for entry in entries:
             if entry.get("id") == run_id:
                 entry.update(updates)
+                found = True
                 break
-        self._save_cascade_history(entries)
+        if found:
+            self._save_cascade_history(entries)
 
     def _clear_cascade_history(self) -> None:
         """Remove all cascade run history."""

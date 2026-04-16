@@ -2,6 +2,48 @@
 
 All notable changes to Scaffold are documented here.
 
+
+
+## [v2.8.7] — 2026-04-15
+
+Cascade history hardening, capture-source rename with on-load migration, stop-mid-step recovery, and UI polish — closes the v2.8.6 code review.
+
+### Added
+
+- **Delete confirmation in cascade history dialog** — `CascadeHistoryDialog._on_delete` now prompts before removing an entry. The confirmation message distinguishes parent-row selection ("Delete this cascade history entry?") from child-row selection, where the message makes the parent-scoped deletion explicit ("Deleting this step will remove the entire parent cascade entry from history. Continue?"). Default button is No.
+- **ToolPicker theme refresh** — folder-header rows now update their backgrounds automatically when the theme changes. Implemented as `_update_header_colors()` triggered by `changeEvent(QEvent.PaletteChange)`, which walks the existing row map and re-applies colors without touching selection, scroll, or active filter state.
+- **`_build_chain_step_record` helper** — centralizes the cascade step-record dict shape. Called from `_chain_on_finished` (normal completion), the failed-to-start path, and the new stop-mid-step path. Prevents the three sites from drifting on key names.
+- **CAPTURE_RESERVED_NAMES extended** — `stdout_tail` and `stderr_tail` added to the reserved set alongside the legacy `stdout_full` / `stderr_full` entries (kept for defense against shadowing in pre-migration cascade JSONs).
+- **New test coverage** — sections 152 (`_load_cascade_history` corrupt version key), 153 (`_update_cascade_run` no-op for missing run_id), 154 (stop-mid-step preserves in-progress step record), 155 (ToolPicker theme refresh), 156 (`stdout_full` → `stdout_tail` migration on cascade load), 157 (delete confirmation respects user choice). Plus 116j documenting that `source: "file"` requires the `path` key as of this release.
+
+### Changed
+
+- **Cascade capture sources renamed: `stdout_full` → `stdout_tail`, `stderr_full` → `stderr_tail`** — the previous names implied the entire stream was captured, but the implementation has always sliced to the last 64 KB (`CAPTURE_STREAM_TAIL_BYTES`). The new names match the actual behavior. A silent on-load migration in `_load_cascade`, `_import_cascade_data`, and `_restore_cascade_config` rewrites the legacy source names to the new ones, so existing cascade JSONs and history-restored configurations continue to work without user action. The capture definition dialog, validation, tooltips, and `CASCADE_LLM_GENERATION_GUIDE.md` all use the new names.
+- **`CASCADE_HISTORY_VERSION` constant used in exports** — `_on_export` and `_on_export_all` now reference the constant instead of writing `"_version": 1` as a literal.
+- **Empty-state label color** — `HistoryDialog` and `CascadeHistoryDialog` empty-state labels now use `DARK_COLORS["disabled"]` instead of a hardcoded `#888`.
+
+### Fixed
+
+- **Cascade history load survives a corrupt `_version` key** — `_load_cascade_history` now wraps the `int(ver)` parse in try/except `(ValueError, TypeError)` and returns `[]` on failure, matching the defensive style of the adjacent JSON parsing. Previously a non-numeric string in `cascade_history/_version` (from a corrupted registry or manual edit) would propagate `ValueError` up the load path.
+- **Stop-mid-step preserves the in-progress step in cascade history** — `_on_stop_chain` now synthesizes a step record (with `error: "stopped"` and `exit_code: None`) and appends it to `_cascade_steps` before calling `_on_run_stop()`. The append happens before the kill so that when `_chain_on_finished` fires asynchronously and short-circuits on `CHAIN_IDLE`, the step is already recorded. Previously stopping during step N produced a history entry showing N-1 steps. Wrapped in try/except so any failure in the synthesis path cannot break Stop.
+- **`_update_cascade_run` no longer writes when run_id is missing** — tracks a `found` flag during the entry walk and only calls `_save_cascade_history` if a match was updated. Previously every non-matching update path issued a needless QSettings write.
+- **`source: "file"` requires the `path` key** — `extract_captures` no longer falls back to `entry.get("pattern")` when `path` is absent for `file`-source captures. The runtime now matches `validate_capture_entry`, which has always required `path`. This eliminates a divergence where a misconfigured cascade could pass validation conceptually but fail it formally (or vice versa). Captures using `pattern` for a `file` source will now be silently dropped at extract time — the dialog and validator both reject them on save. Test 116g (which used the wrong key) updated.
+- **Test 123b assertion** — previously asserted `after == before + 1` after prefilling history to the cap, which is impossible under FIFO eviction. Now clears history first and prefills to 5 entries.
+
+### Security Hardening
+
+- **`_SHELL_METACHAR` extended** — `#` (shell comment), `'` (single quote), and `"` (double quote) added to the global metachar frozenset. `\` is added to the subcommand-name validation path but excluded from the binary-path validation path (where it's needed for Windows absolute paths like `C:\Windows\System32\ping.exe`). Defense-in-depth only — none of these characters were exploitable previously because Scaffold never invokes a shell, but they should never appear in executable or subcommand identifiers.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,569/2,569 assertions, 0 failures**
+  - Functional: 2,205/2,205
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 ## [v2.8.6] — 2026-04-15
 
 New Cascade history menu, LLM powered cascade generation guide.  Output panel resize fixes — drag handle height measurement, scrollbar coherence, and dynamic height cap.
@@ -25,7 +67,7 @@ New Cascade history menu, LLM powered cascade generation guide.  Output panel re
 
 #### Full suite results
 
-- **All 6 test suites pass: 2,552/2,553 assertions, 0 failures from changes**
+- **All 6 test suites pass: 2,553/2,553 assertions, 0 failures from changes**
   - Functional: 2,188/2,189 (1 pre-existing flake in §123b — history cap, unrelated)
   - Security: 158/158
   - Smoke: 70/70
