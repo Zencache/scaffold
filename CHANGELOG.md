@@ -3,6 +3,38 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.8.7.1] — 2026-04-16
+
+Post-v2.8.7 polish pass. Crash-safety gap closed in cascade save/import, clarifying comments added to two decisions future readers could easily undo, one confirmation-dialog default tightened, and dead defense dropped from the capture reserved-name set.
+
+### Fixed
+
+- **Cascade save and import are now crash-safe** — `_on_save_cascade` and `_on_import_cascade` previously wrote JSON via `Path.write_text(json.dumps(...))`, which could leave the target file truncated or empty if the process was killed or the disk filled mid-write. Both sites now use `_atomic_write_json()`, matching every other JSON writer in the file. The cascade save path is the higher-value fix — a user actively naming a cascade expects it to survive a crash.
+
+### Changed
+
+- **`CAPTURE_RESERVED_NAMES` no longer lists legacy source names** — `stdout_full` and `stderr_full` removed from the reserved-name set. The on-load migration in `_load_cascade`, `_import_cascade_data`, and `_restore_cascade_config` rewrites those source strings before validation runs, so keeping them as reserved capture-variable names was dead defense. The migration dicts themselves still reference both old and new names (those are the rewrite source and target).
+- **Clear Cascade History confirmation defaults to No** — `CascadeHistoryDialog._on_clear` now passes `QMessageBox.StandardButton.No` as the default button, matching the sibling `_on_delete` pattern added in v2.8.7. Other confirmation dialogs in the file pre-date this pattern and are intentionally out of scope.
+
+### Added
+
+- **Section 158 — stop-during-delay cascade test** — locks in the CHAIN_LOADING-state guard in `_on_stop_chain`. Sets up a 2-step cascade with a 2-second delay between steps, lets step 1 complete, stops during the delay, and asserts exactly 1 step was recorded (no phantom "stopped" step synthesized for step 2, which never started). A future change that broadens the synthesis guard to include `CHAIN_LOADING` would fail 158c/158e.
+
+### Docs
+
+- **`\` carve-out in binary-path validation now commented** — `validate_schema`'s shell-metachar check subtracts `\\` from the set when validating `binary` (Windows absolute paths like `C:\Windows\System32\ping.exe` need it as a separator) but not when validating subcommand names (which are tokens, not paths). A defensive comment now explains the asymmetry so a future reader doesn't "simplify" it and break Windows users.
+- **`CASCADE_HISTORY_VERSION` silent-drop contract now commented** — a comment at the constant definition notes that a version bump will silently drop all existing history unless an explicit migration is added to `_load_cascade_history`. No code change; the trap is for future-you when the constant eventually changes.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,574/2,574 assertions, 0 failures**
+  - Functional: 2,210/2,210
+  - Security: 158/158
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
 
 ## [v2.8.7] — 2026-04-15
 

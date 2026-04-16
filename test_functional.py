@@ -18832,6 +18832,105 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 158 — TG-2: Stop-during-delay does not synthesize phantom step
+# =====================================================================
+# When a cascade is stopped during the inter-step delay (CHAIN_LOADING state),
+# no phantom step should be synthesized for the next slot that never started.
+# This locks in the CHAIN_LOADING-state guard in _on_stop_chain.
+print("\n=== SECTION 158: TG-2 — stop during inter-step delay ===")
+
+_s158_tmpdir = tempfile.mkdtemp(prefix="scaffold_test158_")
+_s158_tool = {
+    "tool": "tool_158",
+    "binary": sys.executable,
+    "description": "TG-2 test",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+    ],
+}
+_s158_path = os.path.join(_s158_tmpdir, "tool_158.json")
+Path(_s158_path).write_text(json.dumps(_s158_tool))
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s158_win = scaffold.MainWindow()
+_s158_win.show()
+app.processEvents()
+
+_s158_dock = _s158_win.cascade_dock
+_s158_dock.show()
+app.processEvents()
+
+# Configure 2-step cascade: slot 0 delay=2s, slot 1 delay=0
+_s158_dock._slots[0]["tool_path"] = _s158_path
+_s158_dock._slots[0]["preset_path"] = None
+_s158_dock._slots[0]["delay"] = 2
+_s158_dock._slots[1]["tool_path"] = _s158_path
+_s158_dock._slots[1]["preset_path"] = None
+_s158_dock._slots[1]["delay"] = 0
+_s158_dock._stop_on_error = False
+_s158_dock._loop_enabled = False
+_s158_dock._cascade_variables = []
+
+# Run the chain
+_s158_dock._on_run_chain()
+app.processEvents()
+
+# Wait for slot 0 to complete AND state to transition to CHAIN_LOADING
+_s158_reached = False
+for _s158_i in range(200):
+    app.processEvents()
+    time.sleep(0.05)
+    if (_s158_dock._chain_state == scaffold.CHAIN_LOADING
+            and len(_s158_dock._cascade_steps) >= 1):
+        _s158_reached = True
+        break
+
+# Stop during the inter-step delay (or force-stop if timed out)
+_s158_dock._on_stop_chain()
+app.processEvents()
+app.processEvents()
+
+# Load cascade history
+_s158_history = _s158_win._load_cascade_history()
+
+# 158a: exactly 1 cascade history entry exists
+check(len(_s158_history) == 1,
+      f"158a: exactly 1 cascade history entry (got {len(_s158_history)})")
+
+_s158_entry = _s158_history[0] if _s158_history else {}
+
+# 158b: entry status == "stopped"
+check(_s158_entry.get("status") == "stopped",
+      f'158b: entry status is "stopped" (got {_s158_entry.get("status")!r})')
+
+# 158c: entry has exactly 1 step recorded (NOT 2 — slot 1 never ran)
+_s158_steps = _s158_entry.get("steps", [])
+check(len(_s158_steps) == 1,
+      f"158c: exactly 1 step recorded (got {len(_s158_steps)})")
+
+# 158d: the recorded step has exit_code 0 and error is None
+if _s158_steps:
+    _s158_ec = _s158_steps[0].get("exit_code")
+    _s158_err = _s158_steps[0].get("error")
+    check(_s158_ec == 0 and _s158_err is None,
+          f"158d: step exit_code=0 and error=None (got exit_code={_s158_ec!r}, error={_s158_err!r})")
+else:
+    check(False, "158d: step exit_code=0 and error=None (no steps recorded)")
+
+# 158e: no synthesized "stopped" step appears (slot 1 was never in progress)
+_s158_stopped = [s for s in _s158_steps if s.get("error") == "stopped"]
+check(len(_s158_stopped) == 0,
+      f'158e: no synthesized "stopped" step (got {len(_s158_stopped)})')
+
+# Cleanup section 158
+_s158_win._save_cascade_history([])
+_s158_win.close()
+_s158_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s158_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

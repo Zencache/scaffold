@@ -41,7 +41,7 @@ from pathlib import Path
 VALID_TYPES = {"boolean", "string", "text", "integer", "float", "enum", "multi_enum", "file", "directory", "password"}
 VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
-CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_full", "stderr_full", "stdout_tail", "stderr_tail", "file"})
+CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_tail", "stderr_tail", "file"})
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
 _SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00#\\'\"")
 
@@ -110,6 +110,10 @@ HISTORY_MAX_ENTRIES = 50
 
 # Cascade history
 CASCADE_HISTORY_MAX_ENTRIES = 50
+# Bumped only when the cascade_history entry schema changes in a way
+# that isn't backward-readable. If you bump this, add an explicit
+# migration in _load_cascade_history — the current code silently drops
+# all history on version mismatch.
 CASCADE_HISTORY_VERSION = 1
 
 
@@ -202,6 +206,10 @@ def validate_tool(data: dict) -> list[str]:
             if "\x00" in binary:
                 errors.append("\"binary\" contains null bytes")
             # Check for shell metacharacters (never valid in a binary name)
+            # '\\' is excluded here because Windows absolute paths (e.g.
+            # C:\\Windows\\System32\\ping.exe) use it as a separator. The subcommand-
+            # name check below does NOT carve it out — subcommand names are tokens,
+            # not paths.
             bad_chars = sorted(set(binary) & (_SHELL_METACHAR - {"\x00", "\\"}))
             if bad_chars:
                 errors.append(
@@ -4107,6 +4115,7 @@ class CascadeHistoryDialog(QDialog):
             "Clear Cascade History",
             "Remove all cascade history?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.history.clear()
@@ -6087,10 +6096,7 @@ class CascadeSidebar(QDockWidget):
 
         data = self._export_cascade_data(name, description)
         try:
-            cascade_path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(cascade_path, data)
         except OSError as e:
             self._main_window.statusBar().showMessage(f"Error saving cascade: {e}")
             return
@@ -6234,10 +6240,7 @@ class CascadeSidebar(QDockWidget):
                 return
 
         try:
-            dest.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            _atomic_write_json(dest, data)
         except OSError as e:
             self._main_window.statusBar().showMessage(f"Import failed: {e}")
             return
