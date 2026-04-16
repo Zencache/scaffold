@@ -15,7 +15,7 @@ Stop memorizing flags. Start clicking them.
 
 Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Fill in the fields, hit Run, done.
 
-Secure and immune to shell injection by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (158 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing flags and arguments as literal strings directly to the target binary — immune to shell injection, and leaves no shell history behind.
+Secure and immune to shell injection by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (158 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing inputs as literal strings directly to the target binary so no shell is ever invoked, and it leaves no shell history behind.
 
 This works with any CLI tool, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
