@@ -3,6 +3,38 @@
 All notable changes to Scaffold are documented here.
 
 
+
+## [v2.8.7.3] — 2026-04-16
+
+Error-path audit. Two real bugs fixed (cascade executes wrong tool after load failure; cascade silently skips missing preset), three defensive hardening items.
+
+### Fixed
+
+- **Cascade TOCTOU: missing tool file no longer runs the wrong binary** — `_chain_advance` now verifies `tool_path` matches after `_load_tool_path` returns. Previously, `_load_tool_path` swallowed load errors internally (showing a modal dialog, then returning), so the `except Exception` wrapper in `_chain_advance` never fired. The cascade proceeded to execute the *previous* step's binary with stale form data. The user would see a "Load Error" dialog, click OK, and then watch the wrong tool run. Now the chain halts with `error_halted` status if the loaded tool path doesn't match.
+- **Cascade halts on missing preset file** — `_chain_advance` now has an `elif preset_path:` branch that halts the chain when a configured preset file no longer exists on disk. Previously the condition at the preset-load site had no else branch — a missing preset silently fell through, and the tool executed with default values instead of the expected configuration. This is treated as a configuration error (unconditional halt) rather than a runtime error (not gated by `stop_on_error`).
+- **Export preset catches `json.JSONDecodeError`** — `_on_export_preset`'s except clause now catches `(OSError, json.JSONDecodeError)` instead of just `OSError`. Previously, exporting a preset whose source file contained malformed JSON raised an unhandled exception with no user feedback.
+
+### Changed
+
+- **Recovery file discarded notification** — when a recovery file is found but its stored tool path doesn't match the currently loaded tool (e.g. the schema file was moved), the file is still discarded, but the status bar now shows "Recovery file discarded — tool location has changed" instead of deleting silently.
+- **History entry validation filters non-dict elements** — `_load_history` now returns `[e for e in entries if isinstance(e, dict)]` instead of the raw list. Previously, corrupt QSettings data containing non-dict elements (ints, strings, None) would crash `HistoryDialog._populate` with an unhandled `AttributeError` when calling `.get()` on the element.
+
+### Added
+
+- **Section 162 — cascade TOCTOU regression test** — configures a 2-slot cascade, deletes the second tool file from disk, runs the chain, and asserts: chain halted with `error_halted`, exactly 1 step recorded, wrong tool was never loaded.
+- **Section 163 — missing preset halts chain test** — configures a 1-slot cascade with a preset, deletes the preset file, runs the chain, and asserts: chain halted with `error_halted`, 0 steps executed, status bar message contains "preset not found".
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,594/2,594 assertions, 0 failures**
+  - Functional: 2,229/2,229
+  - Security: 159/159
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.8.7.2] — 2026-04-16
 
 

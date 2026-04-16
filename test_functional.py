@@ -19172,6 +19172,213 @@ shutil.rmtree(_s161_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 162 — Cascade TOCTOU: missing tool halts chain
+# =====================================================================
+# Verifies that if a tool file is deleted between cascade configuration
+# and step execution, the chain halts instead of running the wrong binary.
+print("\n=== SECTION 162: Cascade TOCTOU — missing tool halts chain ===")
+
+_s162_tmpdir = tempfile.mkdtemp(prefix="scaffold_test162_")
+
+_s162_tool_a = {
+    "_format": "scaffold_schema",
+    "tool": "s162_tool_a",
+    "binary": sys.executable,
+    "description": "Tool A",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+    ],
+}
+_s162_tool_b = {
+    "_format": "scaffold_schema",
+    "tool": "s162_tool_b",
+    "binary": sys.executable,
+    "description": "Tool B",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+    ],
+}
+_s162_path_a = os.path.join(_s162_tmpdir, "s162_tool_a.json")
+_s162_path_b = os.path.join(_s162_tmpdir, "s162_tool_b.json")
+Path(_s162_path_a).write_text(json.dumps(_s162_tool_a), encoding="utf-8")
+Path(_s162_path_b).write_text(json.dumps(_s162_tool_b), encoding="utf-8")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s162_win = scaffold.MainWindow()
+_s162_win.show()
+app.processEvents()
+_s162_dock = _s162_win.cascade_dock
+_s162_dock.show()
+app.processEvents()
+
+# Configure 2-slot cascade: slot 0 = tool_a, slot 1 = tool_b
+_s162_dock._slots[0]["tool_path"] = _s162_path_a
+_s162_dock._slots[0]["preset_path"] = None
+_s162_dock._slots[0]["delay"] = 0
+_s162_dock._slots[1]["tool_path"] = _s162_path_b
+_s162_dock._slots[1]["preset_path"] = None
+_s162_dock._slots[1]["delay"] = 0
+for _s162_i in range(2, len(_s162_dock._slots)):
+    _s162_dock._slots[_s162_i]["tool_path"] = None
+    _s162_dock._slots[_s162_i]["preset_path"] = None
+
+# Mock QMessageBox.warning to auto-dismiss (the modal from _show_load_error)
+_s162_orig_warning = QMessageBox.warning
+_s162_warning_calls = []
+def _s162_mock_warning(*args, **kwargs):
+    _s162_warning_calls.append(args)
+    return QMessageBox.StandardButton.Ok
+QMessageBox.warning = staticmethod(_s162_mock_warning)
+
+_s162_win._clear_cascade_history()
+_s162_dock._cascade_variables = []
+_s162_dock._loop_enabled = False
+_s162_dock._stop_on_error = False
+
+# Start the chain — both files exist, so _on_run_chain builds queue [0, 1].
+# _on_run_chain calls _chain_advance synchronously for step 0, which loads
+# tool_a and schedules a 150ms timer for execution.  Control returns here
+# before the timer fires, so we can delete tool_b before step 1 runs.
+_s162_dock._on_run_chain()
+os.unlink(_s162_path_b)
+
+# Wait for cascade to finish
+for _s162_i in range(200):
+    app.processEvents()
+    time.sleep(0.05)
+    if _s162_dock._chain_state == scaffold.CHAIN_IDLE:
+        app.processEvents()
+        break
+
+QMessageBox.warning = _s162_orig_warning
+
+# 162a: cascade history entry exists
+_s162_entries = _s162_win._load_cascade_history()
+check(len(_s162_entries) >= 1,
+      f"162a: cascade history has at least 1 entry (got {len(_s162_entries)})")
+
+# 162b: status is error_halted
+if _s162_entries:
+    check(_s162_entries[0]["status"] == "error_halted",
+          f"162b: status is 'error_halted' (got {_s162_entries[0].get('status')!r})")
+else:
+    check(False, "162b: status is 'error_halted' (no history entry)")
+
+# 162c: exactly 1 step recorded (tool_a ran, tool_b did not)
+if _s162_entries:
+    check(len(_s162_entries[0]["steps"]) == 1,
+          f"162c: exactly 1 step recorded (got {len(_s162_entries[0]['steps'])})")
+else:
+    check(False, "162c: exactly 1 step recorded (no history entry)")
+
+# 162d: tool_path is NOT the deleted tool_b (wrong tool never loaded)
+check(_s162_win.tool_path != _s162_path_b,
+      f"162d: tool_path is not the deleted tool_b (got {_s162_win.tool_path!r})")
+
+# Cleanup section 162
+_s162_win._clear_cascade_history()
+_s162_win.close()
+_s162_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s162_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 163 — Cascade halts on missing preset
+# =====================================================================
+# Verifies that when a cascade step's preset file has been deleted,
+# the chain halts with a clear error instead of running with defaults.
+print("\n=== SECTION 163: Cascade halts on missing preset ===")
+
+_s163_tmpdir = tempfile.mkdtemp(prefix="scaffold_test163_")
+
+_s163_tool = {
+    "_format": "scaffold_schema",
+    "tool": "s163_tool",
+    "binary": sys.executable,
+    "description": "Preset test tool",
+    "arguments": [
+        {"name": "Script", "flag": "-c", "type": "string", "default": "pass"},
+    ],
+}
+_s163_tool_path = os.path.join(_s163_tmpdir, "s163_tool.json")
+Path(_s163_tool_path).write_text(json.dumps(_s163_tool), encoding="utf-8")
+
+_s163_preset = {
+    "_format": "scaffold_preset",
+    "_schema_hash": "dummy",
+    "__global__:-c": "import sys; sys.exit(99)",
+}
+_s163_preset_path = os.path.join(_s163_tmpdir, "s163_preset.json")
+Path(_s163_preset_path).write_text(json.dumps(_s163_preset), encoding="utf-8")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s163_win = scaffold.MainWindow()
+_s163_win.show()
+app.processEvents()
+_s163_dock = _s163_win.cascade_dock
+_s163_dock.show()
+app.processEvents()
+
+# Configure 1-slot cascade: tool + preset
+_s163_dock._slots[0]["tool_path"] = _s163_tool_path
+_s163_dock._slots[0]["preset_path"] = _s163_preset_path
+_s163_dock._slots[0]["delay"] = 0
+for _s163_i in range(1, len(_s163_dock._slots)):
+    _s163_dock._slots[_s163_i]["tool_path"] = None
+    _s163_dock._slots[_s163_i]["preset_path"] = None
+
+# Delete the preset file AFTER configuring
+os.unlink(_s163_preset_path)
+
+_s163_win._clear_cascade_history()
+_s163_dock._cascade_variables = []
+_s163_dock._loop_enabled = False
+_s163_dock._stop_on_error = False
+
+_s163_dock._on_run_chain()
+
+# Wait for cascade to finish
+for _s163_i in range(200):
+    app.processEvents()
+    time.sleep(0.05)
+    if _s163_dock._chain_state == scaffold.CHAIN_IDLE:
+        app.processEvents()
+        break
+
+# 163a: cascade history entry exists
+_s163_entries = _s163_win._load_cascade_history()
+check(len(_s163_entries) >= 1,
+      f"163a: cascade history has at least 1 entry (got {len(_s163_entries)})")
+
+# 163b: status is error_halted
+if _s163_entries:
+    check(_s163_entries[0]["status"] == "error_halted",
+          f"163b: status is 'error_halted' (got {_s163_entries[0].get('status')!r})")
+else:
+    check(False, "163b: status is 'error_halted' (no history entry)")
+
+# 163c: exactly 0 steps recorded (chain halted before execution)
+if _s163_entries:
+    check(len(_s163_entries[0]["steps"]) == 0,
+          f"163c: 0 steps recorded (got {len(_s163_entries[0]['steps'])})")
+else:
+    check(False, "163c: 0 steps recorded (no history entry)")
+
+# 163d: status bar message contains "preset not found"
+_s163_status = _s163_win.statusBar().currentMessage().lower()
+check("preset not found" in _s163_status,
+      f"163d: status bar contains 'preset not found' (got {_s163_win.statusBar().currentMessage()!r})")
+
+# Cleanup section 163
+_s163_win._clear_cascade_history()
+_s163_win.close()
+_s163_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s163_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

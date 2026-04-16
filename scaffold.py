@@ -6686,6 +6686,16 @@ class CascadeSidebar(QDockWidget):
             self._cascade_finish_status = "error_halted"
             self._chain_cleanup(f"Cascade failed loading tool: {e}")
             return
+        # Guard: _load_tool_path swallows errors internally (shows a modal
+        # dialog and returns None on failure).  If the load didn't actually
+        # change tool_path to the expected value, the form still has the
+        # previous step's tool — halt instead of running the wrong binary.
+        if self._main_window.tool_path != tool_path:
+            self._cascade_finish_status = "error_halted"
+            self._chain_cleanup(
+                f"Cascade failed loading tool: {Path(tool_path).stem}"
+            )
+            return
 
         # Disable main window controls (_load_tool_path re-enables them)
         self._main_window.run_btn.setEnabled(False)
@@ -6703,6 +6713,17 @@ class CascadeSidebar(QDockWidget):
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup(f"Cascade failed loading preset: {e}")
                 return
+        elif preset_path:
+            # Preset file configured but missing — halt rather than
+            # run with default values, which would silently change
+            # the tool's behavior.
+            preset_name = Path(preset_path).stem
+            self._cascade_finish_status = "error_halted"
+            self._chain_cleanup(
+                f"Cascade stopped: preset not found for step "
+                f"{self._chain_current + 1} \u2014 {preset_name}"
+            )
+            return
 
         # Overlay snapshot AFTER preset so user edits win.
         if snapshot is not None and self._main_window.form is not None:
@@ -7887,10 +7908,16 @@ class MainWindow(QMainWindow):
                 pass
             return
         if recovery_data.get("_recovery_tool_path") != self.tool_path:
+            # Recovery file exists but was saved for this tool at a different
+            # path (tool file was moved/copied).  Discard it — the form state
+            # may not match the current schema.
             try:
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
+            self._show_status(
+                "Recovery file discarded \u2014 tool location has changed"
+            )
             return
         human_time = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
         btn = QMessageBox.question(
@@ -8611,7 +8638,7 @@ class MainWindow(QMainWindow):
         try:
             content = preset_path.read_text(encoding="utf-8")
             _atomic_write_json(Path(dest), json.loads(content))
-        except OSError as e:
+        except (OSError, json.JSONDecodeError) as e:
             self.statusBar().showMessage(f"Export failed: {e}")
             return
         self.statusBar().showMessage(f"Preset exported: {name}")
@@ -9118,7 +9145,7 @@ class MainWindow(QMainWindow):
             entries = json.loads(raw) if isinstance(raw, str) else raw
             if not isinstance(entries, list):
                 return []
-            return entries
+            return [e for e in entries if isinstance(e, dict)]
         except (json.JSONDecodeError, TypeError):
             return []
 
