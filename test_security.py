@@ -696,6 +696,19 @@ app.processEvents()
 check(_win9.data is _data_before,
       "9c: schema with 'list --recursive' subcommand rejected (data unchanged)")
 
+# 9d: Backslash in subcommand name — rejected as shell metachar
+# The '\' carve-out in binary validation (section 3o) does NOT extend to
+# subcommand names (see scaffold.py:209-212). Subcommand names are tokens,
+# not paths.
+errs9d = _sub_errors("foo\\bar")
+check(any("shell metacharacter" in e.lower() for e in errs9d),
+      "9d: backslash in subcommand name rejected "
+      "(contrast: absolute-path binary accepts \\; section 3o)")
+
+_win9.close()
+_win9.deleteLater()
+app.processEvents()
+
 
 # =====================================================================
 print("\n=== SECTION 10: HTML Injection Escaping ===")

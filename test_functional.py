@@ -18931,6 +18931,247 @@ shutil.rmtree(_s158_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 159 — AW-1: atomic-write regression guard
+# =====================================================================
+# Locks in that cascade save and import both route through _atomic_write_json.
+print("\n=== SECTION 159: AW-1 — atomic-write regression guard ===")
+
+_s159_tmpdir = tempfile.mkdtemp(prefix="scaffold_test159_")
+_s159_tool = {
+    "tool": "tool_159",
+    "binary": "echo",
+    "description": "AW-1 test",
+    "arguments": [],
+}
+_s159_path = os.path.join(_s159_tmpdir, "tool_159.json")
+Path(_s159_path).write_text(json.dumps(_s159_tool), encoding="utf-8")
+
+_s159_win = scaffold.MainWindow()
+_s159_win.show()
+app.processEvents()
+_s159_win._load_tool_path(_s159_path)
+app.processEvents()
+
+# Configure cascade slot 0 with the tool
+_s159_win.cascade_dock._slots[0]["tool_path"] = _s159_path
+_s159_win.cascade_dock._slots[0]["preset_name"] = None
+app.processEvents()
+
+# Monkey-patch _atomic_write_json to count calls while preserving behavior
+_s159_calls = []
+_s159_orig_atomic = scaffold._atomic_write_json
+
+def _s159_counting_atomic(path, data):
+    _s159_calls.append(str(path))
+    return _s159_orig_atomic(path, data)
+
+scaffold._atomic_write_json = _s159_counting_atomic
+
+# Monkey-patch QInputDialog.getText for save (first call: name, second: description)
+_s159_orig_getText = scaffold.QInputDialog.getText
+_s159_getText_calls = [0]
+
+def _s159_mock_getText(*args, **kwargs):
+    _s159_getText_calls[0] += 1
+    if _s159_getText_calls[0] == 1:
+        return ("test_cascade_159", True)
+    else:
+        return ("", True)
+
+scaffold.QInputDialog.getText = staticmethod(_s159_mock_getText)
+
+# Monkey-patch QMessageBox.question to auto-confirm overwrite
+_s159_orig_question = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+
+# Execute save
+_s159_win.cascade_dock._on_save_cascade_file()
+app.processEvents()
+
+# 159a: _atomic_write_json was called at least once during save
+check(len(_s159_calls) >= 1,
+      f"159a: _atomic_write_json called during save (calls: {len(_s159_calls)})")
+
+# 159b: the recorded path ends with test_cascade_159.json
+check(any(p.endswith("test_cascade_159.json") for p in _s159_calls),
+      f"159b: save path ends with test_cascade_159.json (paths: {_s159_calls})")
+
+# --- Import test ---
+_s159_saved_path = str(scaffold._cascades_dir() / "test_cascade_159.json")
+
+# Clear slots
+for _s159_sl in _s159_win.cascade_dock._slots:
+    _s159_sl["tool_path"] = None
+    _s159_sl["preset_path"] = None
+
+# Monkey-patch QFileDialog.getOpenFileName for import
+from PySide6.QtWidgets import QFileDialog
+_s159_orig_getopen = QFileDialog.getOpenFileName
+QFileDialog.getOpenFileName = staticmethod(
+    lambda *a, **kw: (_s159_saved_path, "JSON files (*.json)"))
+
+# Clear call log
+_s159_calls.clear()
+
+# Execute import (overwrite prompt fires because file exists in cascades dir)
+_s159_win.cascade_dock._on_import_cascade()
+app.processEvents()
+
+# 159c: _atomic_write_json called at least once during import
+check(len(_s159_calls) >= 1,
+      f"159c: _atomic_write_json called during import (calls: {len(_s159_calls)})")
+
+# 159d: recorded path is under _cascades_dir()
+_s159_cascades_str = str(scaffold._cascades_dir())
+check(any(_s159_cascades_str in p for p in _s159_calls),
+      f"159d: import path is under _cascades_dir() (paths: {_s159_calls})")
+
+# Cleanup section 159
+scaffold._atomic_write_json = _s159_orig_atomic
+scaffold.QInputDialog.getText = _s159_orig_getText
+QFileDialog.getOpenFileName = _s159_orig_getopen
+QMessageBox.question = _s159_orig_question
+
+_s159_cascade_file = scaffold._cascades_dir() / "test_cascade_159.json"
+if _s159_cascade_file.exists():
+    _s159_cascade_file.unlink()
+
+_s159_win.close()
+_s159_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s159_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 160 — CAPTURE_RESERVED_NAMES membership assertion
+# =====================================================================
+# Documents the exact membership so any accidental addition/removal fails loudly.
+print("\n=== SECTION 160: CAPTURE_RESERVED_NAMES membership ===")
+
+_s160_expected = frozenset({"exit_code", "stdout", "stderr",
+                            "stdout_tail", "stderr_tail", "file"})
+check(scaffold.CAPTURE_RESERVED_NAMES == _s160_expected,
+      f"160a: CAPTURE_RESERVED_NAMES matches expected set "
+      f"(got {sorted(scaffold.CAPTURE_RESERVED_NAMES)})")
+
+
+# =====================================================================
+# Section 161 — defaultButton introspection for cascade history dialogs
+# =====================================================================
+# _on_delete and _on_clear must pass StandardButton.No as the defaultButton
+# (5th positional arg to QMessageBox.question) so the destructive action is
+# not the pre-selected choice.
+print("\n=== SECTION 161: defaultButton introspection ===")
+
+_s161_tmpdir = tempfile.mkdtemp(prefix="scaffold_test161_")
+_s161_tool = {
+    "tool": "tool_161",
+    "binary": "echo",
+    "description": "defaultButton test",
+    "arguments": [],
+}
+_s161_path = os.path.join(_s161_tmpdir, "tool_161.json")
+Path(_s161_path).write_text(json.dumps(_s161_tool), encoding="utf-8")
+
+_s161_win = scaffold.MainWindow()
+_s161_win.show()
+app.processEvents()
+_s161_win._load_tool_path(_s161_path)
+app.processEvents()
+
+# Seed cascade history with one entry
+_s161_fake_entry = {
+    "id": "s161_test",
+    "name": "Test Cascade",
+    "status": "completed",
+    "started_at": time.time() - 60,
+    "finished_at": time.time() - 30,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+}
+_s161_win._save_cascade_history([_s161_fake_entry])
+
+# Construct dialog
+_s161_dlg = scaffold.CascadeHistoryDialog(
+    _s161_win._load_cascade_history(), parent=_s161_win)
+_s161_dlg.show()
+app.processEvents()
+
+# Capturing mock — returns No so no state mutation occurs
+_s161_captured = []
+_s161_orig_question = QMessageBox.question
+
+def _s161_spy(*args, **kwargs):
+    _s161_captured.append(args)
+    return QMessageBox.StandardButton.No
+
+QMessageBox.question = staticmethod(_s161_spy)
+
+# Test _on_delete: select first top-level item
+_s161_top = _s161_dlg.tree.topLevelItem(0)
+if _s161_top is not None:
+    _s161_dlg.tree.setCurrentItem(_s161_top)
+    app.processEvents()
+
+_s161_dlg._on_delete()
+app.processEvents()
+
+# 161a: exactly 1 captured call from _on_delete
+check(len(_s161_captured) == 1,
+      f"161a: _on_delete triggered exactly 1 QMessageBox.question call "
+      f"(got {len(_s161_captured)})")
+
+if _s161_captured:
+    # 161b: title is "Delete Cascade Entry"
+    check(_s161_captured[0][1] == "Delete Cascade Entry",
+          f"161b: _on_delete title is 'Delete Cascade Entry' "
+          f"(got {_s161_captured[0][1]!r})")
+
+    # 161c: defaultButton (5th positional arg) is StandardButton.No
+    check(_s161_captured[0][4] == QMessageBox.StandardButton.No,
+          f"161c: _on_delete defaultButton is StandardButton.No "
+          f"(got {_s161_captured[0][4]!r})")
+else:
+    check(False, "161b: _on_delete title is 'Delete Cascade Entry' (no call captured)")
+    check(False, "161c: _on_delete defaultButton is StandardButton.No (no call captured)")
+
+# Test _on_clear
+_s161_captured.clear()
+_s161_dlg._on_clear()
+app.processEvents()
+
+# 161d: exactly 1 captured call from _on_clear
+check(len(_s161_captured) == 1,
+      f"161d: _on_clear triggered exactly 1 QMessageBox.question call "
+      f"(got {len(_s161_captured)})")
+
+if _s161_captured:
+    # 161e: title is "Clear Cascade History"
+    check(_s161_captured[0][1] == "Clear Cascade History",
+          f"161e: _on_clear title is 'Clear Cascade History' "
+          f"(got {_s161_captured[0][1]!r})")
+
+    # 161f: defaultButton (5th positional arg) is StandardButton.No
+    check(_s161_captured[0][4] == QMessageBox.StandardButton.No,
+          f"161f: _on_clear defaultButton is StandardButton.No "
+          f"(got {_s161_captured[0][4]!r})")
+else:
+    check(False, "161e: _on_clear title is 'Clear Cascade History' (no call captured)")
+    check(False, "161f: _on_clear defaultButton is StandardButton.No (no call captured)")
+
+# Cleanup section 161
+QMessageBox.question = _s161_orig_question
+_s161_dlg.close()
+_s161_dlg.deleteLater()
+_s161_win._save_cascade_history([])
+_s161_win.close()
+_s161_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s161_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

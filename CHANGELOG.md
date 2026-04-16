@@ -3,6 +3,15 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.8.7.2] — 2026-04-16
+
+
+### Added
+
+- **Sections 159–161 + 9d — test coverage for v2.8.7 changes.** Section 159 asserts cascade save/import route through `_atomic_write_json` (AW-1 regression guard). Section 160 pins `CAPTURE_RESERVED_NAMES` membership (prevents accidental re-introduction of legacy entries dropped in CRN-1). Section 161 verifies `CascadeHistoryDialog._on_delete` and `_on_clear` pass `StandardButton.No` as default (DC-1 regression guard, also documents the pattern for future destructive-action dialogs). Section 9d in `test_security.py` documents the `\` carve-out asymmetry — accepted in binary paths (section 3o), rejected in subcommand names.
+
+
+
 ## [v2.8.7.1] — 2026-04-16
 
 Post-v2.8.7 polish pass. Crash-safety gap closed in cascade save/import, clarifying comments added to two decisions future readers could easily undo, one confirmation-dialog default tightened, and dead defense dropped from the capture reserved-name set.
