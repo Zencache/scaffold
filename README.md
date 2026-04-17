@@ -4,9 +4,9 @@ Scaffold — Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-9%2C800%2B-informational)
-![Tests](https://img.shields.io/badge/tests-2%2C773%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-2%2C863%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
-![Bundled Tools](https://img.shields.io/badge/bundled%20tools-25%20schemas-orange)
+![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
@@ -32,7 +32,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,773 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (2,863 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
@@ -45,7 +45,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
 - **Windows, macOS, or Linux** — tested primarily on Windows. PySide6 is cross-platform, so macOS and Linux should work but have had less testing. If you hit platform-specific issues, please open an issue.
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 24 tools in the `tools/` folder (two of which — `pandoc` and `yt-dlp` — are experimental), plus example cascade files in `cascades/`. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 27 tools in the `tools/` folder (two of which — `pandoc` and `yt-dlp` — are experimental), plus example cascade files in `cascades/`. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 
@@ -270,7 +270,7 @@ Chain multiple tool runs into sequential workflows from the cascade sidebar (Ctr
 
 **Cascade captures** let later steps reuse values extracted from earlier step output. A capture can pull data from stdout or stderr via regex, read a file path, grab an exit code, or take the output stream tail, then inject it into subsequent steps as a `{name}` substitution.
 
-Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State persists across sessions. Cascades run through the same QProcess list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees. Five example cascade files are bundled in `cascades/` (`recon_basic`, `ping_then_nmap`, `cascade_archive_playlist`, `cascade_pandoc_dual_output`, and `cascade_ssh_scp`).
+Cascade files can be saved, loaded, imported, exported, and deleted from the sidebar. State persists across sessions. Cascades run through the same QProcess list-based execution pipeline as single-tool runs — no shell, no shortcuts, same security guarantees. Six example cascade files are bundled in `cascades/` (`recon_basic`, `ping_then_nmap`, `cascade_archive_playlist`, `cascade_pandoc_dual_output`, `cascade_ssh_scp`, and `cascade_nmap_ncat`).
 
 ### Cascade history
 
@@ -305,7 +305,7 @@ The main use case is script-based tools. Write a schema with `"binary": "myscrip
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
-- **Bundled tool schemas** — 25 schemas covering aircrack-ng, airodump-ng, ansible (4 tools), curl, docker (3 tools), ffmpeg, git, gobuster, hashcat, nikto, nmap, openclaw, ping, rsync, scp, ssh, and tar. Some are mostly untested — contributions and bug reports welcome
+- **Bundled tool schemas** — 28 schemas covering aircrack-ng, airodump-ng, ansible (4 tools), curl, docker (3 tools), ffmpeg, find, git, gobuster, hashcat, ncat, nikto, nmap, openclaw, ping, rsync, scp, ssh, tar, and wget. Some are mostly untested — contributions and bug reports welcome. Several ship with bundled presets under `default_presets/` (seeded into your local `presets/` folder on first open) — currently `find`, `ncat`, `nmap`, `rsync`, `scp`, `ssh`, `tar`, and `wget`
 - **Experimental schemas** — `tools/pandoc.json` and `tools/yt-dlp.json` are newly added and experimental. Bundled example presets live under `default_presets/pandoc/` and `default_presets/yt-dlp/` (seeded into your local `presets/` folder on first open), and example cascades live at `cascades/cascade_pandoc_dual_output.json` and `cascades/cascade_archive_playlist.json`. Expect rough edges — please report any issues you find
 
 ---
@@ -374,7 +374,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (2,773 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (2,863 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through multi-part review: cleanup, error handling audit, performance profiling, and linting
 5. **Iteration, not generation** — most features took multiple rounds of build-test-fix. The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging

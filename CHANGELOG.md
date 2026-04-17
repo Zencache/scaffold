@@ -5,133 +5,42 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.9.2] — 2026-04-17
 
-Cascade sidebar button-clipping fix on Linux.
-
-### Fixed
-
-- **Cascade chain button text no longer clips on Linux** —
-  `CascadeSidebar.__init__` previously applied the compact
-  `padding: 2px 8px` QSS to only three of the seven chain-row
-  buttons (`run`/`pause`/`stop`). `loop_btn`,
-  `stop_on_error_btn`, `clear_all_btn`, and `add_step_btn`
-  kept native button chrome, which on Linux light mode is
-  wider than the 65 px fixed width / 208 px row budget
-  assumed. Labels such as `"Loop ✓"`, `"+ Add Step"`, and
-  `"Err✗"` overflowed the button area and clipped at both
-  edges (centered overflow, so sometimes the left side,
-  sometimes the right). The init loop now applies the
-  compact QSS to all seven chain buttons.
-- **Toggle OFF no longer wipes compact padding** —
-  `_style_loop_btn` and `_style_stop_on_error_btn` OFF
-  branches previously called `setStyleSheet("")`, erasing
-  the compact QSS on every `_load_cascade` and every
-  toggle-off. Both now apply `self._chain_qss`, so padding
-  survives across state changes and cascade loads.
-
-### Changed
-
-- **Single source of truth for `padding: 2px 8px`** — new
-  `self._chain_btn_body` fragment plus `self._chain_qss`
-  composed from it. Four previous literal copies (init,
-  both `_style_*_btn` ON branches, `update_theme`) now
-  reference the shared fragment — one literal, one place.
-- **`update_theme` hoists `self._chain_qss` refresh above
-  `_style_loop_btn`** so the OFF branch picks up the current
-  theme's border color on mode switch. The theme-refresh
-  loop also now covers `clear_all_btn` and `add_step_btn`
-  since they gained compact-QSS styling.
-
-### Fixed (test hygiene)
-
-- **Section 67 of `test_functional.py` no longer wipes the
-  real `cascades/` folder** — setup and teardown used to
-  glob-unlink all `*.json` under `Path(__file__).parent /
-  "cascades"`, which deleted repo-bundled cascades
-  (`cascade_archive_playlist.json`,
-  `cascade_pandoc_dual_output.json`, `ping_then_nmap.json`,
-  `recon_basic.json`) from the working tree on every run.
-  Section 67 now monkey-patches `scaffold._cascades_dir()`
-  to a per-section tmpdir, mirroring the existing pattern
-  in section 90 (`_s90_fake_cascades_dir`). The real
-  `cascades/` folder is never touched.
+Cascade sidebar button-clipping fix on Linux, a new `_tool` preset meta key, a cascade dependency pre-flight check, six new bundled tool schemas (`find`, `ncat`, `wget`, `ssh`, `scp`, `tar`) with default preset packs, and two new example cascades.
 
 ### Added
 
-**New tool schemas (tools/):**
-- **`tools/ssh.json`** — OpenSSH secure shell client
-  (37 arguments). Covers connection, authentication,
-  identity-file selection, port forwarding (local/remote/
-  dynamic), jump-host chaining, verbosity, and common
-  `-o ssh_config` options that expose cleanly as flags.
-  Skipped: meta/query flags (`--help`, `-Q`, `-G`) and
-  config-file-only `ssh_config` options.
-- **`tools/scp.json`** — OpenSSH secure file copy
-  (21 arguments). Covers port (`-P`, uppercase vs ssh's
-  lowercase), identity-file, recursive directory copy,
-  preserve-mode, bandwidth limit, and jump-host. Skipped:
-  `--help` (meta flag).
-- **`tools/tar.json`** — GNU tar archiving utility
-  (57 arguments). Covers create/extract/list/append/update
-  operations, compression formats (gzip, bzip2, xz, zstd,
-  lzip, lzma), strip-components, exclude patterns, verify,
-  and common filter/verbosity flags. Skipped: `--help`,
-  `--version`, `--usage`, `--show-defaults` and niche
-  incremental/backup/tape flags.
+- **`_tool` preset meta key** — `ToolForm.serialize_values` now emits `"_tool"` alongside the existing meta keys. On load and import, `_on_load_preset` and `_on_import_preset` compare it against the current tool; on mismatch, a warning dialog names both tools and offers "Load Anyway" / "Cancel" before values apply or the file is copied. Fires ahead of the `_schema_hash` mismatch warning so the more specific message wins. Absent `_tool` is treated as legacy and loads silently. `validate_preset`, `PRESET_PROMPT.txt`, and `schema.md` updated.
+- **Cascade dependency pre-flight check** — new `_check_cascade_dependencies` and `_prompt_cascade_missing_deps` helpers scan a cascade's steps for tool schemas and presets that don't exist on disk. `CascadeSidebar._on_import_cascade` and `_on_load_cascade_list` call them after format validation and before mutating state. Missing paths are listed in a warning dialog with "Continue" / "Cancel"; Cancel aborts (no file copied, sidebar untouched), Continue proceeds as before. Path resolution reuses the existing `Path(__file__).parent` resolver. `schema.md` gained a Cascade Files section.
+- **Six new bundled tool schemas** — `find`, `ncat`, `wget`, `ssh` (37 args), `scp` (21 args), `tar` (57 args). `ncat` covers Nmap's netcat; `find` and `wget` are partial coverage with niche flags omitted, documented in each file's `_coverage` field. Bundled count now 28.
+- **Default preset packs for the new tools** — 25 presets total: `find/` (6), `ncat/` (5), `wget/` (5), `ssh/` (5), `scp/` (4), `tar/` (5). Seeded into `presets/{tool}/` on first open via the existing `_presets_dir()` copy-on-first-access path.
+- **Two new example cascades** — `cascade_nmap_ncat` (nmap discovers open ports, ncat connects using the `port_check` preset, single shared `HOST` variable) and `cascade_ssh_scp` (ssh verifies a remote file exists, scp downloads it with `stop_on_error: true`).
 
-**New bundled presets (`default_presets/`):**
-- `default_presets/ssh/` — 5 presets: `jump_host`,
-  `keep_alive`, `local_port_forward`, `socks_proxy`,
-  `verbose_debug`.
-- `default_presets/scp/` — 4 presets: `download_file`,
-  `upload_directory`, `bandwidth_limited`, `via_jump_host`.
-- `default_presets/tar/` — 5 presets: `create_tar_gz`,
-  `create_tar_xz`, `extract_tar_gz`, `extract_strip_top`,
-  `list_contents`.
+### Fixed
 
-Presets are seeded into the user's `presets/{tool}/`
-folder on first open via the existing `_presets_dir()`
-copy-on-first-access path, so users get them
-automatically after updating.
+- **Cascade chain button text no longer clips on Linux** — `CascadeSidebar.__init__` previously applied the compact `padding: 2px 8px` QSS to only three of the seven chain-row buttons (`run`/`pause`/`stop`). `loop_btn`, `stop_on_error_btn`, `clear_all_btn`, and `add_step_btn` kept native button chrome, which overflowed the fixed width budget on Linux light mode. The init loop now applies the compact QSS to all seven.
+- **Toggle OFF no longer wipes compact padding** — `_style_loop_btn` and `_style_stop_on_error_btn` OFF branches previously called `setStyleSheet("")`, erasing the compact QSS on every `_load_cascade` and toggle-off. Both now apply `self._chain_qss`.
 
-**New bundled cascade (`cascades/`):**
-- `cascades/cascade_ssh_scp.json` — two-step
-  `ssh-check-then-scp-download` cascade. Step 1 runs
-  `ssh` to verify a file exists on the remote host; step 2
-  runs `scp` with the `download_file` preset to pull it
-  locally. Uses three runtime variables (`DESTINATION`,
-  `SOURCE`, `TARGET`) with `stop_on_error: true` so the
-  download is skipped if the remote check fails.
+### Changed
 
-**Tests (test_functional.py):**
-- **Section 174** — Cascade chain-button compact-QSS
-  regression guard (32 assertions). Coverage guard iterates
-  all 7 chain-row button attribute names and asserts each
-  carries `padding: 2px 8px` at init, after toggle ON/OFF,
-  and after theme flip. Integration test walks through
-  toggle + theme round-trip in one pass. Also asserts the
-  single-source invariant (`_chain_btn_body ⊂ _chain_qss`).
-- **Section 175** — Bundled-cascades intact guard
-  (4 assertions). Iterates a known `BUNDLED_CASCADES` list
-  and asserts each file still exists in `cascades/` after
-  the full suite runs. Catches any future section that
-  forgets to redirect `_cascades_dir()`.
+- **Single source of truth for `padding: 2px 8px`** — new `self._chain_btn_body` fragment and `self._chain_qss` composed from it replace four literal copies (init, both `_style_*_btn` ON branches, `update_theme`).
+- **`update_theme` refreshes `self._chain_qss` first** — hoisted above `_style_loop_btn` so the OFF branch picks up the current theme's border color on mode switch. Loop now also covers `clear_all_btn` and `add_step_btn`.
 
-**Docs:**
-- README bundled-tools badge bumped from `22 schemas`
-  to `25 schemas`. Tool count text and "Bundled tool
-  schemas" list updated to include `ssh`, `scp`, and
-  `tar`.
+### Tests (test_functional.py)
 
-### Notes
+- **Section 174** — Cascade chain-button compact-QSS regression guard (32 assertions). Iterates all 7 chain-row button names and asserts `padding: 2px 8px` at init, after toggle ON/OFF, and after theme flip. Asserts the `_chain_btn_body ⊂ _chain_qss` single-source invariant.
+- **Section 175** — Bundled-cascades intact guard (4 assertions). Catches any future section that forgets to redirect `_cascades_dir()`.
+- **Section 176** — `_tool` identity coverage (12 assertions). Serialization, meta-key validation, matching/mismatched load, Cancel vs Load Anyway, backward compat for missing `_tool`, parallel coverage for the import path.
+- **Section 177** — Cascade dependency pre-flight coverage (24 assertions). All-present, missing-tool-only, missing-preset-only, mixed, and empty cases; drives import and load paths through monkey-patched `_prompt_cascade_missing_deps` to verify Continue/Cancel behavior.
 
-- `QFontMetrics.horizontalAdvance("Loop ✓")` measured 42 px
-  on Windows / Segoe UI 9 pt, fitting the 49 px budget
-  (65 px fixed width minus 16 px QSS padding) with 7 px of
-  headroom. Linux default sans fonts (DejaVu / Liberation /
-  Noto) render the same string wider; if users still see
-  clipping on `loop_btn` after this ships, the next
-  escalation is to drop `setFixedWidth(65)` in favor of
-  `setMinimumWidth(fm.horizontalAdvance(longest_label) + 24)`.
+#### Full suite results
+
+- **All 6 test suites pass: 2,863/2,863 assertions, 0 failures**
+  - Functional: 2,490/2,490 (was 2,408; +82 net after §174–§177 adds and v2.9.2 cycle work)
+  - Security: 159/159
+  - Smoke: 78/78 (was 70; +8 from v2.9.2 cycle work)
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
 
 
 ## [v2.9.1] — 2026-04-16
