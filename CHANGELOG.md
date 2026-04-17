@@ -4,8 +4,7 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.9] — 2026-04-16
 
-Major release: full cascade capture regex safety pipeline. Closes three
-bugs identified during a Claude Opus 4.7 code review.
+Major release: Scaffold now includes the ability to add a custom PATH, so you are not limited to just the system path. Every time Scaffold is ran it scans the system PATH + whatever other paths you configure for any binaries that you also have a tool schema for. This release also includes a full cascade capture regex safety pipeline, and closes three bugs identified during a Claude Opus 4.7 code review.
 
 ### Fixed
 
