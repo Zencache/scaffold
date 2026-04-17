@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "SOCKS proxy \u2014 create a local SOCKS5 proxy tunnel through a remote host",
+  "-D": "1080",
+  "-N": true,
+  "-f": true,
+  "-C": true
+}

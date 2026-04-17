@@ -1,0 +1,8 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Download file \u2014 fetch a file from a remote host",
+  "-C": true,
+  "-p": true
+}

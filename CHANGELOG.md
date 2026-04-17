@@ -57,6 +57,51 @@ Cascade sidebar button-clipping fix on Linux.
 
 ### Added
 
+**New tool schemas (tools/):**
+- **`tools/ssh.json`** — OpenSSH secure shell client
+  (37 arguments). Covers connection, authentication,
+  identity-file selection, port forwarding (local/remote/
+  dynamic), jump-host chaining, verbosity, and common
+  `-o ssh_config` options that expose cleanly as flags.
+  Skipped: meta/query flags (`--help`, `-Q`, `-G`) and
+  config-file-only `ssh_config` options.
+- **`tools/scp.json`** — OpenSSH secure file copy
+  (21 arguments). Covers port (`-P`, uppercase vs ssh's
+  lowercase), identity-file, recursive directory copy,
+  preserve-mode, bandwidth limit, and jump-host. Skipped:
+  `--help` (meta flag).
+- **`tools/tar.json`** — GNU tar archiving utility
+  (57 arguments). Covers create/extract/list/append/update
+  operations, compression formats (gzip, bzip2, xz, zstd,
+  lzip, lzma), strip-components, exclude patterns, verify,
+  and common filter/verbosity flags. Skipped: `--help`,
+  `--version`, `--usage`, `--show-defaults` and niche
+  incremental/backup/tape flags.
+
+**New bundled presets (`default_presets/`):**
+- `default_presets/ssh/` — 5 presets: `jump_host`,
+  `keep_alive`, `local_port_forward`, `socks_proxy`,
+  `verbose_debug`.
+- `default_presets/scp/` — 4 presets: `download_file`,
+  `upload_directory`, `bandwidth_limited`, `via_jump_host`.
+- `default_presets/tar/` — 5 presets: `create_tar_gz`,
+  `create_tar_xz`, `extract_tar_gz`, `extract_strip_top`,
+  `list_contents`.
+
+Presets are seeded into the user's `presets/{tool}/`
+folder on first open via the existing `_presets_dir()`
+copy-on-first-access path, so users get them
+automatically after updating.
+
+**New bundled cascade (`cascades/`):**
+- `cascades/cascade_ssh_scp.json` — two-step
+  `ssh-check-then-scp-download` cascade. Step 1 runs
+  `ssh` to verify a file exists on the remote host; step 2
+  runs `scp` with the `download_file` preset to pull it
+  locally. Uses three runtime variables (`DESTINATION`,
+  `SOURCE`, `TARGET`) with `stop_on_error: true` so the
+  download is skipped if the remote check fails.
+
 **Tests (test_functional.py):**
 - **Section 174** — Cascade chain-button compact-QSS
   regression guard (32 assertions). Coverage guard iterates
@@ -70,6 +115,12 @@ Cascade sidebar button-clipping fix on Linux.
   and asserts each file still exists in `cascades/` after
   the full suite runs. Catches any future section that
   forgets to redirect `_cascades_dir()`.
+
+**Docs:**
+- README bundled-tools badge bumped from `22 schemas`
+  to `25 schemas`. Tool count text and "Bundled tool
+  schemas" list updated to include `ssh`, `scp`, and
+  `tar`.
 
 ### Notes
 

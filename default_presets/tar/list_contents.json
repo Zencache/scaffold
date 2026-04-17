@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "List contents \u2014 list files in an archive without extracting",
+  "--list": true,
+  "--verbose": true,
+  "--file": "archive.tar.gz"
+}

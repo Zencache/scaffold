@@ -1,0 +1,11 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Extract stripping top directory \u2014 extract removing the top-level folder from paths",
+  "--extract": true,
+  "--gzip": true,
+  "--verbose": true,
+  "--file": "archive.tar.gz",
+  "--strip-components": 1
+}

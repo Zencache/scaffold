@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Create .tar.xz \u2014 compress with xz for maximum compression",
+  "--create": true,
+  "--xz": true,
+  "--verbose": true,
+  "--file": "archive.tar.xz"
+}

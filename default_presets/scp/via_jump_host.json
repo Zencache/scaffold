@@ -1,0 +1,8 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Via jump host \u2014 copy files through a bastion server",
+  "-r": true,
+  "-J": "user@bastion.example.com"
+}

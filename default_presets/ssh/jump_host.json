@@ -1,0 +1,7 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Jump host \u2014 connect through a bastion/jump server",
+  "-J": "user@bastion.example.com"
+}

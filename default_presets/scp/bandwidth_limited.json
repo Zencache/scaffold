@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Bandwidth limited \u2014 transfer with 1Mbit/s limit to avoid saturating the connection",
+  "-r": true,
+  "-C": true,
+  "-l": 1024
+}

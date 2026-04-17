@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Upload directory \u2014 recursively copy a local directory to a remote host with preserved permissions",
+  "-r": true,
+  "-p": true,
+  "-C": true
+}

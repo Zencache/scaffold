@@ -1,0 +1,47 @@
+{
+  "_format": "scaffold_cascade",
+  "name": "ssh-check-then-scp-download",
+  "description": "Two-step cascade: SSH to verify a file exists on the remote host, then SCP to download it.",
+  "loop_mode": false,
+  "stop_on_error": true,
+  "variables": [
+    {
+      "name": "Remote Host",
+      "flag": "DESTINATION",
+      "type_hint": "string",
+      "apply_to": [
+        0
+      ]
+    },
+    {
+      "name": "Remote File Path",
+      "flag": "SOURCE",
+      "type_hint": "string",
+      "apply_to": [
+        1
+      ]
+    },
+    {
+      "name": "Local Destination",
+      "flag": "TARGET",
+      "type_hint": "string",
+      "apply_to": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "tools/ssh.json",
+      "preset": null,
+      "delay": 0,
+      "captures": []
+    },
+    {
+      "tool": "tools/scp.json",
+      "preset": "presets/scp/download_file.json",
+      "delay": 1,
+      "captures": []
+    }
+  ]
+}

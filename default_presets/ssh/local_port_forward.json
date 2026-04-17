@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Local port forward \u2014 forward local port 8080 to remote host's port 80",
+  "-L": "8080:localhost:80",
+  "-N": true,
+  "-f": true
+}

@@ -1,0 +1,7 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Verbose debug \u2014 maximum verbosity for troubleshooting connection issues",
+  "-v": 3
+}
