@@ -13,7 +13,7 @@ Each CLI tool is described by a single `.json` file placed in the `tools/` direc
 |---------------|------------------|----------|-----------------------------------------------------------------------------|
 | `_format`     | string           | yes      | Must be `"scaffold_schema"`. Format marker to distinguish tool schemas from presets and other JSON files. Must be the first key in the file. |
 | `tool`        | string           | yes      | Human-readable tool name displayed in the window title.                     |
-| `binary`      | string           | yes      | Executable name or absolute path (e.g. `"nmap"`, `"/usr/bin/nmap"`).        |
+| `binary`      | string           | yes      | Executable name or absolute path (e.g. `"nmap"`, `"/usr/bin/nmap"`). For script-based tools, use the script's filename (e.g. `"rayhunter.py"`, `"deploy.sh"`, `"build.bat"`) — see note below. |
 | `description` | string           | yes      | One-line description shown in the UI header.                                |
 | `subcommands` | array or null    | no       | List of subcommand objects. `null` or omitted for tools without subcommands.|
 | `arguments`   | array            | yes      | List of argument objects. For tools with subcommands, these are global flags.|
@@ -29,6 +29,10 @@ Each CLI tool is described by a single `.json` file placed in the `tools/` direc
   "arguments": [ ... ]
 }
 ```
+
+### Script-Based Binaries
+
+For script-based tools, set `binary` to the script's filename (e.g. `rayhunter.py`, `deploy.sh`, `build.bat`) — a bare filename, not an absolute path. The user adds the script's directory to Scaffold's custom PATH directories (File > Custom PATH Directories) so the binary resolves at run time. Scripts must be independently executable: Unix scripts need a shebang line and execute bit; Windows `.bat`/`.cmd` files run natively; `.py` files run when Python is installed with `PATHEXT` configured (the default installer does this). `.ps1` PowerShell scripts cannot be executed directly — use `"binary": "powershell"` and pass the script as the first positional argument instead.
 
 ---
 

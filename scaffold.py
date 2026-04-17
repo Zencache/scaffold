@@ -19,13 +19,14 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.8.7"
+__version__ = "2.9"
 
 import atexit
 import datetime
 import hashlib
 import html
 import json
+import multiprocessing
 import os
 import re
 import shlex
@@ -33,6 +34,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from copy import deepcopy
@@ -43,6 +45,9 @@ VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
 CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_tail", "stderr_tail", "file"})
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
+MAX_REGEX_SECONDS = 2.0  # per-regex wall-clock budget
+_REDOS_NESTED_QUANT_RE = re.compile(r"\([^)]*[+*]\)[+*]")
+_REDOS_ALT_QUANT_RE = re.compile(r"\([^|)]+\|[^)]+\)[+*]")
 _SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00#\\'\"")
 
 
@@ -652,7 +657,7 @@ def _elevation_label():
 # GUI renderer
 # ---------------------------------------------------------------------------
 
-from PySide6.QtCore import QEvent, QPoint, QProcess, QSettings, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QProcess, QProcessEnvironment, QSettings, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
@@ -2564,9 +2569,51 @@ def _cascades_dir() -> Path:
     return d
 
 
+def _get_custom_paths() -> list[str]:
+    """Read custom PATH directories from QSettings.
+
+    Returns a list of existing directory paths (filters out missing/empty entries).
+    The value is stored as a JSON array string under the key "custom_paths".
+    """
+    s = _create_settings()
+    raw = s.value("custom_paths", "")
+    if not raw:
+        return []
+    try:
+        paths = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(paths, list):
+        return []
+    return [p for p in paths if p and isinstance(p, str) and Path(p).is_dir()]
+
+
+def _set_custom_paths(paths: list[str]) -> None:
+    """Write custom PATH directories to QSettings as a JSON array string.
+
+    Paths are normalized to absolute form and entries containing the OS
+    path separator are dropped.
+    """
+    s = _create_settings()
+    cleaned = [p for p in paths if isinstance(p, str) and p and os.pathsep not in p]
+    cleaned = [os.path.abspath(p) for p in cleaned]
+    cleaned = [p for p in cleaned if p]
+    s.setValue("custom_paths", json.dumps(cleaned))
+
+
+def _extended_path() -> str | None:
+    """Return a PATH string with custom directories prepended, or None if none configured."""
+    custom = _get_custom_paths()
+    if not custom:
+        return None
+    system_path = os.environ.get("PATH", "")
+    return os.pathsep.join(custom) + os.pathsep + system_path
+
+
 def _binary_in_path(binary: str) -> bool:
-    """Check if binary is found in PATH."""
-    return shutil.which(binary) is not None
+    """Check if binary is found in PATH (including custom directories)."""
+    search_path = _extended_path()
+    return shutil.which(binary, path=search_path) is not None
 
 
 def _fit_last_column(widget) -> None:
@@ -4810,6 +4857,112 @@ class ApplyToButton(QToolButton):
             self.setText("All")
 
 
+class CustomPathDialog(QDialog):
+    """Modal dialog for managing custom PATH directories."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Custom PATH Directories")
+        self.setMinimumWidth(500)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Add directories containing scripts or tools you want Scaffold to find. "
+            "These are prepended to your system PATH for binary resolution and execution."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self._list = QListWidget()
+        layout.addWidget(self._list)
+
+        # Load raw stored paths (including non-existent) for editing
+        s = _create_settings()
+        raw = s.value("custom_paths", "")
+        self._paths: list[str] = []
+        if raw:
+            try:
+                loaded = json.loads(raw)
+                if isinstance(loaded, list):
+                    self._paths = [p for p in loaded if p and isinstance(p, str)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        self._refresh_list()
+
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add...")
+        add_btn.clicked.connect(self._on_add)
+        btn_row.addWidget(add_btn)
+        self._remove_btn = QPushButton("Remove")
+        self._remove_btn.setEnabled(False)
+        self._remove_btn.clicked.connect(self._on_remove)
+        btn_row.addWidget(self._remove_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._list.currentRowChanged.connect(
+            lambda row: self._remove_btn.setEnabled(row >= 0)
+        )
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _refresh_list(self) -> None:
+        self._list.clear()
+        for p in self._paths:
+            item = QListWidgetItem(p)
+            if not Path(p).is_dir():
+                item.setText(p + "  (not found)")
+                if _dark_mode:
+                    item.setForeground(QColor(DARK_COLORS["error"]))
+                else:
+                    item.setForeground(QColor("#c62828"))
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
+            self._list.addItem(item)
+
+    def _on_add(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if not d:
+            return
+        if os.pathsep in d:
+            QMessageBox.warning(
+                self,
+                "Invalid Directory",
+                f"The selected directory contains '{os.pathsep}', "
+                f"which cannot be used in a PATH entry.",
+            )
+            return
+        d = os.path.normpath(d)
+        # Duplicate check (case-insensitive on Windows)
+        for existing in self._paths:
+            if os.path.normcase(existing) == os.path.normcase(d):
+                return
+        self._paths.append(d)
+        self._refresh_list()
+
+    def _on_remove(self) -> None:
+        row = self._list.currentRow()
+        if 0 <= row < len(self._paths):
+            self._paths.pop(row)
+            self._refresh_list()
+
+    def _on_accept(self) -> None:
+        _set_custom_paths(self._paths)
+        self.accept()
+
+    def get_paths(self) -> list[str]:
+        return list(self._paths)
+
+
 class CascadeVariableDefinitionDialog(QDialog):
     """Modal dialog for defining cascade variables (name, flag, type, apply-to)."""
 
@@ -5260,6 +5413,138 @@ _CAPTURE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CAPTURE_VALID_SOURCES = frozenset({"stdout", "stderr", "file", "exit_code", "stdout_tail", "stderr_tail"})
 
 
+def _pattern_is_redos_prone(pattern: str) -> tuple[bool, str]:
+    """Detect common ReDoS-prone regex shapes.
+
+    Returns (True, reason) for patterns with nested quantifiers or
+    alternation-under-quantifier, else (False, "").
+
+    This is a heuristic, not a proof. It catches classical ReDoS
+    forms with zero false positives on realistic capture patterns,
+    but cannot detect all pathological regex shapes. Paired with
+    runtime bounded execution in extract_captures.
+    """
+    if not isinstance(pattern, str):
+        return (False, "")
+    if _REDOS_NESTED_QUANT_RE.search(pattern):
+        return (True, "nested quantifier (catastrophic backtracking risk)")
+    if _REDOS_ALT_QUANT_RE.search(pattern):
+        return (True, "alternation under quantifier (catastrophic backtracking risk)")
+    return (False, "")
+
+
+def _regex_worker_entry(pattern: str, stream: str, group: int) -> tuple[bool, str, str]:
+    """Worker entry for bounded regex execution.
+
+    Returns (success, result_or_error, error_type):
+      (True, matched_text, "")          on successful match
+      (True, "", "no_match")            on successful no-match
+      (False, error_msg, "re_error")    on compile/runtime error
+    """
+    import re as _re  # local import — worker process
+    try:
+        m = _re.search(pattern, stream)
+    except _re.error as exc:
+        return (False, str(exc), "re_error")
+    if m is None:
+        return (True, "", "no_match")
+    try:
+        return (True, m.group(group), "")
+    except IndexError as exc:
+        return (False, str(exc), "re_error")
+
+
+_regex_pool = None
+_regex_pool_lock = threading.Lock()
+
+
+def _get_regex_pool():
+    """Lazy single-worker multiprocessing.Pool for bounded regex execution.
+
+    Created on first use. Reused across cascade steps to amortize
+    Windows spawn cost (~80ms). Replaced after a timeout because
+    pool.terminate() kills the worker and leaves the pool unusable.
+    """
+    global _regex_pool
+    with _regex_pool_lock:
+        if _regex_pool is None:
+            # Windows-spawn safety: if the parent script has no
+            # `if __name__ == "__main__":` guard (common in test harnesses
+            # and ad-hoc scripts), the spawned child would runpy the
+            # entire parent script as __mp_main__, re-executing all
+            # top-level code. We neutralise this by temporarily hiding
+            # __main__.__file__ so multiprocessing skips the main-module
+            # re-import; the child still unpickles scaffold._regex_worker_entry
+            # via a normal `import scaffold` lookup.
+            main_mod = sys.modules.get("__main__")
+            saved_file = None
+            had_file = False
+            if main_mod is not None:
+                had_file = hasattr(main_mod, "__file__")
+                if had_file:
+                    saved_file = main_mod.__file__
+                    try:
+                        main_mod.__file__ = None
+                    except Exception:
+                        had_file = False
+            try:
+                _regex_pool = multiprocessing.Pool(processes=1)
+            finally:
+                if had_file and main_mod is not None:
+                    try:
+                        main_mod.__file__ = saved_file
+                    except Exception:
+                        pass
+        return _regex_pool
+
+
+def _reset_regex_pool():
+    """Terminate and discard the current pool. Next access recreates it."""
+    global _regex_pool
+    with _regex_pool_lock:
+        if _regex_pool is not None:
+            try:
+                _regex_pool.terminate()
+                _regex_pool.join()
+            except Exception:
+                pass
+            _regex_pool = None
+
+
+def _bounded_regex_search(pattern: str, stream: str, group: int,
+                          timeout: float = MAX_REGEX_SECONDS
+                          ) -> tuple[bool, str, str]:
+    """Run re.search in a worker process with a wall-clock timeout.
+
+    Returns the same (success, result_or_error, error_type) shape as
+    _regex_worker_entry, plus one new error_type: "timeout".
+
+    On timeout, terminates the worker (via _reset_regex_pool) and
+    returns (False, message, "timeout").
+
+    Worst-case UI block: ~2s per regex on a cascade step that hits a
+    pathological pattern. The block is IPC-bound (pipe read releases
+    the GIL), not CPU-bound. A fully-async QTimer-polled design would
+    eliminate it; deferred as future work.
+    """
+    pool = _get_regex_pool()
+    async_result = pool.apply_async(
+        _regex_worker_entry, (pattern, stream, group)
+    )
+    try:
+        return async_result.get(timeout=timeout)
+    except multiprocessing.TimeoutError:
+        _reset_regex_pool()
+        return (
+            False,
+            f"timeout: regex exceeded {timeout:.1f}s",
+            "timeout",
+        )
+    except Exception as exc:
+        _reset_regex_pool()
+        return (False, f"worker error: {exc}", "worker_error")
+
+
 def _validate_capture_entry(entry: dict, cascade_variables: list) -> None:
     """Validate a single capture entry dict. Raises ValueError on any violation."""
     if not isinstance(entry, dict):
@@ -5286,6 +5571,17 @@ def _validate_capture_entry(entry: dict, cascade_variables: list) -> None:
             raise ValueError(f"capture '{name}': pattern required for source '{source}'")
         if len(pattern) > 200:
             raise ValueError(f"capture '{name}': pattern exceeds 200 chars")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(
+                f"capture '{name}': invalid regex pattern: {exc}"
+            ) from exc
+        is_prone, reason = _pattern_is_redos_prone(pattern)
+        if is_prone:
+            raise ValueError(
+                f"capture '{name}': regex has {reason}"
+            )
         group = entry.get("group")
         if group is not None and (not isinstance(group, int) or group < 0):
             raise ValueError(f"capture '{name}': group must be int >= 0")
@@ -5300,9 +5596,15 @@ def extract_captures(
     stdout: str,
     stderr: str,
     exit_code: int,
-) -> dict[str, str]:
-    """Extract capture values from command output. Pure function — no side effects."""
+) -> tuple[dict[str, str], list[tuple[str, str]]]:
+    """Extract capture values from command output. Pure function — no side effects.
+
+    Returns (values, errors) where values maps capture name to extracted
+    string and errors is a list of (name, error_message) tuples for
+    captures whose regex failed to compile.
+    """
     result: dict[str, str] = {}
+    errors: list[tuple[str, str]] = []
     stdout_tail = stdout[-CAPTURE_STREAM_TAIL_BYTES:]
     stderr_tail = stderr[-CAPTURE_STREAM_TAIL_BYTES:]
     for entry in slot_captures:
@@ -5318,15 +5620,13 @@ def extract_captures(
                 continue
             stream = stdout_tail if source == "stdout" else stderr_tail
             group = entry.get("group", 1)
-            try:
-                m = re.search(pattern, stream)
-            except re.error:
+            success, value, err_type = _bounded_regex_search(pattern, stream, group)
+            if not success:
+                errors.append((name, value))
                 continue
-            if m:
-                try:
-                    result[name] = m.group(group)
-                except IndexError:
-                    continue
+            if err_type == "no_match":
+                continue
+            result[name] = value
         elif source == "file":
             # Returns the literal path string from the capture definition,
             # not the contents of the file at that path. Intentional: file
@@ -5341,7 +5641,7 @@ def extract_captures(
             result[name] = stdout_tail
         elif source == "stderr_tail":
             result[name] = stderr_tail
-    return result
+    return result, errors
 
 
 def substitute_captures(text: str, values: dict) -> tuple[str, list[str]]:
@@ -6804,12 +7104,18 @@ class CascadeSidebar(QDockWidget):
                 slot_captures = self._slots[slot_idx].get("captures", [])
                 captured = {}
                 if slot_captures:
-                    captured = extract_captures(
+                    captured, capture_errors = extract_captures(
                         slot_captures,
                         self._main_window._last_run_stdout,
                         self._main_window._last_run_stderr,
                         exit_code,
                     )
+                    for _cap_name, _cap_err in capture_errors:
+                        if hasattr(self._main_window, "output"):
+                            self._main_window._append_output(
+                                f"[cascade] capture '{_cap_name}' has invalid regex: {_cap_err}\n",
+                                COLOR_WARN,
+                            )
                     self._chain_variable_values.update(captured)
                 # Record cascade history step
                 if self._cascade_run_id is not None:
@@ -7169,6 +7475,11 @@ class MainWindow(QMainWindow):
 
         menu.addSeparator()
 
+        self.act_custom_paths = menu.addAction("Custom PATH Directories...")
+        self.act_custom_paths.triggered.connect(self._on_custom_paths)
+
+        menu.addSeparator()
+
         act_exit = menu.addAction("Exit")
         act_exit.setShortcut("Ctrl+Q")
         act_exit.triggered.connect(self.close)
@@ -7464,6 +7775,8 @@ class MainWindow(QMainWindow):
         # Warning bar
         if hasattr(self, "warning_bar") and self.warning_bar.isVisible():
             self._style_warning_bar()
+            if self.data:
+                self._set_warning_bar_text(self.data.get("binary", ""))
         # Update required label colors in the form
         if hasattr(self, "form"):
             self.form.update_theme()
@@ -7568,6 +7881,15 @@ class MainWindow(QMainWindow):
                 " border-radius: 4px;"
                 " font-weight: bold;"
             )
+
+    def _set_warning_bar_text(self, binary: str) -> None:
+        """Set warning bar rich text with a clickable link to the custom PATH dialog."""
+        link_color = DARK_COLORS["accent"] if _dark_mode else "#0550ae"
+        escaped = html.escape(binary)
+        self.warning_bar.setText(
+            f"Warning: '{escaped}' not found in PATH &mdash; "
+            f"<a href='#' style='color:{link_color}'>Configure custom directories</a>"
+        )
 
     def _build_shortcuts(self) -> None:
         """Register global keyboard shortcuts for Run (Ctrl+Enter), Stop (Escape), Find (Ctrl+F), Output Search (Ctrl+Shift+F)."""
@@ -8088,9 +8410,7 @@ class MainWindow(QMainWindow):
 
         # Binary-in-PATH warning
         if not _binary_in_path(data["binary"]):
-            self.warning_bar.setText(
-                f"Warning: '{data['binary']}' not found in PATH"
-            )
+            self._set_warning_bar_text(data["binary"])
             self.warning_bar.setVisible(True)
         else:
             self.warning_bar.setVisible(False)
@@ -8127,6 +8447,9 @@ class MainWindow(QMainWindow):
 
         # Warning banner (non-blocking, at top)
         self.warning_bar = QLabel("")
+        self.warning_bar.setOpenExternalLinks(False)
+        self.warning_bar.setTextFormat(Qt.TextFormat.RichText)
+        self.warning_bar.linkActivated.connect(lambda _: self._on_custom_paths())
         self._style_warning_bar()
         self.warning_bar.setVisible(False)
         layout.addWidget(self.warning_bar)
@@ -8371,6 +8694,23 @@ class MainWindow(QMainWindow):
         # Kill any running process before going back
         self._teardown_process()
         self._show_picker()
+
+    def _on_custom_paths(self) -> None:
+        """Open the custom PATH directories dialog and refresh on changes."""
+        old = _get_custom_paths()
+        dlg = CustomPathDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and _get_custom_paths() != old:
+            # Re-check binary availability for current tool
+            if self.data and hasattr(self, "warning_bar"):
+                binary = self.data.get("binary", "")
+                if binary and not _binary_in_path(binary):
+                    self._set_warning_bar_text(binary)
+                    self.warning_bar.setVisible(True)
+                else:
+                    self.warning_bar.setVisible(False)
+            # Rescan tool picker if visible
+            if self.stack.currentIndex() == 0:
+                self.picker.scan()
 
     # ------------------------------------------------------------------
     # Presets
@@ -8963,6 +9303,13 @@ class MainWindow(QMainWindow):
         self._history_timestamp = time.time()
 
         self.process = QProcess(self)
+        # Inject custom PATH directories into process environment
+        custom_paths = _get_custom_paths()
+        if custom_paths:
+            env = QProcessEnvironment.systemEnvironment()
+            current_path = env.value("PATH", "")
+            env.insert("PATH", os.pathsep.join(custom_paths) + os.pathsep + current_path)
+            self.process.setProcessEnvironment(env)
         self.process.setProgram(program)
         self.process.setArguments(arguments)
         self.process.readyReadStandardOutput.connect(self._on_stdout_ready)
@@ -9392,6 +9739,8 @@ def print_preset_prompt() -> None:
 
 def main() -> None:
     """Entry point: handle --help / --prompt / --validate CLI flags, then launch the GUI."""
+    multiprocessing.freeze_support()
+    atexit.register(_reset_regex_pool)
     if "--version" in sys.argv or "-V" in sys.argv:
         print(f"Scaffold {__version__}")
         sys.exit(0)

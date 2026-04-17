@@ -94,6 +94,7 @@ To launch directly into a specific tool: `python scaffold.py tools/nmap.json`
 - **Validation** — regex patterns and required field checking
 - **Drag and drop** — drop a `.json` schema to load it
 - **Portable mode** — run from USB with local settings via `portable.txt`
+- **Custom PATH directories** — add directories containing scripts or custom tools so Scaffold can find and execute them without modifying your system PATH
 - **Elevated execution** — optional `pkexec` (Linux) or `gsudo` (Windows) elevation per tool
 - **Cascade chaining** — chain multiple tool runs (up to 20 slots) with per-step delays, loop mode, stop-on-error, runtime variables, cascade captures, and saveable cascade files
 - **LLM-powered preset generation** — generate presets from natural language with `--preset-prompt` and `PRESET_PROMPT.txt`
@@ -162,6 +163,17 @@ If validation reports errors, paste them back into the LLM and ask it to fix the
 > **Note:** Complex tools with many flags work best with frontier-level LLMs (Claude Opus, GPT-4, Gemini Pro). Smaller models may truncate output or produce invalid JSON.
 
 **The manual way:** Copy `tools/example.json`, rename it, and modify it for your tool. The example schema covers all 10 widget types, subcommands, display groups, dependencies, mutual exclusivity, min/max constraints, deprecated and dangerous flags, editable suggestions, and validation patterns.
+
+### Using tools that aren't on your PATH
+
+The `binary` field in a schema expects either a bare name that resolves through your PATH (`nmap`, `docker`, `git`) or an absolute path (`/opt/tools/installer` on Unix, `C:\Tools\installer.exe` on Windows). Shell-relative paths like `./installer` do **not** work — Scaffold doesn't invoke a shell, so there's nothing to evaluate the `./` prefix.
+
+This most often trips up downloaded release binaries. If you extracted rayhunter's release zip and the schema says `"binary": "installer"`, running it fails with "command not found" because `installer` isn't on your PATH. Two fixes, in order of preference:
+
+1. **Put the binary on PATH.** On Unix, symlink it into `/usr/local/bin` (e.g. `ln -s ~/rayhunter/installer /usr/local/bin/installer`). On Windows, add the containing folder to your PATH environment variable, or use **File > Custom PATH Directories...** to register it just for Scaffold.
+2. **Edit the schema to use an absolute path.** Change `"binary": "installer"` to `"binary": "/home/you/rayhunter/installer"` (or on Windows, `"C:\\Tools\\rayhunter\\installer.exe"` — note the doubled backslashes inside JSON strings).
+
+The PATH approach keeps the schema portable across machines; the absolute-path approach is quicker when you only need it locally.
 
 ---
 
@@ -276,6 +288,12 @@ Generation quality is bounded by preset coverage. Presets are pre-validated flag
 This feature is **experimental** and documentation-only. See `CASCADE_LLM_GENERATION_GUIDE.md` for setup, usage, and known limitations.
 
 
+
+### Custom PATH Directories
+
+Add directories to Scaffold's PATH so it can find and execute binaries — including scripts — that aren't on your system PATH. Access via **File > Custom PATH Directories...**. Added directories are prepended to PATH for both availability lookups (tool picker installed/not-installed markers, per-tool warning bar) and process execution (QProcess environment), so a tool resolved via a custom directory works identically to one on the system PATH. Settings persist across sessions in QSettings, or in `scaffold.ini` alongside the app in portable mode.
+
+The main use case is script-based tools. Write a schema with `"binary": "myscript.py"`, add the script's directory to your custom PATH, and Scaffold runs the script like any other tool. Scripts must be independently executable: on Unix that means a shebang line and the execute bit set; on Windows, `.bat` and `.cmd` files work natively, and `.py` scripts work when Python is installed with `PATHEXT` configured (the default installer does this). `.ps1` PowerShell scripts can't be launched directly — use `"binary": "powershell"` and pass the script path as the first positional argument instead.
 
 ### Additional features
 

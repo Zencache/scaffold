@@ -13412,7 +13412,7 @@ _s116_test_captures = [
 ]
 if _s116_has_func:
     try:
-        _s116_result = scaffold.extract_captures(
+        _s116_result, _ = scaffold.extract_captures(
             _s116_test_captures, "Host: 192.168.1.1\n", "", 0)
         check(isinstance(_s116_result, dict),
               "116b: extract_captures returns a dict")
@@ -13429,7 +13429,7 @@ if _s116_has_func:
             {"name": "host", "source": "stdout", "pattern": r"Host: (\S+)", "group": 1},
             {"name": "port", "source": "stdout", "pattern": r"(\d+)/tcp\s+open", "group": 1},
         ]
-        _s116_res_c = scaffold.extract_captures(_s116_caps_c, _s116_stdout, "", 0)
+        _s116_res_c, _ = scaffold.extract_captures(_s116_caps_c, _s116_stdout, "", 0)
         check(_s116_res_c.get("host") == "192.168.1.1",
               "116c: stdout regex extracts host correctly")
         check(_s116_res_c.get("port") == "80",
@@ -13447,7 +13447,7 @@ if _s116_has_func:
         _s116_caps_d = [
             {"name": "missing", "source": "stdout", "pattern": r"WILL_NOT_MATCH_(\S+)", "group": 1},
         ]
-        _s116_res_d = scaffold.extract_captures(_s116_caps_d, "no match here", "", 0)
+        _s116_res_d, _ = scaffold.extract_captures(_s116_caps_d, "no match here", "", 0)
         check("missing" not in _s116_res_d,
               "116d: non-matching regex key absent from result (unset signal)")
     except Exception as _s116_exc_d:
@@ -13464,7 +13464,7 @@ if _s116_has_func:
         _s116_caps_e = [
             {"name": "marker", "source": "stdout", "pattern": r"MARKER: (\S+)", "group": 1},
         ]
-        _s116_res_e = scaffold.extract_captures(_s116_caps_e, _s116_big_stdout, "", 0)
+        _s116_res_e, _ = scaffold.extract_captures(_s116_caps_e, _s116_big_stdout, "", 0)
         check("marker" not in _s116_res_e,
               "116e: match beyond 64KB window is NOT captured")
     except Exception as _s116_exc_e:
@@ -13478,7 +13478,7 @@ if _s116_has_func:
         _s116_caps_f = [
             {"name": "err_code", "source": "stderr", "pattern": r"Error (\d+)", "group": 1},
         ]
-        _s116_res_f = scaffold.extract_captures(_s116_caps_f, "", "Error 404 occurred", 0)
+        _s116_res_f, _ = scaffold.extract_captures(_s116_caps_f, "", "Error 404 occurred", 0)
         check(_s116_res_f.get("err_code") == "404",
               "116f: stderr regex extracts correctly")
     except Exception as _s116_exc_f:
@@ -13492,7 +13492,7 @@ if _s116_has_func:
         _s116_caps_g = [
             {"name": "outfile", "source": "file", "path": "/tmp/results.txt"},
         ]
-        _s116_res_g = scaffold.extract_captures(_s116_caps_g, "", "", 0)
+        _s116_res_g, _ = scaffold.extract_captures(_s116_caps_g, "", "", 0)
         check(_s116_res_g.get("outfile") == "/tmp/results.txt",
               "116g: file source returns the literal path string")
     except Exception as _s116_exc_g:
@@ -13506,8 +13506,8 @@ if _s116_has_func:
         _s116_caps_h = [
             {"name": "retcode", "source": "exit_code", "pattern": "", "group": 0},
         ]
-        _s116_res_h0 = scaffold.extract_captures(_s116_caps_h, "", "", 0)
-        _s116_res_h1 = scaffold.extract_captures(_s116_caps_h, "", "", 1)
+        _s116_res_h0, _ = scaffold.extract_captures(_s116_caps_h, "", "", 0)
+        _s116_res_h1, _ = scaffold.extract_captures(_s116_caps_h, "", "", 1)
         check(_s116_res_h0.get("retcode") == "0",
               "116h: exit_code source returns '0' for exit code 0")
         check(_s116_res_h1.get("retcode") == "1",
@@ -13527,7 +13527,7 @@ if _s116_has_func:
             {"name": "full_out", "source": "stdout_tail", "pattern": "", "group": 0},
             {"name": "full_err", "source": "stderr_tail", "pattern": "", "group": 0},
         ]
-        _s116_res_i = scaffold.extract_captures(
+        _s116_res_i, _ = scaffold.extract_captures(
             _s116_caps_i, _s116_big_out, "short stderr", 0)
         _s116_64kb = 64 * 1024
         check(isinstance(_s116_res_i.get("full_out"), str)
@@ -13550,7 +13550,7 @@ if _s116_has_func:
         _s116_caps_j = [
             {"name": "outpath", "source": "file", "pattern": "/tmp/result.xml"},
         ]
-        _s116_res_j = scaffold.extract_captures(_s116_caps_j, "", "", 0)
+        _s116_res_j, _ = scaffold.extract_captures(_s116_caps_j, "", "", 0)
         check("outpath" not in _s116_res_j,
               f'116j: file source with "pattern" key returns nothing (CC-3) (got {_s116_res_j!r})')
     except Exception as _s116_exc_j:
@@ -18724,7 +18724,7 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 _s156_test_stdout = "Hello from stdout tail test"
 _s156_caps_a = [{"name": "tail_out", "source": "stdout_tail", "pattern": "", "group": 0}]
 try:
-    _s156_res_a = scaffold.extract_captures(_s156_caps_a, _s156_test_stdout, "", 0)
+    _s156_res_a, _ = scaffold.extract_captures(_s156_caps_a, _s156_test_stdout, "", 0)
     check(_s156_res_a.get("tail_out") == _s156_test_stdout,
           f'156a: extract_captures handles "stdout_tail" source (got {_s156_res_a.get("tail_out")!r})')
 except Exception as _s156_exc_a:
@@ -19376,6 +19376,1907 @@ _s163_win.close()
 _s163_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s163_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 164 — Custom PATH Directories
+# =====================================================================
+print("\n--- Section 164: Custom PATH Directories ---")
+
+# Use a dedicated QSettings instance for cleanup
+_s164_settings = scaffold._create_settings()
+_s164_settings.remove("custom_paths")
+
+# 164a: _get_custom_paths() returns empty list when no QSettings key exists
+_s164_result = scaffold._get_custom_paths()
+check(_s164_result == [], f"164a: empty list when no key (got {_s164_result!r})")
+
+# 164b: round-trip — _set_custom_paths stores, _get_custom_paths retrieves
+_s164_tmpdir = tempfile.mkdtemp(prefix="scaffold_s164_")
+_s164_tmpdir2 = tempfile.mkdtemp(prefix="scaffold_s164b_")
+scaffold._set_custom_paths([_s164_tmpdir, _s164_tmpdir2])
+_s164_result = scaffold._get_custom_paths()
+check(_s164_tmpdir in _s164_result, f"164b: first path retrieved (got {_s164_result!r})")
+check(_s164_tmpdir2 in _s164_result, f"164b: second path retrieved (got {_s164_result!r})")
+
+# 164c: filters out non-existent directories
+_s164_fake = os.path.join(tempfile.gettempdir(), "scaffold_s164_nonexistent_xyz")
+scaffold._set_custom_paths([_s164_tmpdir, _s164_fake])
+_s164_result = scaffold._get_custom_paths()
+check(_s164_tmpdir in _s164_result, f"164c: existing dir kept (got {_s164_result!r})")
+check(_s164_fake not in _s164_result, f"164c: non-existent dir filtered (got {_s164_result!r})")
+
+# 164d: filters out empty strings
+scaffold._set_custom_paths([_s164_tmpdir, "", ""])
+_s164_result = scaffold._get_custom_paths()
+check(_s164_result == [_s164_tmpdir], f"164d: empty strings filtered (got {_s164_result!r})")
+
+# 164e: set empty list clears, get returns empty
+scaffold._set_custom_paths([])
+_s164_result = scaffold._get_custom_paths()
+check(_s164_result == [], f"164e: empty after clearing (got {_s164_result!r})")
+
+# --- PATH building ---
+
+# 164f: _extended_path() returns None when no custom paths configured
+scaffold._set_custom_paths([])
+_s164_ext = scaffold._extended_path()
+check(_s164_ext is None, f"164f: None when no custom paths (got {_s164_ext!r})")
+
+# 164g: _extended_path() returns string with custom dirs prepended
+scaffold._set_custom_paths([_s164_tmpdir])
+_s164_ext = scaffold._extended_path()
+check(isinstance(_s164_ext, str), f"164g: returns string (got {type(_s164_ext).__name__})")
+check(_s164_ext is not None and _s164_ext.startswith(_s164_tmpdir),
+      f"164g: custom dir at start of PATH")
+
+# 164h: custom dirs appear before system PATH
+_s164_sys_path = os.environ.get("PATH", "")
+if _s164_ext is not None:
+    _s164_custom_end = _s164_ext.index(os.pathsep)
+    _s164_sys_start = _s164_ext.index(_s164_sys_path) if _s164_sys_path and _s164_sys_path in _s164_ext else len(_s164_ext)
+    check(_s164_custom_end < _s164_sys_start, "164h: custom dirs before system PATH")
+else:
+    check(False, "164h: custom dirs before system PATH (extended_path was None)")
+
+# --- Binary resolution ---
+
+# Create a dummy script in the temp dir
+_s164_script_name = "scaffold_s164_dummy_script"
+if sys.platform == "win32":
+    _s164_script_path = os.path.join(_s164_tmpdir, _s164_script_name + ".bat")
+    Path(_s164_script_path).write_text("@echo off\n", encoding="utf-8")
+else:
+    _s164_script_path = os.path.join(_s164_tmpdir, _s164_script_name)
+    Path(_s164_script_path).write_text("#!/bin/sh\n", encoding="utf-8")
+    os.chmod(_s164_script_path, 0o755)
+
+# 164i: without custom paths, dummy script not found
+scaffold._set_custom_paths([])
+check(not scaffold._binary_in_path(_s164_script_name),
+      "164i: dummy not found without custom paths")
+
+# 164j: with custom paths, dummy script found
+scaffold._set_custom_paths([_s164_tmpdir])
+check(scaffold._binary_in_path(_s164_script_name),
+      "164j: dummy found with custom paths")
+
+# 164k: system binaries still resolve with custom paths set
+# Use "cmd" on Windows, "echo" elsewhere — both should always exist
+_s164_sys_binary = "cmd" if sys.platform == "win32" else "echo"
+check(scaffold._binary_in_path(_s164_sys_binary),
+      f"164k: system binary '{_s164_sys_binary}' still resolves")
+
+# 164l: after clearing custom paths, dummy script not found again
+scaffold._set_custom_paths([])
+check(not scaffold._binary_in_path(_s164_script_name),
+      "164l: dummy not found after clearing custom paths")
+
+# Cleanup section 164
+_s164_settings.remove("custom_paths")
+shutil.rmtree(_s164_tmpdir, ignore_errors=True)
+shutil.rmtree(_s164_tmpdir2, ignore_errors=True)
+
+
+# =====================================================================
+# Section 165 — Custom PATH Dialog & Menu Integration
+# =====================================================================
+print("\n--- Section 165: Custom PATH Dialog & Menu Integration ---")
+
+# Clean slate
+_s165_settings = scaffold._create_settings()
+_s165_settings.remove("custom_paths")
+
+# 165a: CustomPathDialog class exists and is instantiable
+_s165_dlg = scaffold.CustomPathDialog()
+check(isinstance(_s165_dlg, scaffold.QDialog),
+      "165a: CustomPathDialog is a QDialog")
+_s165_dlg.close()
+_s165_dlg.deleteLater()
+app.processEvents()
+
+# 165b: dialog opens without crashing when no custom paths configured
+_s165_settings.remove("custom_paths")
+_s165_dlg2 = scaffold.CustomPathDialog()
+check(_s165_dlg2._list.count() == 0,
+      f"165b: empty list when no paths (got {_s165_dlg2._list.count()})")
+_s165_dlg2.close()
+_s165_dlg2.deleteLater()
+app.processEvents()
+
+# 165c: dialog opens with pre-populated paths
+_s165_tmpdir = tempfile.mkdtemp(prefix="scaffold_s165_")
+scaffold._set_custom_paths([_s165_tmpdir])
+_s165_dlg3 = scaffold.CustomPathDialog()
+check(_s165_dlg3._list.count() == 1,
+      f"165c: list has 1 entry (got {_s165_dlg3._list.count()})")
+_s165_dlg3.close()
+_s165_dlg3.deleteLater()
+app.processEvents()
+
+# 165d: dialog shows non-existent dirs with "(not found)" marker
+_s165_fake = os.path.join(tempfile.gettempdir(), "scaffold_s165_nonexistent_xyz")
+scaffold._set_custom_paths([_s165_tmpdir, _s165_fake])
+_s165_dlg4 = scaffold.CustomPathDialog()
+check(_s165_dlg4._list.count() == 2,
+      f"165d: list has 2 entries (got {_s165_dlg4._list.count()})")
+_s165_not_found_text = _s165_dlg4._list.item(1).text()
+check("not found" in _s165_not_found_text,
+      f"165d: stale dir shows 'not found' (got {_s165_not_found_text!r})")
+_s165_dlg4.close()
+_s165_dlg4.deleteLater()
+app.processEvents()
+
+# 165e: File menu contains "Custom PATH Directories..." action
+_s165_win = scaffold.MainWindow()
+_s165_win.show()
+app.processEvents()
+check(hasattr(_s165_win, "act_custom_paths"),
+      "165e: act_custom_paths action exists on MainWindow")
+check(_s165_win.act_custom_paths.text() == "Custom PATH Directories...",
+      f"165e: action text is correct (got {_s165_win.act_custom_paths.text()!r})")
+
+# 165f: _on_custom_paths method exists on MainWindow
+check(hasattr(_s165_win, "_on_custom_paths") and callable(_s165_win._on_custom_paths),
+      "165f: _on_custom_paths method exists")
+
+# 165g: warning bar uses rich text with link when binary not found
+_s165_tool_dir = tempfile.mkdtemp(prefix="scaffold_s165_tool_")
+_s165_tool = {
+    "tool": "s165_test_tool",
+    "binary": "s165_nonexistent_binary_xyz",
+    "description": "Test tool for section 165",
+    "arguments": [
+        {"name": "Arg", "flag": "--arg", "type": "string"},
+    ],
+}
+_s165_tool_path = os.path.join(_s165_tool_dir, "s165_tool.json")
+Path(_s165_tool_path).write_text(json.dumps(_s165_tool), encoding="utf-8")
+_s165_settings.remove("custom_paths")
+_s165_win._load_tool_path(_s165_tool_path)
+app.processEvents()
+
+check(_s165_win.warning_bar.isVisible(),
+      "165g: warning bar visible for missing binary")
+_s165_bar_text = _s165_win.warning_bar.text()
+check("custom directories" in _s165_bar_text.lower(),
+      f"165g: warning bar has 'custom directories' link (got {_s165_bar_text!r})")
+
+# 165h: warning bar contains an <a> tag (linkActivated is connected)
+check("<a " in _s165_bar_text.lower(),
+      f"165h: warning bar has <a> tag for clickable link")
+
+# Cleanup section 165
+_s165_settings.remove("custom_paths")
+_s165_win.close()
+_s165_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s165_tmpdir, ignore_errors=True)
+shutil.rmtree(_s165_tool_dir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 166 — Custom PATH Adversarial Bug-Hunt
+# =====================================================================
+# Attacks _get_custom_paths / _set_custom_paths / _extended_path /
+# _binary_in_path and the QProcess env injection with malformed settings,
+# weird path contents, binary-resolution corner cases, and environment
+# integrity checks.  Sections 164 and 165 cover the happy paths — this
+# section is bug-hunting only.  Diagnostics are intentionally loud.
+# =====================================================================
+print("\n--- Section 166: Custom PATH Adversarial Bug-Hunt ---")
+
+_s166_settings = scaffold._create_settings()
+_s166_settings.remove("custom_paths")
+_s166_tempdirs: list[str] = []
+_s166_tempfiles: list[str] = []
+
+def _s166_set_raw(raw_value):
+    """Write a raw (possibly malformed) value directly to the custom_paths key."""
+    s = scaffold._create_settings()
+    s.setValue("custom_paths", raw_value)
+    s.sync()
+
+# ---------------------------------------------------------------------
+# 166.1 — Settings corruption / malformed stored data
+# ---------------------------------------------------------------------
+print("\n  -- 166.1: malformed stored data --")
+
+# 166.1a: non-JSON string -> []
+_s166_set_raw("not json at all")
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1a: non-JSON returns [] (got {_s166_r!r})")
+
+# 166.1b: JSON object (not a list) -> []
+_s166_set_raw('{"a":1}')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1b: JSON object returns [] (got {_s166_r!r})")
+
+# 166.1c: JSON string (not a list) -> []
+_s166_set_raw('"string"')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1c: JSON string returns [] (got {_s166_r!r})")
+
+# 166.1d: JSON number -> []
+_s166_set_raw('42')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1d: JSON number returns [] (got {_s166_r!r})")
+
+# 166.1e: JSON null -> []
+_s166_set_raw('null')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1e: JSON null returns [] (got {_s166_r!r})")
+
+# 166.1f: JSON true -> []
+_s166_set_raw('true')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1f: JSON true returns [] (got {_s166_r!r})")
+
+# 166.1g: list of non-strings -> []
+_s166_set_raw('[1, 2, null, {}]')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1g: non-string list filtered to [] (got {_s166_r!r})")
+
+# 166.1h: mix of valid string and non-strings -> valid only
+_s166_valid_dir = tempfile.mkdtemp(prefix="scaffold_s166_valid_")
+_s166_tempdirs.append(_s166_valid_dir)
+_s166_mixed_raw = json.dumps([_s166_valid_dir, 1, None, {}, ""])
+print(f"    [166.1h] setup: raw={_s166_mixed_raw!r}")
+_s166_set_raw(_s166_mixed_raw)
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [_s166_valid_dir],
+      f"166.1h: mix keeps only valid string (got {_s166_r!r})")
+
+# 166.1i: empty JSON array -> []
+_s166_set_raw('[]')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1i: empty array returns [] (got {_s166_r!r})")
+
+# 166.1j: deeply nested structure -> []
+_s166_set_raw('[[["nested"]]]')
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [], f"166.1j: nested lists filtered (got {_s166_r!r})")
+
+# clean slate
+_s166_settings.remove("custom_paths")
+
+# ---------------------------------------------------------------------
+# 166.2 — Path content adversarial inputs
+# ---------------------------------------------------------------------
+print("\n  -- 166.2: adversarial path contents --")
+
+# 166.2a: path containing spaces
+_s166_space_parent = tempfile.mkdtemp(prefix="scaffold_s166_sp_")
+_s166_tempdirs.append(_s166_space_parent)
+_s166_space_dir = os.path.join(_s166_space_parent, "dir with spaces")
+os.mkdir(_s166_space_dir)
+print(f"    [166.2a] setup: path={_s166_space_dir!r}")
+scaffold._set_custom_paths([_s166_space_dir])
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [_s166_space_dir],
+      f"166.2a: spaces in path accepted (got {_s166_r!r})")
+
+# 166.2b: path with unicode characters
+_s166_unicode_dir = os.path.join(_s166_space_parent, "dir_\u00e9moji_\U0001f389_\u03b1\u03b2\u03b3")
+try:
+    os.mkdir(_s166_unicode_dir)
+    print(f"    [166.2b] setup: path={_s166_unicode_dir!r}")
+    scaffold._set_custom_paths([_s166_unicode_dir])
+    _s166_r = scaffold._get_custom_paths()
+    check(_s166_r == [_s166_unicode_dir],
+          f"166.2b: unicode path accepted (got {_s166_r!r})")
+except (OSError, UnicodeEncodeError) as e:
+    check(True, f"166.2b: skipped — filesystem rejected unicode ({e!r})")
+
+# 166.2c: very long path via nested mkdir
+_s166_long_root = tempfile.mkdtemp(prefix="scaffold_s166_long_")
+_s166_tempdirs.append(_s166_long_root)
+_s166_long = _s166_long_root
+_s166_seg = "x" * 30
+for _ in range(8):
+    _s166_next = os.path.join(_s166_long, _s166_seg)
+    try:
+        os.mkdir(_s166_next)
+        _s166_long = _s166_next
+    except OSError:
+        break
+print(f"    [166.2c] setup: long path len={len(_s166_long)}")
+scaffold._set_custom_paths([_s166_long])
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [_s166_long],
+      f"166.2c: long path kept (got len={len(_s166_r[0]) if _s166_r else 0})")
+
+# 166.2d: path ending in os.sep — storage abspath strips trailing separator
+_s166_sep_dir = tempfile.mkdtemp(prefix="scaffold_s166_sep_")
+_s166_tempdirs.append(_s166_sep_dir)
+_s166_sep_path = _s166_sep_dir + os.sep
+_s166_sep_expected = os.path.abspath(_s166_sep_path)
+print(f"    [166.2d] setup: trailing-sep={_s166_sep_path!r} "
+      f"(expected stored={_s166_sep_expected!r})")
+scaffold._set_custom_paths([_s166_sep_path])
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [_s166_sep_expected],
+      f"166.2d: trailing-sep path normalized "
+      f"(got {_s166_r!r}, expected {[_s166_sep_expected]!r})")
+
+# 166.2e: symlink to a real directory (Unix only)
+if sys.platform != "win32":
+    _s166_sym_target = tempfile.mkdtemp(prefix="scaffold_s166_symtgt_")
+    _s166_tempdirs.append(_s166_sym_target)
+    _s166_sym_link = _s166_sym_target + "_link"
+    try:
+        os.symlink(_s166_sym_target, _s166_sym_link)
+        _s166_tempfiles.append(_s166_sym_link)
+        print(f"    [166.2e] setup: symlink={_s166_sym_link!r} -> {_s166_sym_target!r}")
+        scaffold._set_custom_paths([_s166_sym_link])
+        _s166_r = scaffold._get_custom_paths()
+        check(_s166_r == [_s166_sym_link],
+              f"166.2e: symlink to dir accepted (got {_s166_r!r})")
+    except OSError as e:
+        check(True, f"166.2e: skipped — symlink creation failed ({e!r})")
+else:
+    check(True, "166.2e: skipped on Windows (symlink perms)")
+
+# 166.2f: path that is a FILE, not a directory — must be filtered
+_s166_file_parent = tempfile.mkdtemp(prefix="scaffold_s166_filepar_")
+_s166_tempdirs.append(_s166_file_parent)
+_s166_file_path = os.path.join(_s166_file_parent, "not_a_dir.txt")
+Path(_s166_file_path).write_text("I am a file", encoding="utf-8")
+print(f"    [166.2f] setup: file (not dir)={_s166_file_path!r}")
+scaffold._set_custom_paths([_s166_file_path])
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [],
+      f"166.2f: file-path filtered out (got {_s166_r!r})")
+
+# 166.2g: duplicate entries — record actual behavior, don't enforce either side
+_s166_dup_dir = tempfile.mkdtemp(prefix="scaffold_s166_dup_")
+_s166_tempdirs.append(_s166_dup_dir)
+scaffold._set_custom_paths([_s166_dup_dir, _s166_dup_dir, _s166_dup_dir])
+_s166_r = scaffold._get_custom_paths()
+_s166_dedupes = len(_s166_r) == 1
+print(f"    [166.2g] behavior: set [X,X,X] -> {_s166_r!r} (dedupes={_s166_dedupes})")
+check(all(p == _s166_dup_dir for p in _s166_r) and len(_s166_r) >= 1,
+      f"166.2g: all retained entries are the duplicate path (got {_s166_r!r})")
+
+# 166.2h: relative paths — storage normalizes to absolute form
+_s166_orig_cwd = os.getcwd()
+_s166_rel_parent = tempfile.mkdtemp(prefix="scaffold_s166_rel_")
+_s166_tempdirs.append(_s166_rel_parent)
+os.makedirs(os.path.join(_s166_rel_parent, "subdir"), exist_ok=True)
+try:
+    os.chdir(_s166_rel_parent)
+    scaffold._set_custom_paths(["."])
+    _s166_r = scaffold._get_custom_paths()
+    _s166_expected_dot = os.path.abspath(".")
+    print(f"    [166.2h] before={'.'!r} -> after={_s166_r!r} "
+          f"(expected [{_s166_expected_dot!r}])")
+    check(_s166_r == [_s166_expected_dot],
+          f"166.2h: '.' stored as absolute path "
+          f"(got {_s166_r!r}, expected {[_s166_expected_dot]!r})")
+    scaffold._set_custom_paths(["./subdir"])
+    _s166_r = scaffold._get_custom_paths()
+    _s166_expected_sub = os.path.abspath("./subdir")
+    print(f"    [166.2h] before={'./subdir'!r} -> after={_s166_r!r} "
+          f"(expected [{_s166_expected_sub!r}])")
+    check(_s166_r == [_s166_expected_sub],
+          f"166.2h: './subdir' stored as absolute path "
+          f"(got {_s166_r!r}, expected {[_s166_expected_sub]!r})")
+finally:
+    os.chdir(_s166_orig_cwd)
+
+# 166.2i: path containing os.pathsep — rejected by _set_custom_paths
+_s166_ps_parent = tempfile.mkdtemp(prefix="scaffold_s166_ps_")
+_s166_tempdirs.append(_s166_ps_parent)
+_s166_ps_poisoned = _s166_ps_parent + os.pathsep + "poison"
+print(f"    [166.2i] setup: poisoned={_s166_ps_poisoned!r}")
+scaffold._set_custom_paths([_s166_ps_poisoned])
+_s166_r = scaffold._get_custom_paths()
+check(_s166_r == [],
+      f"166.2i-rejected: pathsep in name filtered by _set_custom_paths "
+      f"(got {_s166_r!r})")
+_s166_ext = scaffold._extended_path()
+check(_s166_ext is None,
+      f"166.2i-rejected: _extended_path returns None when all entries filtered "
+      f"(got {_s166_ext!r})")
+# Positive control: a clean path alongside a poisoned one — only clean survives
+_s166_ps_clean = tempfile.mkdtemp(prefix="scaffold_s166_ps_clean_")
+_s166_tempdirs.append(_s166_ps_clean)
+scaffold._set_custom_paths([_s166_ps_poisoned, _s166_ps_clean])
+_s166_r = scaffold._get_custom_paths()
+_s166_ps_clean_abs = os.path.abspath(_s166_ps_clean)
+check(_s166_r == [_s166_ps_clean_abs],
+      f"166.2i-rejected: only clean path survives alongside poisoned "
+      f"(got {_s166_r!r}, expected {[_s166_ps_clean_abs]!r})")
+
+# clean slate
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.3 — Binary resolution edge cases
+# ---------------------------------------------------------------------
+print("\n  -- 166.3: binary resolution edge cases --")
+
+_s166_bin_dir = tempfile.mkdtemp(prefix="scaffold_s166_bin_")
+_s166_tempdirs.append(_s166_bin_dir)
+scaffold._set_custom_paths([_s166_bin_dir])
+
+# 166.3a: binary names with shell metacharacters — must NOT resolve
+for _s166_bad in ["foo;bar", "$(whoami)", "foo|bar", "foo`id`", "foo&bar"]:
+    _s166_found = scaffold._binary_in_path(_s166_bad)
+    check(not _s166_found,
+          f"166.3a: metachar binary {_s166_bad!r} rejected (found={_s166_found})")
+
+# 166.3b: empty-string binary — must return False, must not crash
+try:
+    _s166_empty_found = scaffold._binary_in_path("")
+    check(_s166_empty_found is False,
+          f"166.3b: empty binary returns False (got {_s166_empty_found!r})")
+except Exception as e:
+    check(False, f"166.3b: empty binary raised {type(e).__name__}: {e}")
+
+# 166.3c: absolute path as binary name — document match with stdlib shutil.which
+if sys.platform == "win32":
+    _s166_abs_real = shutil.which("cmd")
+else:
+    _s166_abs_real = shutil.which("sh") or "/bin/sh"
+print(f"    [166.3c] abs path probe={_s166_abs_real!r}")
+if _s166_abs_real:
+    _s166_abs_found = scaffold._binary_in_path(_s166_abs_real)
+    _s166_stdlib = shutil.which(_s166_abs_real, path=scaffold._extended_path())
+    check(_s166_abs_found == (_s166_stdlib is not None),
+          f"166.3c: abs path matches stdlib "
+          f"(_binary_in_path={_s166_abs_found}, stdlib={_s166_stdlib!r})")
+else:
+    check(True, "166.3c: skipped — no system probe binary available")
+
+# 166.3d: custom dir wins over system PATH for same binary name
+if sys.platform == "win32":
+    _s166_shim = os.path.join(_s166_bin_dir, "cmd.bat")
+    Path(_s166_shim).write_text("@echo CUSTOM_WINS\n", encoding="utf-8")
+    _s166_resolved = shutil.which("cmd", path=scaffold._extended_path())
+    print(f"    [166.3d] shim={_s166_shim!r}, resolved={_s166_resolved!r}")
+    check(
+        _s166_resolved is not None
+        and os.path.normcase(_s166_resolved).startswith(os.path.normcase(_s166_bin_dir)),
+        f"166.3d: custom cmd.bat wins over System32\\cmd.exe "
+        f"(resolved={_s166_resolved!r})")
+else:
+    _s166_shim = os.path.join(_s166_bin_dir, "ls")
+    Path(_s166_shim).write_text("#!/bin/sh\necho CUSTOM_WINS\n", encoding="utf-8")
+    os.chmod(_s166_shim, 0o755)
+    _s166_resolved = shutil.which("ls", path=scaffold._extended_path())
+    print(f"    [166.3d] shim={_s166_shim!r}, resolved={_s166_resolved!r}")
+    check(_s166_resolved == _s166_shim,
+          f"166.3d: custom 'ls' wins over system /bin/ls (resolved={_s166_resolved!r})")
+
+# 166.3e: Unix — non-executable file in custom dir must NOT resolve
+if sys.platform != "win32":
+    _s166_nox = os.path.join(_s166_bin_dir, "s166_noexec")
+    Path(_s166_nox).write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    os.chmod(_s166_nox, 0o644)
+    print(f"    [166.3e] setup: non-executable={_s166_nox!r} mode=0o644")
+    _s166_found = scaffold._binary_in_path("s166_noexec")
+    check(not _s166_found,
+          f"166.3e: non-executable file not resolved (found={_s166_found})")
+else:
+    check(True, "166.3e: skipped on Windows (no +x bit)")
+
+# 166.3f: Unix — symlink in custom dir pointing to executable must resolve
+if sys.platform != "win32":
+    _s166_real = os.path.join(_s166_bin_dir, "s166_real_exec")
+    Path(_s166_real).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    os.chmod(_s166_real, 0o755)
+    _s166_sym = os.path.join(_s166_bin_dir, "s166_sym_exec")
+    try:
+        os.symlink(_s166_real, _s166_sym)
+        _s166_tempfiles.append(_s166_sym)
+        print(f"    [166.3f] setup: symlink={_s166_sym!r} -> {_s166_real!r}")
+        _s166_found = scaffold._binary_in_path("s166_sym_exec")
+        check(_s166_found,
+              f"166.3f: symlink to executable resolves (found={_s166_found})")
+    except OSError as e:
+        check(True, f"166.3f: skipped — symlink creation failed ({e!r})")
+else:
+    check(True, "166.3f: skipped on Windows")
+
+# clean slate
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.4 — QProcess environment injection (security-critical)
+# ---------------------------------------------------------------------
+print("\n  -- 166.4: QProcess environment injection --")
+
+# Build a minimal tool schema inline (echo binary, one optional string arg)
+_s166_tool_dir = tempfile.mkdtemp(prefix="scaffold_s166_tool_")
+_s166_tempdirs.append(_s166_tool_dir)
+_s166_tool_schema = {
+    "tool": "s166_echo_tool",
+    "binary": "echo",
+    "description": "Section 166 QProcess env test",
+    "arguments": [
+        {"name": "Message", "flag": "--msg", "type": "string"},
+    ],
+}
+_s166_tool_path = os.path.join(_s166_tool_dir, "s166_tool.json")
+Path(_s166_tool_path).write_text(json.dumps(_s166_tool_schema), encoding="utf-8")
+
+_s166_win4 = scaffold.MainWindow()
+_s166_win4.show()
+app.processEvents()
+_s166_win4._load_tool_path(_s166_tool_path)
+app.processEvents()
+
+_s166_env_dir1 = tempfile.mkdtemp(prefix="scaffold_s166_env1_")
+_s166_env_dir2 = tempfile.mkdtemp(prefix="scaffold_s166_env2_")
+_s166_tempdirs.extend([_s166_env_dir1, _s166_env_dir2])
+
+# Capture system values of a few well-known vars for the "unchanged" spot check
+_s166_probe_vars = [k for k in ("HOME", "USERPROFILE", "LANG", "SHELL", "COMSPEC")
+                    if k in os.environ]
+_s166_sys_env_snapshot = {k: os.environ[k] for k in _s166_probe_vars}
+print(f"    [166.4] probe vars captured: {list(_s166_sys_env_snapshot)}")
+
+def _s166_teardown():
+    """Synchronously kill and clear the current process, if any."""
+    if _s166_win4.process is not None:
+        _s166_win4._teardown_process()
+        app.processEvents()
+
+# 166.4a-c: with custom paths set, env is injected correctly
+scaffold._set_custom_paths([_s166_env_dir1, _s166_env_dir2])
+print(f"    [166.4a] setup: custom_paths={scaffold._get_custom_paths()!r}")
+_s166_win4._on_run_stop()
+# Read env BEFORE processEvents so errorOccurred (e.g., binary not found)
+# can't tear down self.process and lose our handle.
+if _s166_win4.process is None:
+    check(False, "166.4a: process was None immediately after _on_run_stop")
+    check(False, "166.4b: process was None immediately after _on_run_stop")
+    check(False, "166.4c: process was None immediately after _on_run_stop")
+    check(False, "166.4pathcount: process was None immediately after _on_run_stop")
+else:
+    _s166_env = _s166_win4.process.processEnvironment()
+    _s166_path_val = _s166_env.value("PATH", "")
+    _s166_expected_prefix = (
+        os.pathsep.join([_s166_env_dir1, _s166_env_dir2]) + os.pathsep
+    )
+    print(f"    [166.4a] PATH head={_s166_path_val[:200]!r}")
+    check(_s166_path_val.startswith(_s166_expected_prefix),
+          f"166.4a: PATH starts with joined custom paths "
+          f"(expected prefix {_s166_expected_prefix!r}, "
+          f"got {_s166_path_val[:200]!r})")
+
+    # 166.4b: system PATH present after the custom portion
+    _s166_sys_path = os.environ.get("PATH", "")
+    _s166_sys_present = bool(_s166_sys_path) and _s166_sys_path in _s166_path_val
+    check(_s166_sys_present,
+          f"166.4b: original system PATH preserved after custom portion "
+          f"(sys_path_head={_s166_sys_path[:80]!r}, "
+          f"env_path_head={_s166_path_val[:200]!r})")
+
+    # 166.4c: non-PATH env vars unchanged from system
+    _s166_mismatches = []
+    for _s166_k, _s166_v in _s166_sys_env_snapshot.items():
+        if _s166_k == "PATH":
+            continue
+        _s166_got = _s166_env.value(_s166_k, None)
+        if _s166_got != _s166_v:
+            _s166_mismatches.append((_s166_k, _s166_v, _s166_got))
+    check(not _s166_mismatches,
+          f"166.4c: non-PATH env vars preserved (mismatches={_s166_mismatches!r})")
+
+    # Extra: PATH appears exactly once in the env
+    _s166_path_keys = [k for k in _s166_env.keys() if k.upper() == "PATH"]
+    check(len(_s166_path_keys) == 1,
+          f"166.4pathcount: PATH key appears exactly once "
+          f"(got {_s166_path_keys!r})")
+
+_s166_teardown()
+
+# 166.4d: with NO custom paths, setProcessEnvironment must NOT be called —
+#         QProcess inherits the default env and processEnvironment() is empty.
+scaffold._set_custom_paths([])
+print(f"    [166.4d] setup: custom_paths={scaffold._get_custom_paths()!r}")
+_s166_win4._on_run_stop()
+if _s166_win4.process is None:
+    check(False, "166.4d: process was None immediately after _on_run_stop")
+else:
+    _s166_env2 = _s166_win4.process.processEnvironment()
+    _s166_empty = _s166_env2.isEmpty()
+    _s166_keys_preview = list(_s166_env2.keys())[:10]
+    print(f"    [166.4d] processEnvironment().isEmpty()={_s166_empty}, "
+          f"keys_preview={_s166_keys_preview!r}")
+    check(_s166_empty,
+          f"166.4d: no custom paths -> setProcessEnvironment NOT called "
+          f"(expected empty env, got keys_preview={_s166_keys_preview!r})")
+
+_s166_teardown()
+
+# ---------------------------------------------------------------------
+# 166.5 — Dialog lifecycle bugs
+# ---------------------------------------------------------------------
+print("\n  -- 166.5: dialog lifecycle --")
+
+# Clean slate for dialog tests
+scaffold._set_custom_paths([])
+
+# Save original QFileDialog static so we can restore after monkey-patching
+_s166_orig_get_existing = scaffold.QFileDialog.getExistingDirectory
+
+def _s166_patch_add_returns(path):
+    """Monkey-patch QFileDialog.getExistingDirectory to return `path` once."""
+    scaffold.QFileDialog.getExistingDirectory = staticmethod(
+        lambda *a, **kw: path
+    )
+
+def _s166_restore_add():
+    scaffold.QFileDialog.getExistingDirectory = _s166_orig_get_existing
+
+# 166.5a: open dialog, click Cancel (reject) -> stored paths unchanged
+_s166_5a_dir = tempfile.mkdtemp(prefix="scaffold_s166_5a_")
+_s166_tempdirs.append(_s166_5a_dir)
+scaffold._set_custom_paths([_s166_5a_dir])
+_s166_before = scaffold._get_custom_paths()
+print(f"    [166.5a] setup: custom_paths={_s166_before!r}")
+_s166_dlg5a = scaffold.CustomPathDialog()
+_s166_dlg5a.reject()
+app.processEvents()
+_s166_after = scaffold._get_custom_paths()
+check(_s166_after == _s166_before,
+      f"166.5a: Cancel leaves paths unchanged "
+      f"(before={_s166_before!r}, after={_s166_after!r})")
+_s166_dlg5a.deleteLater()
+app.processEvents()
+
+# 166.5b: open dialog, add a path, click Cancel -> change discarded
+_s166_5b_add = tempfile.mkdtemp(prefix="scaffold_s166_5b_")
+_s166_tempdirs.append(_s166_5b_add)
+_s166_before = scaffold._get_custom_paths()
+print(f"    [166.5b] setup: before={_s166_before!r}, will add={_s166_5b_add!r}")
+_s166_dlg5b = scaffold.CustomPathDialog()
+_s166_patch_add_returns(_s166_5b_add)
+try:
+    _s166_dlg5b._on_add()
+finally:
+    _s166_restore_add()
+_s166_dlg5b.reject()
+app.processEvents()
+_s166_after = scaffold._get_custom_paths()
+check(_s166_after == _s166_before,
+      f"166.5b: add-then-Cancel discards change "
+      f"(before={_s166_before!r}, after={_s166_after!r})")
+_s166_dlg5b.deleteLater()
+app.processEvents()
+
+# 166.5c: open dialog, add a path, click OK -> change persists
+scaffold._set_custom_paths([])
+_s166_5c_add = tempfile.mkdtemp(prefix="scaffold_s166_5c_")
+_s166_tempdirs.append(_s166_5c_add)
+print(f"    [166.5c] setup: custom_paths={scaffold._get_custom_paths()!r}, "
+      f"will add={_s166_5c_add!r}")
+_s166_dlg5c = scaffold.CustomPathDialog()
+_s166_patch_add_returns(_s166_5c_add)
+try:
+    _s166_dlg5c._on_add()
+finally:
+    _s166_restore_add()
+_s166_dlg5c._on_accept()
+app.processEvents()
+_s166_after = scaffold._get_custom_paths()
+check(_s166_after == [_s166_5c_add],
+      f"166.5c: add-then-OK persists new path "
+      f"(after={_s166_after!r})")
+_s166_dlg5c.deleteLater()
+app.processEvents()
+
+# 166.5d: open dialog when stored data is malformed -> empty list, no crash
+_s166_set_raw("totally not json {]")
+print(f"    [166.5d] setup: raw stored value is malformed JSON")
+try:
+    _s166_dlg5d = scaffold.CustomPathDialog()
+    _s166_opened = True
+    _s166_count5d = _s166_dlg5d._list.count()
+    _s166_paths5d = list(_s166_dlg5d._paths)
+except Exception as e:
+    _s166_opened = False
+    _s166_count5d = -1
+    _s166_paths5d = None
+    check(False, f"166.5d: dialog raised {type(e).__name__}: {e}")
+if _s166_opened:
+    check(_s166_count5d == 0,
+          f"166.5d: malformed JSON -> empty list (count={_s166_count5d})")
+    check(_s166_paths5d == [],
+          f"166.5d: internal _paths is empty (got {_s166_paths5d!r})")
+    _s166_dlg5d.reject()
+    app.processEvents()
+    _s166_dlg5d.deleteLater()
+    app.processEvents()
+# clean slate after the raw write
+_s166_settings.remove("custom_paths")
+
+# 166.5e: open dialog, remove all entries, click OK -> []
+_s166_5e_dir1 = tempfile.mkdtemp(prefix="scaffold_s166_5e1_")
+_s166_5e_dir2 = tempfile.mkdtemp(prefix="scaffold_s166_5e2_")
+_s166_tempdirs.extend([_s166_5e_dir1, _s166_5e_dir2])
+scaffold._set_custom_paths([_s166_5e_dir1, _s166_5e_dir2])
+print(f"    [166.5e] setup: custom_paths={scaffold._get_custom_paths()!r}")
+_s166_dlg5e = scaffold.CustomPathDialog()
+# Remove each entry from the top (row 0) until empty
+while _s166_dlg5e._list.count() > 0:
+    _s166_dlg5e._list.setCurrentRow(0)
+    _s166_dlg5e._on_remove()
+    app.processEvents()
+_s166_dlg5e._on_accept()
+app.processEvents()
+_s166_after = scaffold._get_custom_paths()
+check(_s166_after == [],
+      f"166.5e: remove-all + OK yields empty list (got {_s166_after!r})")
+_s166_dlg5e.deleteLater()
+app.processEvents()
+
+# 166.5f: open dialog twice in sequence — second reflects first's saved state
+scaffold._set_custom_paths([])
+_s166_5f_dir = tempfile.mkdtemp(prefix="scaffold_s166_5f_")
+_s166_tempdirs.append(_s166_5f_dir)
+print(f"    [166.5f] setup: custom_paths={scaffold._get_custom_paths()!r}, "
+      f"first dialog will add={_s166_5f_dir!r}")
+_s166_dlg5f_first = scaffold.CustomPathDialog()
+_s166_patch_add_returns(_s166_5f_dir)
+try:
+    _s166_dlg5f_first._on_add()
+finally:
+    _s166_restore_add()
+_s166_dlg5f_first._on_accept()
+app.processEvents()
+_s166_dlg5f_first.deleteLater()
+app.processEvents()
+_s166_mid = scaffold._get_custom_paths()
+print(f"    [166.5f] after first dialog saved: {_s166_mid!r}")
+_s166_dlg5f_second = scaffold.CustomPathDialog()
+_s166_count5f = _s166_dlg5f_second._list.count()
+_s166_paths5f = list(_s166_dlg5f_second._paths)
+print(f"    [166.5f] second dialog: count={_s166_count5f}, "
+      f"paths={_s166_paths5f!r}")
+check(_s166_count5f == 1 and _s166_paths5f == [_s166_5f_dir],
+      f"166.5f: second dialog reflects first's saved state "
+      f"(count={_s166_count5f}, paths={_s166_paths5f!r})")
+_s166_dlg5f_second.reject()
+app.processEvents()
+_s166_dlg5f_second.deleteLater()
+app.processEvents()
+
+# 166.5g: add SAME directory twice via _on_add -> dedup (exact-match)
+scaffold._set_custom_paths([])
+_s166_5g_dir = tempfile.mkdtemp(prefix="scaffold_s166_5g_")
+_s166_tempdirs.append(_s166_5g_dir)
+print(f"    [166.5g] setup: will add same dir twice={_s166_5g_dir!r}")
+_s166_dlg5g = scaffold.CustomPathDialog()
+_s166_patch_add_returns(_s166_5g_dir)
+try:
+    _s166_dlg5g._on_add()
+    _s166_dlg5g._on_add()
+finally:
+    _s166_restore_add()
+_s166_count5g = _s166_dlg5g._list.count()
+_s166_paths5g = list(_s166_dlg5g._paths)
+print(f"    [166.5g] after two adds: count={_s166_count5g}, "
+      f"paths={_s166_paths5g!r}")
+check(_s166_count5g == 1,
+      f"166.5g: exact-duplicate dedup'd (count={_s166_count5g}, "
+      f"paths={_s166_paths5g!r})")
+_s166_dlg5g.reject()
+app.processEvents()
+_s166_dlg5g.deleteLater()
+app.processEvents()
+
+# 166.5h: case-insensitive dedup on Windows, exact-match on Unix
+#         Add the same directory twice but with different case in the second add.
+_s166_5h_dir = tempfile.mkdtemp(prefix="scaffold_s166_5h_")
+_s166_tempdirs.append(_s166_5h_dir)
+# Build a case-variant of the path that still refers to the same location
+_s166_5h_upper = os.path.normpath(_s166_5h_dir).upper()
+_s166_5h_lower = os.path.normpath(_s166_5h_dir).lower()
+# Pick the variant that actually differs from the normalized original
+_s166_5h_orig_norm = os.path.normpath(_s166_5h_dir)
+if _s166_5h_upper != _s166_5h_orig_norm:
+    _s166_5h_variant = _s166_5h_upper
+elif _s166_5h_lower != _s166_5h_orig_norm:
+    _s166_5h_variant = _s166_5h_lower
+else:
+    _s166_5h_variant = _s166_5h_orig_norm  # no distinguishable case variant
+print(f"    [166.5h] setup: orig={_s166_5h_orig_norm!r}, "
+      f"variant={_s166_5h_variant!r}, platform={sys.platform!r}")
+_s166_dlg5h = scaffold.CustomPathDialog()
+_s166_patch_add_returns(_s166_5h_orig_norm)
+try:
+    _s166_dlg5h._on_add()
+finally:
+    _s166_restore_add()
+_s166_patch_add_returns(_s166_5h_variant)
+try:
+    _s166_dlg5h._on_add()
+finally:
+    _s166_restore_add()
+_s166_count5h = _s166_dlg5h._list.count()
+_s166_paths5h = list(_s166_dlg5h._paths)
+print(f"    [166.5h] after two case-variant adds: count={_s166_count5h}, "
+      f"paths={_s166_paths5h!r}")
+if sys.platform == "win32":
+    check(_s166_count5h == 1,
+          f"166.5h: Windows case-insensitive dedup (count={_s166_count5h}, "
+          f"paths={_s166_paths5h!r})")
+else:
+    # Unix: normcase == identity, so only EXACT duplicates dedup.
+    # If the variant happens to equal the original (e.g. path was already
+    # all-lower), we expect dedup (count==1); otherwise we expect both kept.
+    if _s166_5h_variant == _s166_5h_orig_norm:
+        check(_s166_count5h == 1,
+              f"166.5h: Unix exact-match dedup when variant==orig "
+              f"(count={_s166_count5h}, paths={_s166_paths5h!r})")
+    else:
+        check(_s166_count5h == 2,
+              f"166.5h: Unix keeps case variants as distinct "
+              f"(count={_s166_count5h}, paths={_s166_paths5h!r})")
+_s166_dlg5h.reject()
+app.processEvents()
+_s166_dlg5h.deleteLater()
+app.processEvents()
+
+# 166.5i: dialog warns (does not add) when picked directory contains os.pathsep
+_s166_5i_poisoned = tempfile.mkdtemp(prefix="scaffold_s166_5i_") + os.pathsep + "poison"
+print(f"    [166.5i] setup: poisoned picked path={_s166_5i_poisoned!r}")
+_s166_dlg5i = scaffold.CustomPathDialog()
+_s166_5i_before = list(_s166_dlg5i._paths)
+_s166_5i_warn_calls = []
+_s166_orig_warn = scaffold.QMessageBox.warning
+scaffold.QMessageBox.warning = staticmethod(
+    lambda *a, **kw: _s166_5i_warn_calls.append((a, kw)) or scaffold.QMessageBox.StandardButton.Ok
+)
+_s166_patch_add_returns(_s166_5i_poisoned)
+try:
+    _s166_dlg5i._on_add()
+finally:
+    _s166_restore_add()
+    scaffold.QMessageBox.warning = _s166_orig_warn
+_s166_5i_after = list(_s166_dlg5i._paths)
+print(f"    [166.5i] warn_calls={len(_s166_5i_warn_calls)}, "
+      f"before={_s166_5i_before!r}, after={_s166_5i_after!r}")
+check(len(_s166_5i_warn_calls) == 1,
+      f"166.5i: QMessageBox.warning called exactly once "
+      f"(got {len(_s166_5i_warn_calls)} calls)")
+_s166_5i_args = _s166_5i_warn_calls[0][0] if _s166_5i_warn_calls else ()
+_s166_5i_text = " ".join(str(a) for a in _s166_5i_args)
+check(os.pathsep in _s166_5i_text,
+      f"166.5i: warning text mentions pathsep "
+      f"(pathsep={os.pathsep!r}, text={_s166_5i_text!r})")
+check(_s166_5i_after == _s166_5i_before,
+      f"166.5i: poisoned path NOT added to dialog "
+      f"(before={_s166_5i_before!r}, after={_s166_5i_after!r})")
+_s166_dlg5i.reject()
+app.processEvents()
+_s166_dlg5i.deleteLater()
+app.processEvents()
+
+# Make sure the monkey-patch is always restored even if a check above raised
+scaffold.QFileDialog.getExistingDirectory = _s166_orig_get_existing
+
+# ---------------------------------------------------------------------
+# 166.6 — Warning bar refresh on dialog close
+# ---------------------------------------------------------------------
+print("\n  -- 166.6: warning bar refresh on dialog close --")
+
+# Fake dialog class that mimics CustomPathDialog.exec() and writes to settings.
+# Controlled via class-level attributes so callers can reconfigure between opens.
+class _s166_FakeCPD:
+    _next_paths: list = []
+    _next_accept: bool = True
+    def __init__(self, parent=None):
+        pass
+    def exec(self):
+        if _s166_FakeCPD._next_accept:
+            scaffold._set_custom_paths(list(_s166_FakeCPD._next_paths))
+            return scaffold.QDialog.DialogCode.Accepted
+        return scaffold.QDialog.DialogCode.Rejected
+
+# Clean slate
+scaffold._set_custom_paths([])
+
+# Create a tempdir with a dummy binary script matching a nonexistent tool binary
+_s166_6_dir = tempfile.mkdtemp(prefix="scaffold_s166_6_")
+_s166_tempdirs.append(_s166_6_dir)
+_s166_6_binname = "s166_6_missing_xyz"
+if sys.platform == "win32":
+    _s166_6_script = os.path.join(_s166_6_dir, _s166_6_binname + ".bat")
+    Path(_s166_6_script).write_text("@echo off\n", encoding="utf-8")
+else:
+    _s166_6_script = os.path.join(_s166_6_dir, _s166_6_binname)
+    Path(_s166_6_script).write_text("#!/bin/sh\n", encoding="utf-8")
+    os.chmod(_s166_6_script, 0o755)
+
+# Create tool JSON with the missing binary
+_s166_6_tool_dir = tempfile.mkdtemp(prefix="scaffold_s166_6_tool_")
+_s166_tempdirs.append(_s166_6_tool_dir)
+_s166_6_tool_schema = {
+    "tool": "s166_6_tool",
+    "binary": _s166_6_binname,
+    "description": "Section 166.6 warning bar test",
+    "arguments": [{"name": "Arg", "flag": "--arg", "type": "string"}],
+}
+_s166_6_tool_path = os.path.join(_s166_6_tool_dir, "s166_6_tool.json")
+Path(_s166_6_tool_path).write_text(json.dumps(_s166_6_tool_schema), encoding="utf-8")
+
+_s166_6_win = scaffold.MainWindow()
+_s166_6_win.show()
+app.processEvents()
+_s166_6_win._load_tool_path(_s166_6_tool_path)
+app.processEvents()
+
+# 166.6a: warning bar visible before adding custom path
+print(f"    [166.6a] setup: binary={_s166_6_binname!r}, "
+      f"custom_paths={scaffold._get_custom_paths()!r}")
+_s166_6_vis_a = _s166_6_win.warning_bar.isVisible()
+check(_s166_6_vis_a,
+      f"166.6a: warning bar visible for missing binary "
+      f"(got visible={_s166_6_vis_a})")
+
+# 166.6b: warning bar text contains "Configure custom directories" link
+_s166_6_text = _s166_6_win.warning_bar.text()
+check("Configure custom directories" in _s166_6_text,
+      f"166.6b: warning text mentions link "
+      f"(got {_s166_6_text!r})")
+
+# Swap in fake dialog class for the rest of 166.6/166.7
+_s166_orig_cpd = scaffold.CustomPathDialog
+scaffold.CustomPathDialog = _s166_FakeCPD
+
+# 166.6c: after adding custom dir containing the binary, warning bar hides
+_s166_FakeCPD._next_paths = [_s166_6_dir]
+_s166_FakeCPD._next_accept = True
+_s166_6_win._on_custom_paths()
+app.processEvents()
+print(f"    [166.6c] after add: custom_paths={scaffold._get_custom_paths()!r}")
+_s166_6_vis_c = _s166_6_win.warning_bar.isVisible()
+check(not _s166_6_vis_c,
+      f"166.6c: warning bar hidden after adding custom dir "
+      f"(got visible={_s166_6_vis_c})")
+
+# 166.6d: after removing custom dir, warning bar becomes visible again
+_s166_FakeCPD._next_paths = []
+_s166_FakeCPD._next_accept = True
+_s166_6_win._on_custom_paths()
+app.processEvents()
+print(f"    [166.6d] after remove: custom_paths={scaffold._get_custom_paths()!r}")
+_s166_6_vis_d = _s166_6_win.warning_bar.isVisible()
+check(_s166_6_vis_d,
+      f"166.6d: warning bar visible again after removing custom dir "
+      f"(got visible={_s166_6_vis_d})")
+
+# 166.6e: warning bar text still includes the configure-custom-directories link
+_s166_6_text_d = _s166_6_win.warning_bar.text()
+check("Configure custom directories" in _s166_6_text_d,
+      f"166.6e: warning still has link after re-show "
+      f"(got {_s166_6_text_d!r})")
+
+# Cleanup for 166.6 window; restore dialog class for later sections
+scaffold.CustomPathDialog = _s166_orig_cpd
+_s166_6_win.close()
+_s166_6_win.deleteLater()
+app.processEvents()
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.7 — Tool picker rescan on dialog close
+# ---------------------------------------------------------------------
+print("\n  -- 166.7: tool picker rescan on dialog close --")
+
+scaffold._set_custom_paths([])
+
+_s166_7_win = scaffold.MainWindow()
+_s166_7_win.show()
+app.processEvents()
+# Force picker view (MainWindow may auto-load the last tool, leaving us on the form)
+_s166_7_win._show_picker()
+app.processEvents()
+_s166_7_idx = _s166_7_win.stack.currentIndex()
+print(f"    [166.7] stack.currentIndex={_s166_7_idx} (expected 0=picker)")
+
+# Install spy AFTER _show_picker (which calls scan once itself)
+_s166_7_scan_count = [0]
+_s166_orig_scan = _s166_7_win.picker.scan
+def _s166_7_spy_scan(*a, **kw):
+    _s166_7_scan_count[0] += 1
+    return _s166_orig_scan(*a, **kw)
+_s166_7_win.picker.scan = _s166_7_spy_scan
+
+# Swap in fake dialog
+scaffold.CustomPathDialog = _s166_FakeCPD
+
+# 166.7a: opening dialog and changing paths triggers scan (when on picker)
+_s166_7_dir = tempfile.mkdtemp(prefix="scaffold_s166_7_")
+_s166_tempdirs.append(_s166_7_dir)
+_s166_FakeCPD._next_paths = [_s166_7_dir]
+_s166_FakeCPD._next_accept = True
+_s166_7_count_before = _s166_7_scan_count[0]
+_s166_7_win._on_custom_paths()
+app.processEvents()
+_s166_7_count_after = _s166_7_scan_count[0]
+print(f"    [166.7a] scan calls before={_s166_7_count_before}, after={_s166_7_count_after}")
+check(_s166_7_count_after == _s166_7_count_before + 1,
+      f"166.7a: picker.scan() called once after path change on picker "
+      f"(before={_s166_7_count_before}, after={_s166_7_count_after})")
+
+# 166.7b: opening dialog and NOT changing paths does NOT trigger scan
+_s166_FakeCPD._next_paths = [_s166_7_dir]  # same as current
+_s166_FakeCPD._next_accept = True
+_s166_7_count_before = _s166_7_scan_count[0]
+_s166_7_win._on_custom_paths()
+app.processEvents()
+_s166_7_count_after = _s166_7_scan_count[0]
+print(f"    [166.7b] scan calls before={_s166_7_count_before}, after={_s166_7_count_after}")
+check(_s166_7_count_after == _s166_7_count_before,
+      f"166.7b: picker.scan() NOT called when paths unchanged "
+      f"(before={_s166_7_count_before}, after={_s166_7_count_after})")
+
+# 166.7c: rejecting the dialog does NOT trigger scan even if paths would change
+_s166_FakeCPD._next_paths = []  # would be a change, but we'll reject
+_s166_FakeCPD._next_accept = False
+_s166_7_count_before = _s166_7_scan_count[0]
+_s166_7_before_paths = scaffold._get_custom_paths()
+_s166_7_win._on_custom_paths()
+app.processEvents()
+_s166_7_count_after = _s166_7_scan_count[0]
+_s166_7_after_paths = scaffold._get_custom_paths()
+print(f"    [166.7c] scan calls before={_s166_7_count_before}, after={_s166_7_count_after}")
+check(_s166_7_count_after == _s166_7_count_before,
+      f"166.7c: Rejecting dialog doesn't trigger scan "
+      f"(before={_s166_7_count_before}, after={_s166_7_count_after})")
+check(_s166_7_after_paths == _s166_7_before_paths,
+      f"166.7c: Rejecting dialog leaves paths unchanged "
+      f"(before={_s166_7_before_paths!r}, after={_s166_7_after_paths!r})")
+
+# Restore dialog class + scan spy
+scaffold.CustomPathDialog = _s166_orig_cpd
+_s166_7_win.picker.scan = _s166_orig_scan
+_s166_7_win.close()
+_s166_7_win.deleteLater()
+app.processEvents()
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.8 — Portable mode interaction
+# ---------------------------------------------------------------------
+print("\n  -- 166.8: portable mode interaction --")
+
+scaffold._set_custom_paths([])
+
+_s166_8_script_dir = Path(scaffold.__file__).parent
+_s166_8_portable_file = _s166_8_script_dir / "portable.txt"
+_s166_8_ini_file = _s166_8_script_dir / "scaffold.ini"
+
+# Probe if we can safely write to the script dir.  If either sentinel file
+# already exists, refuse to run (we'd risk clobbering user state).
+_s166_8_can_run = True
+_s166_8_skip_reason = None
+if _s166_8_portable_file.exists():
+    _s166_8_can_run = False
+    _s166_8_skip_reason = f"{_s166_8_portable_file} already exists"
+elif _s166_8_ini_file.exists():
+    _s166_8_can_run = False
+    _s166_8_skip_reason = f"{_s166_8_ini_file} already exists"
+else:
+    try:
+        _s166_8_portable_file.write_text("", encoding="utf-8")
+    except OSError as e:
+        _s166_8_can_run = False
+        _s166_8_skip_reason = f"cannot write to script dir ({e!r})"
+        # Clean up partial write just in case
+        try:
+            if _s166_8_portable_file.exists():
+                _s166_8_portable_file.unlink()
+        except OSError:
+            pass
+
+if not _s166_8_can_run:
+    print(f"    [166.8] SKIPPED ({_s166_8_skip_reason})")
+    check(True, f"166.8a: skipped — {_s166_8_skip_reason}")
+    check(True, f"166.8b: skipped — {_s166_8_skip_reason}")
+    check(True, f"166.8c: skipped — {_s166_8_skip_reason}")
+    check(True, f"166.8d: skipped — {_s166_8_skip_reason}")
+else:
+    print(f"    [166.8] portable.txt created at {_s166_8_portable_file}")
+    try:
+        # 166.8a: _create_settings() returns INI-format settings when portable.txt exists
+        _s166_8_settings = scaffold._create_settings()
+        _s166_8_fmt = _s166_8_settings.format()
+        print(f"    [166.8a] settings.format()={_s166_8_fmt!r}, "
+              f"fileName()={_s166_8_settings.fileName()!r}")
+        check(_s166_8_fmt == scaffold.QSettings.Format.IniFormat,
+              f"166.8a: format is IniFormat in portable mode "
+              f"(got {_s166_8_fmt!r})")
+
+        # 166.8b: scaffold.ini path matches expected script-dir location
+        check(os.path.normcase(_s166_8_settings.fileName()) ==
+              os.path.normcase(str(_s166_8_ini_file)),
+              f"166.8b: settings file is next to scaffold.py "
+              f"(got {_s166_8_settings.fileName()!r})")
+
+        # 166.8c: setting custom paths writes to scaffold.ini, not registry
+        _s166_8_tmp = tempfile.mkdtemp(prefix="scaffold_s166_8_")
+        _s166_tempdirs.append(_s166_8_tmp)
+        scaffold._set_custom_paths([_s166_8_tmp])
+        # Force QSettings to flush
+        _s166_8_settings.sync()
+        _s166_8_ini_exists = _s166_8_ini_file.exists()
+        _s166_8_ini_text = _s166_8_ini_file.read_text(encoding="utf-8") \
+            if _s166_8_ini_exists else ""
+        print(f"    [166.8c] scaffold.ini exists={_s166_8_ini_exists}, "
+              f"len={len(_s166_8_ini_text)}")
+        check(_s166_8_ini_exists and "custom_paths" in _s166_8_ini_text,
+              f"166.8c: scaffold.ini contains custom_paths "
+              f"(exists={_s166_8_ini_exists}, "
+              f"text_preview={_s166_8_ini_text[:200]!r})")
+
+        # 166.8d: round-trip through _get_custom_paths returns the same value
+        _s166_8_read = scaffold._get_custom_paths()
+        check(_s166_8_read == [_s166_8_tmp],
+              f"166.8d: round-trip in portable mode "
+              f"(got {_s166_8_read!r}, expected [{_s166_8_tmp!r}])")
+    finally:
+        # Always clean up: clear the ini custom_paths, delete both files
+        try:
+            _s166_8_s2 = scaffold._create_settings()
+            _s166_8_s2.remove("custom_paths")
+            _s166_8_s2.sync()
+        except Exception:
+            pass
+        for _s166_8_f in (_s166_8_portable_file, _s166_8_ini_file):
+            try:
+                if _s166_8_f.exists():
+                    _s166_8_f.unlink()
+            except OSError:
+                pass
+
+# Sanity: the sentinel files must be gone even if cleanup ran
+check(not _s166_8_portable_file.exists(),
+      f"166.8-cleanup: portable.txt removed "
+      f"(exists={_s166_8_portable_file.exists()})")
+check(not _s166_8_ini_file.exists(),
+      f"166.8-cleanup: scaffold.ini removed "
+      f"(exists={_s166_8_ini_file.exists()})")
+
+# Ensure non-portable settings key is clean after this sub-section
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.9 — Cascade execution uses custom PATH
+# ---------------------------------------------------------------------
+print("\n  -- 166.9: cascade execution uses custom PATH --")
+
+scaffold._set_custom_paths([])
+
+_s166_9_cascade_dir = tempfile.mkdtemp(prefix="scaffold_s166_9_cascade_")
+_s166_tempdirs.append(_s166_9_cascade_dir)
+
+# Tool JSON using 'echo' (which Scaffold's existing 166.4 proves resolves
+# on this host).  The cascade will use this tool as its single slot.
+_s166_9_tool_schema = {
+    "tool": "s166_9_echo_tool",
+    "binary": "echo",
+    "description": "Section 166.9 cascade env test",
+    "arguments": [{"name": "Message", "flag": "--msg", "type": "string"}],
+}
+_s166_9_tool_path = os.path.join(_s166_9_cascade_dir, "s166_9_tool.json")
+Path(_s166_9_tool_path).write_text(json.dumps(_s166_9_tool_schema), encoding="utf-8")
+
+_s166_9_custom1 = tempfile.mkdtemp(prefix="scaffold_s166_9_custom1_")
+_s166_9_custom2 = tempfile.mkdtemp(prefix="scaffold_s166_9_custom2_")
+_s166_tempdirs.extend([_s166_9_custom1, _s166_9_custom2])
+
+scaffold._set_custom_paths([_s166_9_custom1, _s166_9_custom2])
+print(f"    [166.9] setup: custom_paths={scaffold._get_custom_paths()!r}")
+
+_s166_9_win = scaffold.MainWindow()
+_s166_9_win.show()
+app.processEvents()
+
+# Populate slot 0 with our tool and start the chain.  _on_run_chain calls
+# _chain_advance which eventually calls main_window._on_run_stop() — the
+# same env-injection code path as 166.4.
+_s166_9_dock = _s166_9_win.cascade_dock
+_s166_9_dock._slots[0]["tool_path"] = _s166_9_tool_path
+_s166_9_dock._on_run_chain()
+# Cascade execution is staged via QTimer.singleShot(150ms); we must pump the
+# event loop until the process is created (or give up after a bounded wait).
+# Capture env as soon as process exists and BEFORE subsequent processEvents()
+# let errorOccurred tear it down.
+_s166_9_deadline = time.monotonic() + 2.0
+while time.monotonic() < _s166_9_deadline and _s166_9_win.process is None:
+    app.processEvents()
+    time.sleep(0.01)
+
+if _s166_9_win.process is None:
+    check(False, "166.9a: process was None after waiting for cascade to start")
+    check(False, "166.9b: process was None after waiting for cascade to start")
+    check(False, "166.9c: process was None after waiting for cascade to start")
+else:
+    _s166_9_env = _s166_9_win.process.processEnvironment()
+    _s166_9_path = _s166_9_env.value("PATH", "")
+    _s166_9_expected_prefix = (
+        os.pathsep.join([_s166_9_custom1, _s166_9_custom2]) + os.pathsep
+    )
+    print(f"    [166.9a] cascade PATH head={_s166_9_path[:200]!r}")
+    check(_s166_9_path.startswith(_s166_9_expected_prefix),
+          f"166.9a: cascade QProcess PATH starts with custom paths "
+          f"(expected prefix {_s166_9_expected_prefix!r}, "
+          f"got {_s166_9_path[:200]!r})")
+    # 166.9b: system PATH is preserved after the custom portion
+    _s166_9_sys_path = os.environ.get("PATH", "")
+    _s166_9_sys_present = bool(_s166_9_sys_path) and _s166_9_sys_path in _s166_9_path
+    check(_s166_9_sys_present,
+          f"166.9b: cascade PATH contains original system PATH "
+          f"(sys_path_head={_s166_9_sys_path[:80]!r})")
+    # 166.9c: PATH appears exactly once in the cascade env
+    _s166_9_path_keys = [k for k in _s166_9_env.keys() if k.upper() == "PATH"]
+    check(len(_s166_9_path_keys) == 1,
+          f"166.9c: cascade env has exactly one PATH key "
+          f"(got {_s166_9_path_keys!r})")
+
+# Tear the chain down synchronously
+if _s166_9_dock._chain_state != scaffold.CHAIN_IDLE:
+    _s166_9_dock._on_stop_chain()
+    app.processEvents()
+_s166_9_win._teardown_process()
+app.processEvents()
+_s166_9_win.close()
+_s166_9_win.deleteLater()
+app.processEvents()
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# 166.10 — Concurrency / mid-run changes
+# ---------------------------------------------------------------------
+print("\n  -- 166.10: concurrency / mid-run changes --")
+
+scaffold._set_custom_paths([])
+
+_s166_10_tool_dir = tempfile.mkdtemp(prefix="scaffold_s166_10_tool_")
+_s166_tempdirs.append(_s166_10_tool_dir)
+_s166_10_tool_schema = {
+    "tool": "s166_10_echo_tool",
+    "binary": "echo",
+    "description": "Section 166.10 mid-run test",
+    "arguments": [{"name": "Message", "flag": "--msg", "type": "string"}],
+}
+_s166_10_tool_path = os.path.join(_s166_10_tool_dir, "s166_10_tool.json")
+Path(_s166_10_tool_path).write_text(json.dumps(_s166_10_tool_schema), encoding="utf-8")
+
+_s166_10_dirA = tempfile.mkdtemp(prefix="scaffold_s166_10_A_")
+_s166_10_dirB = tempfile.mkdtemp(prefix="scaffold_s166_10_B_")
+_s166_tempdirs.extend([_s166_10_dirA, _s166_10_dirB])
+
+_s166_10_win = scaffold.MainWindow()
+_s166_10_win.show()
+app.processEvents()
+_s166_10_win._load_tool_path(_s166_10_tool_path)
+app.processEvents()
+
+# Start process with dir_A custom paths
+scaffold._set_custom_paths([_s166_10_dirA])
+print(f"    [166.10] pre-run A paths={scaffold._get_custom_paths()!r}")
+_s166_10_win._on_run_stop()
+# Read env BEFORE processEvents to avoid race with errorOccurred
+if _s166_10_win.process is None:
+    check(False, "166.10a: process was None immediately after first _on_run_stop")
+    check(False, "166.10b: process env unchanged after mid-run settings change (setup failed)")
+else:
+    _s166_10_env_initial = _s166_10_win.process.processEnvironment()
+    _s166_10_path_initial = _s166_10_env_initial.value("PATH", "")
+    print(f"    [166.10a] initial PATH head={_s166_10_path_initial[:120]!r}")
+    check(_s166_10_path_initial.startswith(_s166_10_dirA + os.pathsep),
+          f"166.10a: initial run uses dirA "
+          f"(expected prefix {_s166_10_dirA + os.pathsep!r}, "
+          f"got head={_s166_10_path_initial[:120]!r})")
+
+    # Change custom paths while the process exists
+    scaffold._set_custom_paths([_s166_10_dirB])
+    print(f"    [166.10b] mid-run settings changed to "
+          f"{scaffold._get_custom_paths()!r}")
+
+    # Re-read SAME process env — should still reflect dirA
+    _s166_10_path_after = _s166_10_win.process.processEnvironment().value("PATH", "")
+    print(f"    [166.10b] mid-run PATH head={_s166_10_path_after[:120]!r}")
+    check(_s166_10_path_after == _s166_10_path_initial,
+          f"166.10b: running process env NOT retroactively changed "
+          f"(initial head={_s166_10_path_initial[:120]!r}, "
+          f"after head={_s166_10_path_after[:120]!r})")
+    check(_s166_10_dirB not in _s166_10_path_after.split(os.pathsep)[:2],
+          f"166.10b-extra: dirB has NOT leaked into running env "
+          f"(split head={_s166_10_path_after.split(os.pathsep)[:2]!r})")
+
+# Stop the first run cleanly, then start a new one — new run must pick up dirB
+_s166_10_win._teardown_process()
+app.processEvents()
+
+print(f"    [166.10c] second-run paths={scaffold._get_custom_paths()!r}")
+_s166_10_win._on_run_stop()
+if _s166_10_win.process is None:
+    check(False, "166.10c: process was None immediately after second _on_run_stop")
+else:
+    _s166_10_path_new = _s166_10_win.process.processEnvironment().value("PATH", "")
+    print(f"    [166.10c] new run PATH head={_s166_10_path_new[:120]!r}")
+    check(_s166_10_path_new.startswith(_s166_10_dirB + os.pathsep),
+          f"166.10c: new run picks up dirB "
+          f"(expected prefix {_s166_10_dirB + os.pathsep!r}, "
+          f"got head={_s166_10_path_new[:120]!r})")
+    check(not _s166_10_path_new.startswith(_s166_10_dirA + os.pathsep),
+          f"166.10c-neg: new run does NOT start with dirA "
+          f"(got head={_s166_10_path_new[:120]!r})")
+
+_s166_10_win._teardown_process()
+app.processEvents()
+_s166_10_win.close()
+_s166_10_win.deleteLater()
+app.processEvents()
+scaffold._set_custom_paths([])
+
+# ---------------------------------------------------------------------
+# Cleanup section 166
+# ---------------------------------------------------------------------
+_s166_win4.close()
+_s166_win4.deleteLater()
+app.processEvents()
+_s166_settings.remove("custom_paths")
+for _s166_f in _s166_tempfiles:
+    try:
+        if os.path.islink(_s166_f) or os.path.isfile(_s166_f):
+            os.unlink(_s166_f)
+    except OSError:
+        pass
+for _s166_d in _s166_tempdirs:
+    shutil.rmtree(_s166_d, ignore_errors=True)
+
+
+# =====================================================================
+# Section 167 — Regex Safety: _validate_capture_entry rejects invalid regex
+# =====================================================================
+# Phase 3 regex-safety hardening. Currently _validate_capture_entry does
+# not call re.compile on the pattern, so a syntactically broken regex
+# slips past validation and is only swallowed silently by the bare
+# `except re.error: continue` branch inside extract_captures. After the
+# fix, compile errors surface as ValueError at validation time — at the
+# direct function, through _import_cascade_data, and through the dialog
+# accept path. All assertions below are expected to FAIL prior to the
+# fix and PASS after.
+print("\n=== SECTION 167: Regex Safety — _validate_capture_entry rejects invalid regex ===")
+
+_s167_bad_patterns = ["[unclosed", "(?P<", "*invalid", "(?P<name>x"]
+
+_s167_tmpdir = tempfile.mkdtemp(prefix="scaffold_test167_")
+_s167_tool = {
+    "tool": "tool_167",
+    "binary": "echo",
+    "description": "Test tool for regex safety validation",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string"},
+    ],
+}
+_s167_path = os.path.join(_s167_tmpdir, "tool_167.json")
+Path(_s167_path).write_text(json.dumps(_s167_tool), encoding="utf-8")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s167_win = scaffold.MainWindow()
+_s167_win.show()
+app.processEvents()
+_s167_dock = _s167_win.cascade_dock
+_s167_dock.show()
+app.processEvents()
+
+# Suppress the modal "Invalid Capture" dialog that _on_accept shows so
+# the test does not block on the 167c assertions.
+_s167_warnings = []
+_s167_orig_warning = QMessageBox.warning
+def _s167_mock_warning(*args, **kwargs):
+    _s167_warnings.append(args)
+    return QMessageBox.StandardButton.Ok
+QMessageBox.warning = _s167_mock_warning
+
+for _s167_i, _s167_pat in enumerate(_s167_bad_patterns):
+    _s167_label = f"pattern {_s167_pat!r}"
+
+    # 167a: direct call to _validate_capture_entry raises ValueError whose
+    #        message mentions "regex", "pattern", or "compile".
+    _s167_entry = {"name": "bad", "source": "stdout",
+                   "pattern": _s167_pat, "group": 1}
+    _s167_raised = None
+    try:
+        scaffold._validate_capture_entry(_s167_entry, [])
+    except ValueError as _s167_exc:
+        _s167_raised = _s167_exc
+    check(_s167_raised is not None,
+          f"167a.{_s167_i}: _validate_capture_entry raises ValueError "
+          f"for {_s167_label}")
+    if _s167_raised is not None:
+        _s167_msg = str(_s167_raised).lower()
+        check(("regex" in _s167_msg) or ("pattern" in _s167_msg)
+              or ("compile" in _s167_msg),
+              f"167a.{_s167_i}: ValueError message mentions "
+              f"regex/pattern/compile for {_s167_label} "
+              f"(got {_s167_raised!s})")
+    else:
+        check(False,
+              f"167a.{_s167_i}: ValueError message mentions "
+              f"regex/pattern/compile for {_s167_label} "
+              f"(no exception raised)")
+
+    # 167b: a cascade dict containing the bad pattern is rejected by
+    #        CascadeSidebar._import_cascade_data with ValueError.
+    _s167_cascade_data = {
+        "_format": "scaffold_cascade",
+        "name": f"test167_{_s167_i}",
+        "description": "",
+        "loop_mode": False,
+        "stop_on_error": False,
+        "steps": [
+            {"tool": _s167_path, "preset": None, "delay": 0,
+             "captures": [{"name": "bad", "source": "stdout",
+                            "pattern": _s167_pat, "group": 1}]},
+        ],
+        "variables": [],
+    }
+    _s167_import_raised = None
+    try:
+        _s167_dock._import_cascade_data(_s167_cascade_data)
+    except ValueError as _s167_exc:
+        _s167_import_raised = _s167_exc
+    except Exception:
+        _s167_import_raised = None
+    check(_s167_import_raised is not None,
+          f"167b.{_s167_i}: _import_cascade_data raises ValueError "
+          f"for {_s167_label}")
+
+    # 167c: the capture dialog's _on_accept does NOT accept a row with the
+    #        bad pattern — _result_captures stays empty and a warning is shown.
+    _s167_dlg = scaffold.CascadeCaptureDefinitionDialog([], cascade_variables=[])
+    _s167_dlg._add_row(name="bad", source="stdout",
+                       pattern_or_path=_s167_pat, group=1)
+    app.processEvents()
+    _s167_warnings.clear()
+    _s167_dlg._on_accept()
+    app.processEvents()
+
+    check(len(_s167_dlg._result_captures) == 0,
+          f"167c.{_s167_i}: dialog did not accept capture with "
+          f"{_s167_label} (_result_captures="
+          f"{_s167_dlg._result_captures!r})")
+    check(_s167_dlg.result() != QDialog.Accepted,
+          f"167c.{_s167_i}: dialog.result() not Accepted for "
+          f"{_s167_label} (got {_s167_dlg.result()!r})")
+    check(len(_s167_warnings) >= 1,
+          f"167c.{_s167_i}: QMessageBox.warning was shown for "
+          f"{_s167_label} (got {len(_s167_warnings)} calls)")
+
+    _s167_dlg.close()
+    _s167_dlg.deleteLater()
+    app.processEvents()
+
+# Cleanup section 167
+QMessageBox.warning = _s167_orig_warning
+_s167_win.close()
+_s167_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s167_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
+# Section 168 — Regex Safety: extract_captures signals re.error distinctly
+# =====================================================================
+# Phase 3 regex-safety hardening. extract_captures currently swallows
+# re.error with `except re.error: continue`, which makes a broken regex
+# indistinguishable from a no-match. The fix gives callers a
+# programmatically observable signal by returning a second value — a
+# list of (name, error_message) tuples for entries that failed to
+# compile. If the shipped fix takes a different shape (module-level
+# log, callback, exception) this section needs to be adapted; the
+# invariant being tested is the existence of a distinct compile-error
+# signal separate from the unset-capture signal.
+print("\n=== SECTION 168: Regex Safety — extract_captures signals re.error distinctly ===")
+
+# 168a: calling extract_captures with a broken pattern returns a
+#        (values, errors) tuple; errors is a list that identifies the
+#        offending capture by name; the capture is still absent from
+#        values (preserves the existing unset signal).
+_s168_caps = [
+    {"name": "broken", "source": "stdout", "pattern": "[unclosed", "group": 1},
+]
+_s168_result = scaffold.extract_captures(
+    _s168_caps, "some stdout content", "", 0)
+
+check(isinstance(_s168_result, tuple) and len(_s168_result) == 2,
+      f"168a: extract_captures returns a (values, errors) tuple "
+      f"(got {type(_s168_result).__name__})")
+
+if isinstance(_s168_result, tuple) and len(_s168_result) == 2:
+    _s168_values, _s168_errors = _s168_result
+    check(isinstance(_s168_values, dict),
+          f"168a: first tuple element is a dict of captured values "
+          f"(got {type(_s168_values).__name__})")
+    check(isinstance(_s168_errors, list),
+          f"168a: second tuple element is a list of compile errors "
+          f"(got {type(_s168_errors).__name__})")
+    _s168_values_dict = _s168_values if isinstance(_s168_values, dict) else {}
+    check("broken" not in _s168_values_dict,
+          f"168a: broken capture absent from values dict — unset signal "
+          f"preserved (got {_s168_values_dict!r})")
+    _s168_names_in_errors = []
+    for _s168_e in _s168_errors if isinstance(_s168_errors, list) else []:
+        if isinstance(_s168_e, (tuple, list)) and len(_s168_e) >= 1:
+            _s168_names_in_errors.append(_s168_e[0])
+        elif isinstance(_s168_e, dict):
+            _s168_names_in_errors.append(_s168_e.get("name"))
+        elif isinstance(_s168_e, str):
+            _s168_names_in_errors.append(_s168_e)
+    check("broken" in _s168_names_in_errors,
+          f"168a: errors list contains entry naming 'broken' "
+          f"(got {_s168_names_in_errors!r})")
+else:
+    check(False, "168a: first tuple element is a dict of captured values "
+                 "(result shape wrong)")
+    check(False, "168a: second tuple element is a list of compile errors "
+                 "(result shape wrong)")
+    check(False, "168a: broken capture absent from values dict — unset "
+                 "signal preserved (result shape wrong)")
+    check(False, "168a: errors list contains entry naming 'broken' "
+                 "(result shape wrong)")
+
+# 168b: all-valid captures yield an empty errors list and populated values.
+_s168_good_caps = [
+    {"name": "port", "source": "stdout", "pattern": r"port (\d+)", "group": 1},
+]
+_s168_good = scaffold.extract_captures(
+    _s168_good_caps, "port 8080 open", "", 0)
+if isinstance(_s168_good, tuple) and len(_s168_good) == 2:
+    _s168_gv, _s168_ge = _s168_good
+    check(isinstance(_s168_gv, dict) and _s168_gv.get("port") == "8080",
+          f"168b: valid capture extracted correctly "
+          f"(got {_s168_gv!r})")
+    check(_s168_ge == [],
+          f"168b: errors list is empty for all-valid captures "
+          f"(got {_s168_ge!r})")
+else:
+    check(False, "168b: valid capture extracted correctly "
+                 "(result shape wrong)")
+    check(False, "168b: errors list is empty for all-valid captures "
+                 "(result shape wrong)")
+
+# 168c: mixed good + broken — broken name appears in errors, good name
+#        appears in values, neither list/dict swallows the other.
+_s168_mixed_caps = [
+    {"name": "good", "source": "stdout",
+     "pattern": r"found=(\w+)", "group": 1},
+    {"name": "broken2", "source": "stdout",
+     "pattern": "(?P<", "group": 1},
+]
+_s168_mixed = scaffold.extract_captures(
+    _s168_mixed_caps, "found=apple", "", 0)
+if isinstance(_s168_mixed, tuple) and len(_s168_mixed) == 2:
+    _s168_mv, _s168_me = _s168_mixed
+    check(isinstance(_s168_mv, dict) and _s168_mv.get("good") == "apple",
+          f"168c: valid capture in mixed list still extracted "
+          f"(got {_s168_mv!r})")
+    _s168_mixed_err_names = []
+    for _s168_e in _s168_me if isinstance(_s168_me, list) else []:
+        if isinstance(_s168_e, (tuple, list)) and len(_s168_e) >= 1:
+            _s168_mixed_err_names.append(_s168_e[0])
+        elif isinstance(_s168_e, dict):
+            _s168_mixed_err_names.append(_s168_e.get("name"))
+        elif isinstance(_s168_e, str):
+            _s168_mixed_err_names.append(_s168_e)
+    check("broken2" in _s168_mixed_err_names,
+          f"168c: errors list contains 'broken2' in mixed list "
+          f"(got {_s168_mixed_err_names!r})")
+    check("good" not in _s168_mixed_err_names,
+          f"168c: valid capture 'good' NOT reported as error "
+          f"(got {_s168_mixed_err_names!r})")
+else:
+    check(False, "168c: valid capture in mixed list still extracted "
+                 "(result shape wrong)")
+    check(False, "168c: errors list contains 'broken2' in mixed list "
+                 "(result shape wrong)")
+    check(False, "168c: valid capture 'good' NOT reported as error "
+                 "(result shape wrong)")
+
+# No cleanup needed — extract_captures is a pure function.
+
+
+# =====================================================================
+# Section 169 — Regex Safety: ReDoS timeout (placeholder)
+# =====================================================================
+# Phase 3 follow-up — skeleton only. Fill in once the ReDoS mitigation
+# design is chosen (offload to a sidecar process with a wall-clock
+# deadline, enforce MAX_REGEX_SECONDS, etc.). The placeholder body
+# below is intentionally commented out so this section runs no
+# assertions today but provides a stable home for the timeout test.
+print("\n=== SECTION 169: Regex Safety — ReDoS timeout (placeholder) ===")
+
+# TODO(phase3): once re.search is offloaded with a timeout, assert that
+# extract_captures with pattern r"^(a+)+$" and stream "a"*30 + "b"
+# returns within MAX_REGEX_SECONDS (e.g., 3.0) rather than hanging.
+#
+# def _s169_redos_guard():
+#     import time as _s169_time
+#     _s169_caps = [{"name": "redos", "source": "stdout",
+#                    "pattern": r"^(a+)+$", "group": 0}]
+#     _s169_stream = "a" * 30 + "b"
+#     _s169_t0 = _s169_time.monotonic()
+#     scaffold.extract_captures(_s169_caps, _s169_stream, "", 0)
+#     _s169_elapsed = _s169_time.monotonic() - _s169_t0
+#     _s169_budget = getattr(scaffold, "MAX_REGEX_SECONDS", 3.0) + 0.5
+#     check(_s169_elapsed < _s169_budget,
+#           f"169: catastrophic-backtracking pattern returns under "
+#           f"{_s169_budget:.1f}s (elapsed={_s169_elapsed:.3f}s)")
+print("  (placeholder — no assertions; see TODO for phase-3 fill-in)")
+
+
+# =====================================================================
+# Section 170 — Regex Safety: validation-time heuristic rejects ReDoS-prone patterns
+# =====================================================================
+# Phase 3B adds a heuristic to _validate_capture_entry that rejects
+# patterns with nested quantifiers (H1) or alternation-under-quantifier
+# (H2) — the classic ReDoS shapes. Patterns that compile cleanly under
+# re.compile can still pin a CPU for minutes on adversarial input; this
+# guard stops them at config time rather than letting them reach the
+# runtime worker.
+#
+# Error-message contract: the ValueError text (lowercased) must contain
+# at least one of "nested quantifier", "catastrophic", "backtracking",
+# or "redos" so the user gets a hint about why the pattern was rejected.
+# The seven legitimate patterns below are drawn from real tool schemas
+# and must pass both the re.compile check and the new heuristic — they
+# guard against over-eager rejection.
+print("\n=== SECTION 170: Regex Safety — heuristic rejects ReDoS-prone patterns ===")
+
+import re as _s170_re
+
+_s170_redos_substrings = ("nested quantifier", "catastrophic",
+                          "backtracking", "redos")
+
+_s170_bad_patterns = [
+    r"^(a+)+$",        # classic nested quantifier
+    r"(.*)+",          # nested quantifier
+    r"(x+x+)+y",       # nested quantifier
+    r"^(a|a)*$",       # alternation under quantifier
+]
+
+_s170_good_patterns = [
+    r"(\S+)",
+    r"open\s+(\d+)/tcp",
+    r"^PORT:\s+(.+)$",
+    r"Scan completed in (\d+\.\d+)s",
+    r"([a-zA-Z0-9_-]+)",
+    r"(\d{1,3}(?:\.\d{1,3}){3})",
+    r"^\[.*?\]\s+(.+)",
+]
+
+for _s170_i, _s170_pat in enumerate(_s170_bad_patterns):
+    _s170_entry = {"name": "redos", "source": "stdout",
+                   "pattern": _s170_pat, "group": 1}
+    _s170_raised = None
+    try:
+        scaffold._validate_capture_entry(_s170_entry, [])
+    except ValueError as _s170_exc:
+        _s170_raised = _s170_exc
+    check(_s170_raised is not None,
+          f"170a.{_s170_i}: _validate_capture_entry raises ValueError "
+          f"for ReDoS-prone pattern {_s170_pat!r}")
+    if _s170_raised is not None:
+        _s170_msg = str(_s170_raised).lower()
+        _s170_hit = any(s in _s170_msg for s in _s170_redos_substrings)
+        check(_s170_hit,
+              f"170b.{_s170_i}: ValueError message for {_s170_pat!r} "
+              f"mentions one of "
+              f"nested quantifier/catastrophic/backtracking/redos "
+              f"(got {_s170_raised!s})")
+    else:
+        check(False,
+              f"170b.{_s170_i}: ValueError message for {_s170_pat!r} "
+              f"mentions one of "
+              f"nested quantifier/catastrophic/backtracking/redos "
+              f"(no exception raised)")
+
+for _s170_i, _s170_pat in enumerate(_s170_good_patterns):
+    _s170_compile_ok = True
+    try:
+        _s170_re.compile(_s170_pat)
+    except _s170_re.error:
+        _s170_compile_ok = False
+    check(_s170_compile_ok,
+          f"170c.{_s170_i}: legitimate pattern {_s170_pat!r} "
+          f"compiles under re.compile")
+
+    _s170_entry = {"name": "cap", "source": "stdout",
+                   "pattern": _s170_pat, "group": 1}
+    _s170_validate_raised = None
+    try:
+        scaffold._validate_capture_entry(_s170_entry, [])
+    except ValueError as _s170_exc:
+        _s170_validate_raised = _s170_exc
+    check(_s170_validate_raised is None,
+          f"170d.{_s170_i}: _validate_capture_entry does NOT raise "
+          f"for legitimate pattern {_s170_pat!r} "
+          f"(got {_s170_validate_raised!s})")
+
+
+# =====================================================================
+# Section 171 — Regex Safety: extract_captures times out on ReDoS patterns
+# =====================================================================
+# Phase 3B's runtime guard. extract_captures offloads re.search to a
+# bounded-execution worker with a 2-second budget. A pattern that would
+# otherwise burn CPU for 20+ seconds must return promptly, with a
+# "timeout"-flavored entry in the errors list introduced by Section 168.
+#
+# Section 170's validation-time heuristic would normally reject these
+# patterns before they reach the runtime. To exercise the runtime guard
+# in isolation, this section BYPASSES validation by feeding a raw dict
+# straight to extract_captures — simulating a cascade file built before
+# the heuristic existed, or a capture dict constructed programmatically
+# rather than through the dialog.
+#
+# NOTE: until Phase 3B lands, this section will itself hang for ~20s
+# while re.search backtracks; that is the failure mode under test.
+print("\n=== SECTION 171: Regex Safety — extract_captures times out on ReDoS patterns ===")
+
+_s171_caps = [{"name": "redos", "source": "stdout",
+               "pattern": r"^(a+)+$", "group": 0}]
+_s171_stream = "a" * 30 + "b"  # calibrated to ~20s without the guard
+
+_s171_t0 = time.monotonic()
+_s171_result = scaffold.extract_captures(_s171_caps, _s171_stream, "", 0)
+_s171_elapsed = time.monotonic() - _s171_t0
+print(f"  (measured extract_captures duration: {_s171_elapsed:.3f}s)")
+
+# 171a: wall-clock budget is 2s (guard) + 1.5s (process spawn overhead
+#        on a cold Windows multiprocessing pool).
+check(_s171_elapsed < 3.5,
+      f"171a: extract_captures on ReDoS pattern returns under 3.5s "
+      f"(elapsed={_s171_elapsed:.3f}s)")
+
+if isinstance(_s171_result, tuple) and len(_s171_result) == 2:
+    _s171_values, _s171_errors = _s171_result
+else:
+    _s171_values, _s171_errors = {}, []
+
+_s171_values_dict = _s171_values if isinstance(_s171_values, dict) else {}
+# 171b: the timed-out capture must not populate values — preserves the
+#        existing "absent = unset" signal that downstream substitution
+#        relies on.
+check("redos" not in _s171_values_dict,
+      f"171b: ReDoS pattern did not populate values['redos'] "
+      f"(values={_s171_values_dict!r})")
+
+# 171c: the timeout must surface on the errors list as a distinct entry
+#        naming the offending capture, with a message containing
+#        "timeout" or "exceeded". Accept tuple/list/dict shapes so the
+#        test does not couple to the exact error-entry encoding.
+_s171_err_entries = _s171_errors if isinstance(_s171_errors, list) else []
+_s171_timeout_match = False
+for _s171_e in _s171_err_entries:
+    _s171_name = None
+    _s171_msg = ""
+    if isinstance(_s171_e, (tuple, list)) and len(_s171_e) >= 2:
+        _s171_name = _s171_e[0]
+        _s171_msg = str(_s171_e[1])
+    elif isinstance(_s171_e, dict):
+        _s171_name = _s171_e.get("name")
+        _s171_msg = str(_s171_e.get("message") or _s171_e.get("error") or "")
+    elif isinstance(_s171_e, str):
+        _s171_msg = _s171_e
+    _s171_msg_l = _s171_msg.lower()
+    if _s171_name == "redos" and (("timeout" in _s171_msg_l) or
+                                   ("exceeded" in _s171_msg_l)):
+        _s171_timeout_match = True
+        break
+check(_s171_timeout_match,
+      f"171c: errors list contains entry for 'redos' whose message "
+      f"mentions 'timeout' or 'exceeded' "
+      f"(got {_s171_err_entries!r})")
+
+
+# =====================================================================
+# Section 172 — Regex Safety: module-level _pattern_is_redos_prone helper
+# =====================================================================
+# Phase 3B adds a module-level heuristic function — suggested name
+# _pattern_is_redos_prone(pattern) -> (bool, str) — that returns
+# (True, reason) for patterns matching H1 or H2 and (False, "")
+# otherwise. This is distinct from Section 170's integration test
+# (which goes through _validate_capture_entry's raise path): the
+# helper is the programmatic entry point callers can use without
+# wrapping the question in a try/except.
+#
+# If Phase 3B picks a different name or return shape, update the
+# getattr below and the shape assertion — the test's intent is that
+# SOME such helper exists as a module-level symbol.
+print("\n=== SECTION 172: Regex Safety — _pattern_is_redos_prone helper ===")
+
+_s172_detector = getattr(scaffold, "_pattern_is_redos_prone", None)
+
+_s172_bad_patterns = [
+    r"^(a+)+$",
+    r"(.*)+",
+    r"(x+x+)+y",
+    r"^(a|a)*$",
+]
+
+_s172_good_patterns = [
+    r"(\S+)",
+    r"open\s+(\d+)/tcp",
+    r"^PORT:\s+(.+)$",
+    r"Scan completed in (\d+\.\d+)s",
+    r"([a-zA-Z0-9_-]+)",
+    r"(\d{1,3}(?:\.\d{1,3}){3})",
+    r"^\[.*?\]\s+(.+)",
+]
+
+for _s172_i, _s172_pat in enumerate(_s172_bad_patterns):
+    if _s172_detector is None:
+        check(False,
+              f"172a.{_s172_i}: _pattern_is_redos_prone flags "
+              f"{_s172_pat!r} as ReDoS-prone "
+              f"(helper not found on scaffold module)")
+        continue
+    _s172_res = None
+    _s172_call_exc = None
+    try:
+        _s172_res = _s172_detector(_s172_pat)
+    except Exception as _s172_exc:
+        _s172_call_exc = _s172_exc
+    _s172_flag = False
+    if isinstance(_s172_res, tuple) and len(_s172_res) == 2:
+        _s172_flag = bool(_s172_res[0])
+    check(_s172_flag,
+          f"172a.{_s172_i}: _pattern_is_redos_prone({_s172_pat!r}) "
+          f"returns (True, <reason>) "
+          f"(got res={_s172_res!r}, exc={_s172_call_exc!r})")
+
+for _s172_i, _s172_pat in enumerate(_s172_good_patterns):
+    if _s172_detector is None:
+        check(False,
+              f"172b.{_s172_i}: _pattern_is_redos_prone clears "
+              f"{_s172_pat!r} (helper not found on scaffold module)")
+        continue
+    _s172_res = None
+    _s172_call_exc = None
+    try:
+        _s172_res = _s172_detector(_s172_pat)
+    except Exception as _s172_exc:
+        _s172_call_exc = _s172_exc
+    _s172_ok = False
+    if isinstance(_s172_res, tuple) and len(_s172_res) == 2:
+        _s172_ok = not bool(_s172_res[0])
+    check(_s172_ok,
+          f"172b.{_s172_i}: _pattern_is_redos_prone({_s172_pat!r}) "
+          f"returns (False, \"\") "
+          f"(got res={_s172_res!r}, exc={_s172_call_exc!r})")
 
 
 # =====================================================================

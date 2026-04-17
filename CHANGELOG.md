@@ -2,6 +2,93 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.9] — 2026-04-16
+
+Major release: full cascade capture regex safety pipeline. Closes three
+bugs identified during a Claude Opus 4.7 code review.
+
+### Fixed
+
+- **Invalid regex patterns rejected at save/import** —
+  `_validate_capture_entry` now calls `re.compile()` on patterns for
+  `stdout`/`stderr` sources. Previously, syntactically invalid patterns
+  (e.g. `[unclosed`, `(?P<`) were accepted at validation and silently
+  discarded at runtime, leaving users no feedback.
+- **Runtime `re.error` now surfaces distinct warnings** —
+  `extract_captures` collects per-capture regex errors and emits them
+  through a separate `capture_errors` return channel, letting users
+  distinguish "my regex is broken" from "my regex didn't match."
+- **Catastrophic regex backtracking (ReDoS) hardened** — previously,
+  a pattern like `^(a+)+$` against 64 KB of input could freeze the UI
+  thread indefinitely during cascade execution. Measured ~20s hang at
+  N=30 (7-char pattern), ~83s at N=32, astronomical at 64 KB. Two-layer
+  defense now in place:
+    - **Layer 1 (validation-time):** heuristic rejects nested-quantifier
+      and alternation-under-quantifier patterns via
+      `_pattern_is_redos_prone()`. 100% true-positive rate on four
+      classic ReDoS forms, zero false positives on fourteen realistic
+      capture patterns from existing tool schemas.
+    - **Layer 2 (runtime):** `_bounded_regex_search` runs `re.search`
+      in a long-lived `multiprocessing.Pool` worker with a 2-second
+      wall-clock timeout. On timeout, the worker is terminated and
+      replaced, and a `(name, "timeout: regex exceeded 2.0s")` entry
+      is added to the capture_errors list. Chosen over QThread/
+      ThreadPoolExecutor because Python threads cannot be forcibly
+      killed and the C regex engine holds the GIL.
+
+### Changed
+
+- **`extract_captures` signature** — return type changed from
+  `dict[str, str]` to `tuple[dict[str, str], list[tuple[str, str]]]`.
+  Second element is a list of `(capture_name, error_message)` for
+  captures that errored (invalid regex, timeout, or worker crash).
+  All internal callers updated. External callers must unpack the tuple.
+- **`scaffold.py` now imports `multiprocessing` and `threading`** from
+  stdlib. No new third-party dependencies. `multiprocessing.freeze_support()`
+  is called at the top of `main()` for PyInstaller compatibility on
+  Windows.
+
+### Added
+
+**Code:**
+- **`MAX_REGEX_SECONDS`** module constant (default: 2.0).
+- **`_pattern_is_redos_prone(pattern) -> tuple[bool, str]`** helper
+  for programmatic ReDoS-prone shape detection.
+- **`_regex_worker_entry`, `_get_regex_pool`, `_reset_regex_pool`,
+  `_bounded_regex_search`** — multiprocessing worker infrastructure
+  for bounded regex execution.
+
+**Tests (test_functional.py):**
+- **Section 167** — `_validate_capture_entry` rejects invalid regex
+  (24 assertions).
+- **Section 168** — `extract_captures` signals `re.error` distinctly
+  via the returned errors list (10 assertions).
+- **Section 170** — validation-time heuristic rejects ReDoS-prone
+  patterns; accepts realistic patterns (22 assertions).
+- **Section 171** — `extract_captures` times out on ReDoS patterns,
+  measured within budget (3 assertions).
+- **Section 172** — `_pattern_is_redos_prone` unit tests with
+  ReDoS-prone and realistic patterns (22 assertions).
+
+### Docs
+
+- **README: "Using tools that aren't on your PATH" subsection** added
+  under "How It Works". Explains that `binary` accepts a bare name
+  (PATH-resolved) or an absolute path, that shell-relative paths like
+  `./installer` do not work because Scaffold doesn't invoke a shell,
+  and walks through the two fixes (put the binary on PATH, or set an
+  absolute path in the schema) with a rayhunter installer example.
+- **SCHEMA_PROMPT.txt: rule 17 (RELEASE BINARIES)** — one-sentence
+  nudge telling the LLM to flag downloaded-release-binary tools in
+  its reply so users know they may need to adjust PATH or `binary`.
+
+#### Full suite results
+
+- **Functional: 2,397/2,397 assertions, 0 failures**
+  - (previously 2,327; +70 new assertions across Sections 167, 168,
+    170, 171, 172)
+- Other suites unchanged.
+
 
 
 ## [v2.8.7.3] — 2026-04-16

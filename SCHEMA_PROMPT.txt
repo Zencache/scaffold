@@ -92,6 +92,10 @@ Use ONLY these types. When unsure between file and string, use string. When unsu
 
 15. PASSWORD: Use for flags that accept passwords, API keys, tokens, or other sensitive strings. The GUI masks the input. Only use when the value is clearly sensitive — not for regular strings.
 
+16. SCRIPT BINARIES: If the tool is a script file (.py, .sh, .bat, .cmd) rather than a system binary, use the script's filename as the binary field value (e.g. "binary": "rayhunter.py"). The user configures Scaffold's custom PATH to include the directory containing the script. Do not use absolute paths to script files — use bare filenames just like system binaries. On Windows, if the script is a .ps1 PowerShell script, use "binary": "powershell" and add the script path as the first positional argument with "default" set to the script filename.
+
+17. RELEASE BINARIES: If the tool is typically downloaded as a release binary (e.g. rayhunter, self-compiled tools) rather than installed via a package manager, note this alongside your JSON output so the user knows they may need to add the binary to their PATH or set an absolute path in the `binary` field.
+
 === COMMAND ASSEMBLY ===
 
 Without subcommands: <binary> [flags] [positional args]
