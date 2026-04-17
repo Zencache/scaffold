@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Find large files \u2014 find files over 100MB anywhere in a directory tree",
+  "-type": "f",
+  "-size": "+100M",
+  "-ls": true
+}

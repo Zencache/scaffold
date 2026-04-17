@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Find old log files \u2014 find .log files not modified in 30+ days",
+  "-name": "*.log",
+  "-type": "f",
+  "-mtime": "+30"
+}

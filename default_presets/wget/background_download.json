@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Background download \u2014 download in background with rate limit and logging",
+  "--background": true,
+  "--continue": true,
+  "--limit-rate": "500k",
+  "--append-output": "wget.log"
+}

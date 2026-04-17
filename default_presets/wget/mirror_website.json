@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Mirror website \u2014 full offline mirror with link conversion for local browsing",
+  "--mirror": true,
+  "--convert-links": true,
+  "--page-requisites": true,
+  "--no-parent": true,
+  "--wait": 1,
+  "--random-wait": true
+}

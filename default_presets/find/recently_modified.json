@@ -1,0 +1,8 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Find recently modified \u2014 find files modified in the last 24 hours",
+  "-type": "f",
+  "-mtime": "0"
+}

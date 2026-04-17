@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Port scan \u2014 quick connect test to check if a port is open",
+  "--verbose": true,
+  "--wait": 3,
+  "--send-only": true
+}

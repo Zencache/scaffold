@@ -1,0 +1,29 @@
+{
+  "_format": "scaffold_cascade",
+  "name": "nmap-discover-ncat-connect",
+  "description": "Two-step cascade: use nmap to discover open ports on a target, then use ncat to connect to a discovered service.",
+  "loop_mode": false,
+  "stop_on_error": true,
+  "variables": [
+    {
+      "name": "Target Host",
+      "flag": "HOST",
+      "type_hint": "string",
+      "apply_to": "all"
+    }
+  ],
+  "steps": [
+    {
+      "tool": "tools/nmap.json",
+      "preset": null,
+      "delay": 0,
+      "captures": []
+    },
+    {
+      "tool": "tools/ncat.json",
+      "preset": "presets/ncat/port_check.json",
+      "delay": 2,
+      "captures": []
+    }
+  ]
+}

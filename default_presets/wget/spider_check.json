@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Spider check \u2014 check for broken links without downloading anything",
+  "--spider": true,
+  "--recursive": true,
+  "--level": 2,
+  "--no-verbose": true
+}

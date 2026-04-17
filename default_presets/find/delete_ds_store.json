@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Find and delete .DS_Store \u2014 recursively remove macOS metadata files",
+  "-name": ".DS_Store",
+  "-type": "f",
+  "-delete": true
+}

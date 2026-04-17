@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Chat server \u2014 simple multi-client chat relay",
+  "--listen": true,
+  "--keep-open": true,
+  "--chat": true,
+  "--verbose": true
+}

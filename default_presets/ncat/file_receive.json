@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "File transfer listener \u2014 receive a file over the network",
+  "--listen": true,
+  "--output": "received_file",
+  "--verbose": true
+}

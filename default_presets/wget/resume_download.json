@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Resume download \u2014 continue a previously interrupted file download",
+  "--continue": true,
+  "--tries": 0,
+  "--timeout": 30
+}

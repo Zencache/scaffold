@@ -1,0 +1,9 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Find world-writable \u2014 find files writable by anyone (security audit)",
+  "-type": "f",
+  "-perm": "-o+w",
+  "-ls": true
+}
