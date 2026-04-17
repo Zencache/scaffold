@@ -12,6 +12,7 @@ A preset is a flat JSON object with meta keys (prefixed with _) and argument key
 
 Meta keys (always include these):
   "_format":       "scaffold_preset"  (required, always this exact string)
+  "_tool":         the tool name this preset was made for (copy the "tool" field from the provided schema)
   "_schema_hash":  copy from the schema's hash if provided, otherwise "00000000"
   "_subcommand":   subcommand name if the preset targets a subcommand, otherwise null
   "_description":  short human-readable summary of what this preset does
@@ -62,6 +63,7 @@ Given a schema for "nmap" and the request "quick ping sweep of 192.168.1.0/24":
 
 {
   "_format": "scaffold_preset",
+  "_tool": "nmap",
   "_schema_hash": "a1b2c3d4",
   "_subcommand": null,
   "_description": "Quick ping sweep of local subnet",
@@ -73,6 +75,7 @@ Given a schema for "git" and the request "shallow clone with depth 1":
 
 {
   "_format": "scaffold_preset",
+  "_tool": "git",
   "_schema_hash": "e5f6a7b8",
   "_subcommand": "clone",
   "_description": "Shallow clone with depth 1",
@@ -84,13 +87,14 @@ Given a schema for "git" and the request "shallow clone with depth 1":
 
 Before returning, verify:
 1. "_format" is "scaffold_preset"
-2. "_subcommand" matches a real subcommand name from the schema, or is null
-3. Every flag key exists in the schema (in the correct scope)
-4. Value types match the schema's declared types (integer count for repeatable booleans)
-5. enum/multi_enum values are from the choices array
-6. No password fields included
-7. No duplicate keys
-8. Output is valid JSON — no trailing commas, no comments
+2. "_tool" matches the schema's "tool" field exactly
+3. "_subcommand" matches a real subcommand name from the schema, or is null
+4. Every flag key exists in the schema (in the correct scope)
+5. Value types match the schema's declared types (integer count for repeatable booleans)
+6. enum/multi_enum values are from the choices array
+7. No password fields included
+8. No duplicate keys
+9. Output is valid JSON — no trailing commas, no comments
 
 === MULTIPLE PRESETS ===
 

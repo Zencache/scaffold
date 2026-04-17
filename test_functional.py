@@ -21517,6 +21517,242 @@ for _s175_fname in _s175_BUNDLED_CASCADES:
 
 
 # =====================================================================
+# Section 176 — Preset _tool identity (wrong-tool detection)
+# =====================================================================
+print("\n=== SECTION 176: Preset _tool identity ===")
+
+from PySide6.QtWidgets import QFileDialog as _s176_QFileDialog
+
+_s176_tmpdir = Path(tempfile.mkdtemp(prefix="s176_"))
+
+# Two schemas with different tool names so we can simulate cross-tool loading.
+_s176_tool_a = {
+    "_format": "scaffold_schema",
+    "tool": "s176_tool_a",
+    "binary": "echo",
+    "description": "tool A",
+    "arguments": [
+        {"name": "Flag", "flag": "--foo", "type": "string"},
+    ],
+}
+_s176_tool_b = {
+    "_format": "scaffold_schema",
+    "tool": "s176_tool_b",
+    "binary": "echo",
+    "description": "tool B",
+    "arguments": [
+        {"name": "Flag", "flag": "--foo", "type": "string"},
+    ],
+}
+_s176_schema_a = _s176_tmpdir / "s176_tool_a.json"
+_s176_schema_a.write_text(json.dumps(_s176_tool_a), encoding="utf-8")
+_s176_schema_b = _s176_tmpdir / "s176_tool_b.json"
+_s176_schema_b.write_text(json.dumps(_s176_tool_b), encoding="utf-8")
+
+_s176_win = scaffold.MainWindow()
+_s176_win._load_tool_path(str(_s176_schema_a))
+app.processEvents()
+check(_s176_win.data is not None and _s176_win.data["tool"] == "s176_tool_a",
+      "176-setup: tool A loaded")
+
+# --- 176a: serialize_values writes _tool with the current tool name ---
+_s176_preset = _s176_win.form.serialize_values()
+check(_s176_preset.get("_tool") == "s176_tool_a",
+      f"176a: serialize_values includes _tool=tool_a (got {_s176_preset.get('_tool')!r})")
+
+# --- 176b: validate_preset treats _tool as a meta key (not flagged as unknown) ---
+_s176_vresult = scaffold.validate_preset(
+    {"_tool": "s176_tool_a", "__global__:--foo": "x"},
+    tool_data=_s176_tool_a,
+)
+check(_s176_vresult == [],
+      f"176b: _tool not flagged as unknown with tool_data (got {_s176_vresult})")
+
+# --- Set up a preset dir for tool A and prepare three preset files ---
+_s176_preset_dir_a = scaffold._presets_dir("s176_tool_a")
+_s176_preset_dir_a.mkdir(parents=True, exist_ok=True)
+
+_s176_matching = _s176_preset_dir_a / "s176_matching.json"
+_s176_matching.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s176_tool_a",
+    "_subcommand": None,
+    "_schema_hash": scaffold.schema_hash(_s176_win.data),
+    "--foo": "matching_value",
+}), encoding="utf-8")
+
+_s176_mismatched = _s176_preset_dir_a / "s176_mismatched.json"
+_s176_mismatched.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s176_tool_b",  # wrong tool
+    "_subcommand": None,
+    "_schema_hash": scaffold.schema_hash(_s176_win.data),
+    "--foo": "mismatched_value",
+}), encoding="utf-8")
+
+_s176_notool = _s176_preset_dir_a / "s176_notool.json"
+_s176_notool.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_subcommand": None,
+    "_schema_hash": scaffold.schema_hash(_s176_win.data),
+    "--foo": "legacy_value",
+}), encoding="utf-8")
+
+# Monkeypatch PresetPicker so _on_load_preset can run without a real dialog
+_s176_orig_picker = scaffold.PresetPicker
+_s176_selected = {"path": None}
+
+class _s176_MockPicker:
+    def __init__(self, tool_name, preset_dir, mode="load", parent=None):
+        self.selected_path = _s176_selected["path"]
+    def exec(self):
+        return 1 if _s176_selected["path"] else 0
+
+scaffold.PresetPicker = _s176_MockPicker
+
+_s176_orig_warning = QMessageBox.warning
+_s176_warning_calls = []
+
+def _s176_mock_warn_cancel(parent, title, text, *a, **kw):
+    _s176_warning_calls.append((title, text))
+    return QMessageBox.StandardButton.Cancel
+
+def _s176_mock_warn_yes(parent, title, text, *a, **kw):
+    _s176_warning_calls.append((title, text))
+    return QMessageBox.StandardButton.Yes
+
+# --- 176c: matching _tool → no mismatch dialog, preset applied ---
+_s176_warning_calls.clear()
+_s176_selected["path"] = str(_s176_matching)
+QMessageBox.warning = _s176_mock_warn_yes
+_s176_win._on_load_preset()
+app.processEvents()
+_s176_mismatch_dialogs = [c for c in _s176_warning_calls if "mismatch" in c[0].lower() or "tool" in c[0].lower()]
+check(len(_s176_mismatch_dialogs) == 0,
+      f"176c: matching _tool shows no mismatch dialog (got {_s176_warning_calls})")
+
+# --- 176d: mismatched _tool → mismatch dialog is shown ---
+_s176_warning_calls.clear()
+_s176_selected["path"] = str(_s176_mismatched)
+QMessageBox.warning = _s176_mock_warn_cancel
+_s176_win._on_load_preset()
+app.processEvents()
+check(len(_s176_warning_calls) >= 1,
+      f"176d: mismatched _tool shows warning dialog (got {_s176_warning_calls})")
+check(any("s176_tool_b" in text and "s176_tool_a" in text
+          for _, text in _s176_warning_calls),
+      f"176d: dialog text mentions both tool names (got {_s176_warning_calls})")
+
+# --- 176e: Cancel on mismatch aborts load (field value not applied) ---
+# Set a sentinel field value first, then try loading the mismatched preset
+for _k, _f in _s176_win.form.fields.items():
+    if _f["arg"]["flag"] == "--foo":
+        _f["widget"].setText("sentinel_before_load")
+        break
+app.processEvents()
+_s176_warning_calls.clear()
+_s176_selected["path"] = str(_s176_mismatched)
+QMessageBox.warning = _s176_mock_warn_cancel
+_s176_win._on_load_preset()
+app.processEvents()
+for _k, _f in _s176_win.form.fields.items():
+    if _f["arg"]["flag"] == "--foo":
+        check(_f["widget"].text() == "sentinel_before_load",
+              f"176e: Cancel on mismatch aborts load (field value unchanged, got {_f['widget'].text()!r})")
+        break
+
+# --- 176f: Load Anyway on mismatch proceeds with the apply ---
+_s176_warning_calls.clear()
+_s176_selected["path"] = str(_s176_mismatched)
+QMessageBox.warning = _s176_mock_warn_yes
+_s176_win._on_load_preset()
+app.processEvents()
+for _k, _f in _s176_win.form.fields.items():
+    if _f["arg"]["flag"] == "--foo":
+        check(_f["widget"].text() == "mismatched_value",
+              f"176f: Load Anyway applies preset (got {_f['widget'].text()!r})")
+        break
+
+# --- 176g: Preset without _tool loads silently (backward compat) ---
+_s176_warning_calls.clear()
+_s176_selected["path"] = str(_s176_notool)
+QMessageBox.warning = _s176_mock_warn_cancel  # would block if dialog fired
+_s176_win._on_load_preset()
+app.processEvents()
+_s176_mismatch_dialogs = [c for c in _s176_warning_calls if "mismatch" in c[0].lower() or "tool" in c[0].lower()]
+check(len(_s176_mismatch_dialogs) == 0,
+      f"176g: missing _tool loads silently, no dialog (got {_s176_warning_calls})")
+for _k, _f in _s176_win.form.fields.items():
+    if _f["arg"]["flag"] == "--foo":
+        check(_f["widget"].text() == "legacy_value",
+              f"176g: legacy preset applied (got {_f['widget'].text()!r})")
+        break
+
+# --- 176h: Import with mismatched _tool shows dialog before copying ---
+_s176_import_src = _s176_tmpdir / "imported_mismatched.json"
+_s176_import_src.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s176_tool_b",
+    "_subcommand": None,
+    "_schema_hash": "00000000",
+    "__global__:--foo": "imported_value",
+}), encoding="utf-8")
+
+_s176_orig_getopen = _s176_QFileDialog.getOpenFileName
+_s176_QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s176_import_src), "")
+_s176_warning_calls.clear()
+QMessageBox.warning = _s176_mock_warn_cancel
+_s176_win._on_import_preset()
+app.processEvents()
+check(any("s176_tool_b" in text and "s176_tool_a" in text
+          for _, text in _s176_warning_calls),
+      f"176h: import mismatch dialog mentions both tool names (got {_s176_warning_calls})")
+
+# --- 176i: Cancel on import mismatch does NOT copy the file ---
+_s176_import_dest = _s176_preset_dir_a / "imported_mismatched.json"
+check(not _s176_import_dest.exists(),
+      "176i: cancel on import mismatch does not copy file into presets dir")
+
+# --- 176j: Load Anyway on import mismatch DOES copy the file ---
+_s176_warning_calls.clear()
+QMessageBox.warning = _s176_mock_warn_yes
+_s176_win._on_import_preset()
+app.processEvents()
+check(_s176_import_dest.exists(),
+      "176j: Load Anyway on import mismatch copies the file")
+
+# --- 176k: Import of preset without _tool does not trigger the mismatch dialog ---
+_s176_import_legacy = _s176_tmpdir / "imported_legacy.json"
+_s176_import_legacy.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_subcommand": None,
+    "_schema_hash": "00000000",
+    "__global__:--foo": "legacy_import",
+}), encoding="utf-8")
+_s176_QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s176_import_legacy), "")
+_s176_warning_calls.clear()
+QMessageBox.warning = _s176_mock_warn_cancel
+_s176_win._on_import_preset()
+app.processEvents()
+_s176_mismatch_dialogs = [c for c in _s176_warning_calls if "mismatch" in c[0].lower() or "tool" in c[0].lower()]
+check(len(_s176_mismatch_dialogs) == 0,
+      f"176k: legacy preset import shows no mismatch dialog (got {_s176_warning_calls})")
+
+# Restore monkeypatches
+scaffold.PresetPicker = _s176_orig_picker
+QMessageBox.warning = _s176_orig_warning
+_s176_QFileDialog.getOpenFileName = _s176_orig_getopen
+
+# Cleanup
+_s176_win.close()
+_s176_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s176_tmpdir, ignore_errors=True)
+shutil.rmtree(_s176_preset_dir_a, ignore_errors=True)
+
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

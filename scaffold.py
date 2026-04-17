@@ -527,9 +527,9 @@ def validate_preset(data, tool_data=None) -> list[str]:
         if not isinstance(key, str):
             continue  # already reported above
 
-        # Meta keys (_schema_hash, _subcommand, _extra_flags) — skip value-type
-        # checks. Meta keys start with _ and do NOT contain ":" (field keys
-        # use scope:flag format like "__global__:--verbose").
+        # Meta keys (_schema_hash, _subcommand, _extra_flags, _tool) — skip
+        # value-type checks. Meta keys start with _ and do NOT contain ":"
+        # (field keys use scope:flag format like "__global__:--verbose").
         if key.startswith("_") and ":" not in key:
             # Still enforce string-length on string meta values
             if isinstance(value, str) and len(value) > _PRESET_MAX_STRING_LEN:
@@ -1969,6 +1969,7 @@ class ToolForm(QWidget):
         """Serialize all current field values to a flat dict for preset storage."""
         preset = {}
         preset["_format"] = "scaffold_preset"
+        preset["_tool"] = self.data["tool"]
         preset["_subcommand"] = self.get_current_subcommand()
         preset["_schema_hash"] = schema_hash(self.data)
         if self.elevation_check is not None:
@@ -8842,6 +8843,23 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Tool identity check — fires before the schema-hash warning so the
+        # user sees the more specific message first. Absent _tool is treated
+        # as legacy/unknown and silently allowed.
+        saved_tool = preset.get("_tool")
+        current_tool = self.data["tool"]
+        if saved_tool is not None and saved_tool != current_tool:
+            btn = QMessageBox.warning(
+                self, "Tool Mismatch",
+                f"This preset was made for {saved_tool!r} but you're loading "
+                f"it into {current_tool!r}. Flags may not apply correctly.\n\n"
+                f"Load anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if btn != QMessageBox.StandardButton.Yes:
+                return
+
         had_pw = self.form.apply_values(preset)
         self._default_form_snapshot = self.form.serialize_values()
 
@@ -8944,6 +8962,22 @@ class MainWindow(QMainWindow):
                 + "\n".join(f"  - {e}" for e in verrors),
             )
             return
+
+        # Tool identity check — surface wrong-tool imports before we copy the
+        # file into the preset dir. Absent _tool is legacy and silently allowed.
+        saved_tool = data.get("_tool")
+        current_tool = self.data["tool"]
+        if saved_tool is not None and saved_tool != current_tool:
+            btn = QMessageBox.warning(
+                self, "Tool Mismatch",
+                f"This preset was made for {saved_tool!r} but you're importing "
+                f"it into {current_tool!r}. Flags may not apply correctly.\n\n"
+                f"Import anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if btn != QMessageBox.StandardButton.Yes:
+                return
 
         name = src.stem
         preset_dir = _presets_dir(self.data["tool"])

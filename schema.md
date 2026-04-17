@@ -183,3 +183,21 @@ tools/
 ```
 
 Each file is a standalone, self-contained description of one tool. No file references other files.
+
+---
+
+## Preset Files
+
+Presets live under `presets/<tool>/<name>.json` and capture a saved form configuration. Scaffold writes a small set of `_`-prefixed meta keys alongside the flag entries.
+
+| Field           | Type           | Required | Description                                                                                              |
+|-----------------|----------------|----------|----------------------------------------------------------------------------------------------------------|
+| `_format`       | string         | no       | Must be `"scaffold_preset"` when present. Format marker used to distinguish presets from tool schemas and cascades. |
+| `_tool`         | string         | no       | The tool name this preset was made for (copied from the schema's `tool` field). When present and non-matching, Scaffold warns before loading or importing so flags from a different tool don't get applied silently. Absent in legacy presets — treated as unknown and silently allowed. |
+| `_schema_hash`  | string         | no       | Hash of the schema at save time. When present and non-matching, Scaffold warns that some fields may not have loaded. |
+| `_subcommand`   | string or null | no       | Subcommand name this preset targets, or `null` for global-only presets.                                  |
+| `_description`  | string         | no       | Short human-readable summary shown in the preset picker.                                                 |
+| `_elevated`     | bool           | no       | Whether the preset was saved with elevation enabled.                                                     |
+| `_extra_flags`  | string         | no       | Raw extra-flags text for flags not covered by the schema.                                                |
+
+All other keys are flag entries. Global flags use the bare flag name as the key (e.g. `"--verbose"`). Subcommand-scoped flags use `"subcommand:flag"` format (e.g. `"clone:--depth"`).
