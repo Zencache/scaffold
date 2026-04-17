@@ -21751,6 +21751,284 @@ shutil.rmtree(_s176_tmpdir, ignore_errors=True)
 shutil.rmtree(_s176_preset_dir_a, ignore_errors=True)
 
 
+# =====================================================================
+# Section 177 — Cascade dependency pre-flight check (import + load)
+# =====================================================================
+print("\n=== SECTION 177: Cascade dependency pre-flight ===")
+
+from PySide6.QtWidgets import QFileDialog as _s177_QFileDialog
+
+_s177_tmpdir = Path(tempfile.mkdtemp(prefix="s177_"))
+_s177_base = Path(scaffold.__file__).parent
+
+# Redirect cascades dir to tmpdir so we don't touch bundled cascades
+_s177_cascades_tmp = _s177_tmpdir / "cascades"
+_s177_cascades_tmp.mkdir()
+_s177_orig_cascades_dir = scaffold._cascades_dir
+scaffold._cascades_dir = lambda: _s177_cascades_tmp
+
+# Existing tool — bundled test schema
+_s177_real_tool = _s177_base / "tests" / "test_minimal.json"
+_s177_real_tool_rel = str(_s177_real_tool.relative_to(_s177_base))
+
+# Create a real preset file so we have a concrete existing preset path
+_s177_preset_dir = scaffold._presets_dir("minimal")
+_s177_real_preset = _s177_preset_dir / "s177_real_preset.json"
+_s177_real_preset.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_subcommand": None,
+}), encoding="utf-8")
+_s177_real_preset_rel = str(_s177_real_preset.relative_to(_s177_base))
+
+_s177_missing_tool_rel = "tools/s177_nonexistent_tool.json"
+_s177_missing_preset_rel = "presets/minimal/s177_nonexistent_preset.json"
+
+# --- 177a: module-level helper exists ---
+check(hasattr(scaffold, "_check_cascade_dependencies"),
+      "177a: _check_cascade_dependencies exists at module level")
+
+# --- 177b: all deps present → ([], []) ---
+_s177_ok_data = {
+    "_format": "scaffold_cascade",
+    "steps": [
+        {"tool": _s177_real_tool_rel, "preset": _s177_real_preset_rel},
+        {"tool": _s177_real_tool_rel, "preset": None},
+    ],
+}
+_s177_t, _s177_p = scaffold._check_cascade_dependencies(_s177_ok_data)
+check(_s177_t == [] and _s177_p == [],
+      f"177b: all deps present returns empty lists (got tools={_s177_t}, presets={_s177_p})")
+
+# --- 177c: missing tool flagged ---
+_s177_missing_tool_data = {
+    "_format": "scaffold_cascade",
+    "steps": [
+        {"tool": _s177_missing_tool_rel, "preset": None},
+    ],
+}
+_s177_t, _s177_p = scaffold._check_cascade_dependencies(_s177_missing_tool_data)
+check(_s177_t == [_s177_missing_tool_rel] and _s177_p == [],
+      f"177c: missing tool flagged (got tools={_s177_t}, presets={_s177_p})")
+
+# --- 177d: missing preset flagged ---
+_s177_missing_preset_data = {
+    "_format": "scaffold_cascade",
+    "steps": [
+        {"tool": _s177_real_tool_rel, "preset": _s177_missing_preset_rel},
+    ],
+}
+_s177_t, _s177_p = scaffold._check_cascade_dependencies(_s177_missing_preset_data)
+check(_s177_t == [] and _s177_p == [_s177_missing_preset_rel],
+      f"177d: missing preset flagged (got tools={_s177_t}, presets={_s177_p})")
+
+# --- 177e: mixed missing → both flagged ---
+_s177_mixed_data = {
+    "_format": "scaffold_cascade",
+    "steps": [
+        {"tool": _s177_missing_tool_rel, "preset": _s177_real_preset_rel},
+        {"tool": _s177_real_tool_rel, "preset": _s177_missing_preset_rel},
+    ],
+}
+_s177_t, _s177_p = scaffold._check_cascade_dependencies(_s177_mixed_data)
+check(_s177_t == [_s177_missing_tool_rel] and _s177_p == [_s177_missing_preset_rel],
+      f"177e: mixed missing flags both (got tools={_s177_t}, presets={_s177_p})")
+
+# --- 177f: None/empty preset field is not flagged ---
+_s177_no_preset_data = {
+    "_format": "scaffold_cascade",
+    "steps": [
+        {"tool": _s177_real_tool_rel, "preset": None},
+        {"tool": _s177_real_tool_rel, "preset": ""},
+    ],
+}
+_s177_t, _s177_p = scaffold._check_cascade_dependencies(_s177_no_preset_data)
+check(_s177_t == [] and _s177_p == [],
+      f"177f: None/empty preset not flagged (got tools={_s177_t}, presets={_s177_p})")
+
+# --- 177g: prompt helper exists and short-circuits on empty lists ---
+check(hasattr(scaffold, "_prompt_cascade_missing_deps"),
+      "177g: _prompt_cascade_missing_deps exists at module level")
+_s177_silent = scaffold._prompt_cascade_missing_deps(None, [], [])
+check(_s177_silent is True,
+      f"177g: empty lists returns True without showing dialog (got {_s177_silent})")
+
+# --- Wiring setup ---
+_s177_win = scaffold.MainWindow()
+_s177_win.show()
+app.processEvents()
+_s177_dock = _s177_win.cascade_dock
+
+# Monkey-patch the prompt helper for wiring tests so we can drive user choice.
+_s177_orig_prompt = scaffold._prompt_cascade_missing_deps
+_s177_prompt_calls = []
+
+def _s177_mock_prompt_continue(parent, missing_tools, missing_presets):
+    _s177_prompt_calls.append((list(missing_tools), list(missing_presets)))
+    return True
+
+def _s177_mock_prompt_cancel(parent, missing_tools, missing_presets):
+    _s177_prompt_calls.append((list(missing_tools), list(missing_presets)))
+    return False
+
+# Bypass "Loading will replace current steps" question during load tests.
+_s177_orig_question = QMessageBox.question
+QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+
+# --- Import wiring setup ---
+_s177_orig_getopen = _s177_QFileDialog.getOpenFileName
+
+_s177_good_cascade_src = _s177_tmpdir / "good_cascade.json"
+_s177_good_cascade_src.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "s177_good",
+    "steps": [
+        {"tool": _s177_real_tool_rel, "preset": _s177_real_preset_rel, "delay": 0, "captures": []},
+    ],
+}), encoding="utf-8")
+
+_s177_bad_cascade_src = _s177_tmpdir / "bad_cascade.json"
+_s177_bad_cascade_src.write_text(json.dumps({
+    "_format": "scaffold_cascade",
+    "name": "s177_bad",
+    "steps": [
+        {"tool": _s177_missing_tool_rel, "preset": _s177_missing_preset_rel, "delay": 0, "captures": []},
+    ],
+}), encoding="utf-8")
+
+def _s177_clear_cascades_dir():
+    for f in _s177_cascades_tmp.glob("*.json"):
+        f.unlink()
+
+# --- 177h: import with all deps present → no prompt, file copied ---
+_s177_clear_cascades_dir()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_continue
+_s177_QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s177_good_cascade_src), "")
+_s177_dock._on_import_cascade()
+app.processEvents()
+check(len(_s177_prompt_calls) == 0,
+      f"177h: no prompt shown when deps present (got {_s177_prompt_calls})")
+check(len(list(_s177_cascades_tmp.glob("*.json"))) == 1,
+      f"177h: good cascade copied to cascades dir (contents={list(_s177_cascades_tmp.glob('*.json'))})")
+
+# --- 177i: import with missing deps → prompt called with both lists ---
+_s177_clear_cascades_dir()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_continue
+_s177_QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s177_bad_cascade_src), "")
+_s177_dock._on_import_cascade()
+app.processEvents()
+check(len(_s177_prompt_calls) == 1,
+      f"177i: prompt called once when deps missing (got {_s177_prompt_calls})")
+if _s177_prompt_calls:
+    check(_s177_missing_tool_rel in _s177_prompt_calls[0][0],
+          f"177i: missing tool surfaced in prompt (got {_s177_prompt_calls[0][0]})")
+    check(_s177_missing_preset_rel in _s177_prompt_calls[0][1],
+          f"177i: missing preset surfaced in prompt (got {_s177_prompt_calls[0][1]})")
+
+# --- 177j: Continue on bad import → file IS copied ---
+check(len(list(_s177_cascades_tmp.glob("*.json"))) == 1,
+      "177j: Continue copies the bad cascade anyway")
+
+# --- 177k: Cancel on bad import → file NOT copied ---
+_s177_clear_cascades_dir()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_cancel
+_s177_QFileDialog.getOpenFileName = lambda *a, **kw: (str(_s177_bad_cascade_src), "")
+_s177_dock._on_import_cascade()
+app.processEvents()
+check(len(_s177_prompt_calls) == 1,
+      f"177k: prompt called once before Cancel (got {_s177_prompt_calls})")
+check(len(list(_s177_cascades_tmp.glob("*.json"))) == 0,
+      f"177k: Cancel aborts import, no file copied (contents={list(_s177_cascades_tmp.glob('*.json'))})")
+
+# --- Load wiring setup: copy cascade files into cascades dir, mock CascadeListDialog ---
+_s177_good_in_dir = _s177_cascades_tmp / "s177_good_load.json"
+_s177_good_in_dir.write_text(_s177_good_cascade_src.read_text(encoding="utf-8"), encoding="utf-8")
+_s177_bad_in_dir = _s177_cascades_tmp / "s177_bad_load.json"
+_s177_bad_in_dir.write_text(_s177_bad_cascade_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+_s177_orig_list_dialog = scaffold.CascadeListDialog
+_s177_selected_load_path = {"path": None}
+
+class _s177_MockCascadeListDialog:
+    def __init__(self, mode="load", parent=None):
+        self._selected = _s177_selected_load_path["path"]
+    @property
+    def selected_path(self):
+        return self._selected
+    def exec(self):
+        return 1 if self._selected else 0
+
+scaffold.CascadeListDialog = _s177_MockCascadeListDialog
+
+def _s177_reset_slots():
+    _s177_dock._slots = [
+        {"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
+        for _ in range(scaffold.CASCADE_INITIAL_SLOTS)
+    ]
+
+# --- 177l: load with all deps present → no prompt, cascade applied ---
+_s177_reset_slots()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_continue
+_s177_selected_load_path["path"] = str(_s177_good_in_dir)
+_s177_dock._on_load_cascade_list()
+app.processEvents()
+check(len(_s177_prompt_calls) == 0,
+      f"177l: no prompt shown when load deps present (got {_s177_prompt_calls})")
+check(_s177_dock._slots[0].get("tool_path") and _s177_real_tool_rel.replace("/", os.sep) in _s177_dock._slots[0]["tool_path"].replace("/", os.sep),
+      f"177l: good cascade applied to slot 0 (got {_s177_dock._slots[0].get('tool_path')!r})")
+
+# --- 177m: load with missing deps → prompt called ---
+_s177_reset_slots()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_continue
+_s177_selected_load_path["path"] = str(_s177_bad_in_dir)
+_s177_dock._on_load_cascade_list()
+app.processEvents()
+check(len(_s177_prompt_calls) == 1,
+      f"177m: prompt called once on load with missing deps (got {_s177_prompt_calls})")
+if _s177_prompt_calls:
+    check(_s177_missing_tool_rel in _s177_prompt_calls[0][0],
+          f"177m: missing tool surfaced in load prompt (got {_s177_prompt_calls[0][0]})")
+    check(_s177_missing_preset_rel in _s177_prompt_calls[0][1],
+          f"177m: missing preset surfaced in load prompt (got {_s177_prompt_calls[0][1]})")
+
+# --- 177n: Continue on bad load → cascade IS applied ---
+_s177_n_slot0_tool = _s177_dock._slots[0].get("tool_path")
+check(_s177_n_slot0_tool is not None and _s177_missing_tool_rel.split("/")[-1] in _s177_n_slot0_tool,
+      f"177n: Continue applies cascade, slot 0 tool_path set (got {_s177_n_slot0_tool!r})")
+
+# --- 177o: Cancel on bad load → cascade NOT applied ---
+_s177_reset_slots()
+_s177_prompt_calls.clear()
+scaffold._prompt_cascade_missing_deps = _s177_mock_prompt_cancel
+_s177_selected_load_path["path"] = str(_s177_bad_in_dir)
+_s177_dock._on_load_cascade_list()
+app.processEvents()
+check(len(_s177_prompt_calls) == 1,
+      f"177o: prompt called once before load Cancel (got {_s177_prompt_calls})")
+check(_s177_dock._slots[0].get("tool_path") is None,
+      f"177o: Cancel aborts load, slot 0 unchanged (got {_s177_dock._slots[0].get('tool_path')!r})")
+
+# Restore monkeypatches
+scaffold._prompt_cascade_missing_deps = _s177_orig_prompt
+scaffold.CascadeListDialog = _s177_orig_list_dialog
+scaffold._cascades_dir = _s177_orig_cascades_dir
+_s177_QFileDialog.getOpenFileName = _s177_orig_getopen
+QMessageBox.question = _s177_orig_question
+
+# Cleanup
+_s177_win.close()
+_s177_win.deleteLater()
+app.processEvents()
+try:
+    _s177_real_preset.unlink()
+except OSError:
+    pass
+shutil.rmtree(_s177_tmpdir, ignore_errors=True)
+
 
 # =====================================================================
 # Final cleanup

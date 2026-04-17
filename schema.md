@@ -201,3 +201,18 @@ Presets live under `presets/<tool>/<name>.json` and capture a saved form configu
 | `_extra_flags`  | string         | no       | Raw extra-flags text for flags not covered by the schema.                                                |
 
 All other keys are flag entries. Global flags use the bare flag name as the key (e.g. `"--verbose"`). Subcommand-scoped flags use `"subcommand:flag"` format (e.g. `"clone:--depth"`).
+
+---
+
+## Cascade Files
+
+Cascades live under `cascades/<name>.json` and describe an ordered chain of tool invocations. Each step references a tool schema and (optionally) a preset, both as paths relative to the scaffold directory.
+
+### Dependency pre-flight
+
+When a cascade is imported (File > Import Cascade) or loaded (Cascade > Load Cascade), Scaffold checks that every referenced tool schema and preset file exists on disk before proceeding. If anything is missing, a warning dialog lists the missing paths and offers **Continue** or **Cancel**:
+
+- **Continue** imports/loads the cascade anyway — affected steps will fail when the chain runs.
+- **Cancel** aborts the action; no file is copied on import, and the sidebar is not modified on load.
+
+Cascades whose dependencies are all present import and load silently. Empty preset fields (`"preset": null`) are not treated as missing, since presets are optional per step.

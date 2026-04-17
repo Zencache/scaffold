@@ -2575,6 +2575,59 @@ def _cascades_dir() -> Path:
     return d
 
 
+def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str]]:
+    """Return (missing_tools, missing_presets) for a cascade's referenced files.
+
+    Paths are resolved against the scaffold.py directory, matching
+    _import_cascade_data's resolver. Entries are the relative-path strings
+    as stored in the cascade (same form the user sees). Empty/None preset
+    or tool fields are treated as absent, not missing.
+    """
+    base = Path(__file__).parent
+    missing_tools: list[str] = []
+    missing_presets: list[str] = []
+    for step in cascade_data.get("steps", []) or []:
+        if not isinstance(step, dict):
+            continue
+        tool = step.get("tool")
+        if tool and not (base / tool).exists():
+            missing_tools.append(tool)
+        preset = step.get("preset")
+        if preset and not (base / preset).exists():
+            missing_presets.append(preset)
+    return missing_tools, missing_presets
+
+
+def _prompt_cascade_missing_deps(parent, missing_tools: list[str], missing_presets: list[str]) -> bool:
+    """Warn the user about missing cascade dependencies. Returns True to proceed.
+
+    If both lists are empty, returns True without showing a dialog so that
+    cascades with full dependency coverage import/load silently.
+    """
+    if not missing_tools and not missing_presets:
+        return True
+    parts: list[str] = []
+    if missing_tools:
+        parts.append("Missing tool schemas:")
+        parts.extend(f"  \u2022 {t}" for t in missing_tools)
+    if missing_presets:
+        if parts:
+            parts.append("")
+        parts.append("Missing presets:")
+        parts.extend(f"  \u2022 {p}" for p in missing_presets)
+    parts.append("")
+    parts.append("Some steps will fail when you run this cascade. Continue anyway?")
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle("Missing cascade dependencies")
+    box.setText("\n".join(parts))
+    continue_btn = box.addButton("Continue", QMessageBox.ButtonRole.AcceptRole)
+    cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel_btn)
+    box.exec()
+    return box.clickedButton() is continue_btn
+
+
 def _get_custom_paths() -> list[str]:
     """Read custom PATH directories from QSettings.
 
@@ -6439,6 +6492,12 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
             return
 
+        if isinstance(data, dict) and data.get("_format") == "scaffold_cascade":
+            missing_tools, missing_presets = _check_cascade_dependencies(data)
+            if missing_tools or missing_presets:
+                if not _prompt_cascade_missing_deps(self, missing_tools, missing_presets):
+                    return
+
         try:
             self._import_cascade_data(data)
         except ValueError as e:
@@ -6534,6 +6593,11 @@ class CascadeSidebar(QDockWidget):
                 'Expected "_format": "scaffold_cascade".',
             )
             return
+
+        missing_tools, missing_presets = _check_cascade_dependencies(data)
+        if missing_tools or missing_presets:
+            if not _prompt_cascade_missing_deps(self, missing_tools, missing_presets):
+                return
 
         name = data.get("name", src.stem)
         safe_name = re.sub(r'[^\w\- ]', '_', name)
