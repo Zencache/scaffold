@@ -7759,12 +7759,19 @@ app.processEvents()
 # =====================================================================
 print("\n--- Section 67: Cascade Save/Load/Import/Export ---")
 
-# Clear stale cascade settings and any leftover cascade files
+# Redirect _cascades_dir() to a tmpdir so this section cannot touch the
+# real cascades/ folder (which contains bundled cascade files committed
+# to the repo). Pattern mirrors section 90's _s90_fake_cascades_dir.
 QSettings("Scaffold", "Scaffold").remove("cascade")
-_s67_cascades = Path(__file__).parent / "cascades"
-if _s67_cascades.exists():
-    for _f in _s67_cascades.glob("*.json"):
-        _f.unlink()
+_s67_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s67_"))
+_s67_orig_cascades_dir = scaffold._cascades_dir
+
+def _s67_fake_cascades_dir():
+    _s67_tmpdir.mkdir(exist_ok=True)
+    return _s67_tmpdir
+
+scaffold._cascades_dir = _s67_fake_cascades_dir
+_s67_cascades = _s67_tmpdir
 
 _s67_win = scaffold.MainWindow()
 _s67_win.show()
@@ -8012,13 +8019,8 @@ if _s67_critical_calls:
 
 # Cleanup
 _s67_cascade_tool.unlink(missing_ok=True)
-if _s67_cascades.exists():
-    for _f in _s67_cascades.glob("*.json"):
-        _f.unlink()
-    try:
-        _s67_cascades.rmdir()
-    except OSError:
-        pass
+scaffold._cascades_dir = _s67_orig_cascades_dir
+shutil.rmtree(_s67_tmpdir, ignore_errors=True)
 QSettings("Scaffold", "Scaffold").remove("cascade")
 _s67_win.close()
 _s67_win.deleteLater()
@@ -21489,6 +21491,29 @@ check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
 _s174_win.close()
 _s174_win.deleteLater()
 app.processEvents()
+
+
+# =====================================================================
+# Section 175 — Bundled cascades are not deleted by the test suite
+# =====================================================================
+print("\n=== SECTION 175: Bundled cascades intact after suite run ===")
+
+# Guard against test-hygiene regressions: earlier, section 67 would wipe
+# all *.json in the real cascades/ folder. If any section in the future
+# forgets to monkey-patch _cascades_dir(), this test will catch it.
+# Mirrors the coverage-guard shape of 174a — iterate over a known list,
+# assert each is present.
+_s175_BUNDLED_CASCADES = [
+    "cascade_archive_playlist.json",
+    "cascade_pandoc_dual_output.json",
+    "ping_then_nmap.json",
+    "recon_basic.json",
+]
+_s175_cascades_dir = Path(__file__).parent / "cascades"
+for _s175_fname in _s175_BUNDLED_CASCADES:
+    _s175_path = _s175_cascades_dir / _s175_fname
+    check(_s175_path.exists(),
+          f"175: bundled cascade {_s175_fname} still present after test run")
 
 
 # =====================================================================

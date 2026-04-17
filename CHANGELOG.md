@@ -41,6 +41,36 @@ Cascade sidebar button-clipping fix on Linux.
   loop also now covers `clear_all_btn` and `add_step_btn`
   since they gained compact-QSS styling.
 
+### Fixed (test hygiene)
+
+- **Section 67 of `test_functional.py` no longer wipes the
+  real `cascades/` folder** — setup and teardown used to
+  glob-unlink all `*.json` under `Path(__file__).parent /
+  "cascades"`, which deleted repo-bundled cascades
+  (`cascade_archive_playlist.json`,
+  `cascade_pandoc_dual_output.json`, `ping_then_nmap.json`,
+  `recon_basic.json`) from the working tree on every run.
+  Section 67 now monkey-patches `scaffold._cascades_dir()`
+  to a per-section tmpdir, mirroring the existing pattern
+  in section 90 (`_s90_fake_cascades_dir`). The real
+  `cascades/` folder is never touched.
+
+### Added
+
+**Tests (test_functional.py):**
+- **Section 174** — Cascade chain-button compact-QSS
+  regression guard (32 assertions). Coverage guard iterates
+  all 7 chain-row button attribute names and asserts each
+  carries `padding: 2px 8px` at init, after toggle ON/OFF,
+  and after theme flip. Integration test walks through
+  toggle + theme round-trip in one pass. Also asserts the
+  single-source invariant (`_chain_btn_body ⊂ _chain_qss`).
+- **Section 175** — Bundled-cascades intact guard
+  (4 assertions). Iterates a known `BUNDLED_CASCADES` list
+  and asserts each file still exists in `cascades/` after
+  the full suite runs. Catches any future section that
+  forgets to redirect `_cascades_dir()`.
+
 ### Notes
 
 - `QFontMetrics.horizontalAdvance("Loop ✓")` measured 42 px
