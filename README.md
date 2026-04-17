@@ -306,7 +306,7 @@ The main use case is script-based tools. Write a schema with `"binary": "myscrip
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
 - **Bundled tool schemas** — 22 schemas covering aircrack-ng, airodump-ng, ansible (4 tools), curl, docker (3 tools), ffmpeg, git, gobuster, hashcat, nikto, nmap, openclaw, ping, and rsync. Some are mostly untested — contributions and bug reports welcome
-- **Experimental schemas** — `tools/pandoc.json` and `tools/yt-dlp.json` are newly added and experimental. Bundled example presets live under `presets/pandoc/` and `presets/yt-dlp/`, and example cascades live at `cascades/cascade_pandoc_dual_output.json` and `cascades/cascade_archive_playlist.json`. Expect rough edges — please report any issues you find
+- **Experimental schemas** — `tools/pandoc.json` and `tools/yt-dlp.json` are newly added and experimental. Bundled example presets live under `default_presets/pandoc/` and `default_presets/yt-dlp/` (seeded into your local `presets/` folder on first open), and example cascades live at `cascades/cascade_pandoc_dual_output.json` and `cascades/cascade_archive_playlist.json`. Expect rough edges — please report any issues you find
 
 ---
 
