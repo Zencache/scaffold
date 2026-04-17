@@ -10668,28 +10668,23 @@ shutil.rmtree(_s91_tmpdir, ignore_errors=True)
 # =====================================================================
 print("\n=== SECTION 92: Shell Quoting Bug Fixes ===")
 
-# --- Bug 1: _quote_token double-quote escaping ---
+# --- Bug 1: _quote_token POSIX single-quote escaping ---
 
 # 92a: token with whitespace + single quote + double quote
-# Previously produced "it's "complex"" which is broken
+# Uses POSIX close-escape-reopen: 'it'\''s "complex"'
 _s92a = scaffold._quote_token("it's \"complex\"")
-# The result must be double-quoted, and internal double quotes must be escaped
-check(_s92a.startswith('"') and _s92a.endswith('"'),
-      f"92a: _quote_token wraps in double quotes when single quote present: {_s92a}")
-# Must not contain bare unescaped " inside the wrapping quotes
-_s92a_inner = _s92a[1:-1]  # strip outer quotes
-check('"' not in _s92a_inner.replace('""', ''),
-      f"92a2: no bare unescaped double quote inside wrapping quotes: {_s92a}")
+check(_s92a == "'it'\\''s \"complex\"'",
+      f"92a: _quote_token POSIX-escapes apostrophe with whitespace: {_s92a!r}")
 
 # 92b: token with double quotes but no single quote → single-quote wrap still works
 _s92b = scaffold._quote_token('hello "world" foo')
 check(_s92b.startswith("'") and _s92b.endswith("'"),
       f"92b: _quote_token uses single quotes when no single quote in token: {_s92b}")
 
-# 92c: token with whitespace + single quote, no double quote → double-quote wrap works
+# 92c: token with whitespace + single quote → POSIX single-quote escape
 _s92c = scaffold._quote_token("it's here")
-check(_s92c == "\"it's here\"",
-      f"92c: _quote_token double-quotes token with apostrophe: {_s92c}")
+check(_s92c == "'it'\\''s here'",
+      f"92c: _quote_token POSIX-escapes apostrophe token: {_s92c!r}")
 
 # --- Bug 2: _format_powershell missing apostrophe in needs_quote ---
 
@@ -21277,6 +21272,92 @@ for _s172_i, _s172_pat in enumerate(_s172_good_patterns):
           f"172b.{_s172_i}: _pattern_is_redos_prone({_s172_pat!r}) "
           f"returns (False, \"\") "
           f"(got res={_s172_res!r}, exc={_s172_call_exc!r})")
+
+
+# =====================================================================
+# Section 173 — _quote_token POSIX correctness
+# =====================================================================
+# _quote_token now uses POSIX close-escape-reopen ('\'') for tokens that
+# contain both whitespace and a single quote. Previously it fell through
+# to a Windows-CMD double-quote branch (doubled " chars), which was wrong
+# for any POSIX shell and would not round-trip through shlex.
+print("\n=== SECTION 173: _quote_token POSIX correctness ===")
+
+import shlex as _s173_shlex
+
+# 173a: plain token, no whitespace, no quotes → returned as-is
+_s173a = scaffold._quote_token("hello")
+check(_s173a == "hello",
+      f"173a: plain token unchanged: {_s173a!r}")
+
+# 173b: whitespace, no quotes → wrap in single quotes
+_s173b = scaffold._quote_token("hello world")
+check(_s173b == "'hello world'",
+      f"173b: whitespace wraps in single quotes: {_s173b!r}")
+
+# 173c: single quote but no whitespace → returned as-is (not quoted)
+_s173c = scaffold._quote_token("it's")
+check(_s173c == "it's",
+      f"173c: apostrophe without whitespace unchanged: {_s173c!r}")
+
+# 173d: whitespace AND single quote → POSIX close-escape-reopen
+_s173d = scaffold._quote_token("it's a test")
+check(_s173d == "'it'\\''s a test'",
+      f"173d: POSIX escape for apostrophe + whitespace: {_s173d!r}")
+
+# 173e: multiple single quotes with whitespace → each apostrophe escaped
+_s173e = scaffold._quote_token("a 'b' c")
+check(_s173e == "'a '\\''b'\\'' c'",
+      f"173e: multiple apostrophes each escaped: {_s173e!r}")
+
+# 173f: tab character → wrapped in single quotes
+_s173f = scaffold._quote_token("a\tb")
+check(_s173f == "'a\tb'",
+      f"173f: tab wraps in single quotes: {_s173f!r}")
+
+# 173g: newline character → wrapped in single quotes
+_s173g = scaffold._quote_token("a\nb")
+check(_s173g == "'a\nb'",
+      f"173g: newline wraps in single quotes: {_s173g!r}")
+
+# 173h: empty string → returned as-is (no whitespace)
+_s173h = scaffold._quote_token("")
+check(_s173h == "",
+      f"173h: empty string unchanged: {_s173h!r}")
+
+# --- Round-trip verification: shlex.split must recover the original ---
+
+# 173i: apostrophe + whitespace round-trips through shlex
+_s173i_orig = "it's a test"
+_s173i_quoted = scaffold._quote_token(_s173i_orig)
+_s173i_parsed = _s173_shlex.split(f"echo {_s173i_quoted}")
+check(_s173i_parsed == ["echo", _s173i_orig],
+      f"173i: round-trip through shlex preserves {_s173i_orig!r}: "
+      f"parsed={_s173i_parsed!r}")
+
+# 173j: multiple apostrophes + whitespace round-trips
+_s173j_orig = "a 'b' c"
+_s173j_quoted = scaffold._quote_token(_s173j_orig)
+_s173j_parsed = _s173_shlex.split(f"echo {_s173j_quoted}")
+check(_s173j_parsed == ["echo", _s173j_orig],
+      f"173j: round-trip through shlex preserves {_s173j_orig!r}: "
+      f"parsed={_s173j_parsed!r}")
+
+# 173k: apostrophe + double quote + whitespace round-trips
+_s173k_orig = "it's \"complex\" stuff"
+_s173k_quoted = scaffold._quote_token(_s173k_orig)
+_s173k_parsed = _s173_shlex.split(f"echo {_s173k_quoted}")
+check(_s173k_parsed == ["echo", _s173k_orig],
+      f"173k: round-trip through shlex preserves {_s173k_orig!r}: "
+      f"parsed={_s173k_parsed!r}")
+
+# 173l: consecutive apostrophes with whitespace round-trips
+_s173l_orig = "can''t stop"
+_s173l_quoted = scaffold._quote_token(_s173l_orig)
+_s173l_parsed = _s173_shlex.split(f"echo {_s173l_quoted}")
+check(_s173l_parsed == ["echo", _s173l_orig],
+      f"173l: round-trip through shlex preserves {_s173l_orig!r}: "
+      f"parsed={_s173l_parsed!r}")
 
 
 # =====================================================================

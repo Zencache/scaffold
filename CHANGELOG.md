@@ -2,6 +2,41 @@
 
 All notable changes to Scaffold are documented here.
 
+
+## [v2.9.1] — 2026-04-16
+
+POSIX shell-quoting correctness fix for the generic
+command-preview copy format.
+
+### Fixed
+
+- **`_quote_token` now uses POSIX close-escape-reopen quoting** —
+  tokens containing both whitespace and a single quote previously fell
+  to a Windows CMD-style `""` double-quote escape, which is invalid
+  syntax in any POSIX shell. The new implementation emits standard
+  POSIX single-quote escaping (`'it'\''s a test'`), which round-trips
+  cleanly through `shlex.split`. Only affected the "generic" copy
+  format; `_format_bash` (via `shlex.join`) was already correct.
+
+### Added
+
+**Tests (test_functional.py):**
+- **Section 173** — `_quote_token` POSIX correctness and round-trip
+  verification (12 assertions).
+- **Section 92** — updated 2 assertions to encode POSIX-correct
+  behavior (previously asserted the now-fixed Windows-CMD output).
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,773/2,773 assertions, 0 failures**
+  - Functional: 2,408/2,408 (was 2,397; +11 net after §173 add and §92 consolidation)
+  - Security: 159/159
+  - Smoke: 70/70
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9] — 2026-04-16
 
 Major release: Scaffold now includes the ability to add a custom PATH, so you are not limited to just the system path. Every time Scaffold is ran it scans the system PATH + whatever other paths you configure for any binaries that you also have a tool schema for. This release also includes a full cascade capture regex safety pipeline, and closes three bugs identified during a Claude Opus 4.7 code review.

@@ -2365,11 +2365,16 @@ class ToolForm(QWidget):
 
 
 def _quote_token(token: str) -> str:
-    """Shell-quote a token for display if it contains whitespace."""
+    """Shell-quote a token for display if it contains whitespace.
+
+    Uses POSIX single-quote escaping (close-escape-reopen) when the
+    token contains both whitespace and a single quote.
+    """
     if " " in token or "\t" in token or "\n" in token or "\r" in token:
         if "'" not in token:
             return f"'{token}'"
-        return f'"{token.replace(chr(34), chr(34)*2)}"'
+        escaped = token.replace("'", "'\\''")
+        return f"'{escaped}'"
     return token
 
 
