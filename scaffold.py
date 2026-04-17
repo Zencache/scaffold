@@ -2545,11 +2545,23 @@ def _tools_dir() -> Path:
 
 
 def _presets_dir(tool_name: str) -> Path:
-    """Return the presets/{tool_name}/ directory, creating it if needed."""
+    """Return the presets/{tool_name}/ directory, creating it if needed.
+
+    On first access for a tool, copies any bundled presets from
+    default_presets/{tool_name}/ into the user's preset directory
+    (without overwriting existing files).
+    """
     d = Path(__file__).parent / "presets" / tool_name
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
+    # Seed from bundled defaults (skip files the user already has)
+    defaults = Path(__file__).parent / "default_presets" / tool_name
+    if defaults.is_dir():
+        for src in defaults.glob("*.json"):
+            dest = d / src.name
+            if not dest.exists():
+                shutil.copy2(src, dest)
     return d
 
 
