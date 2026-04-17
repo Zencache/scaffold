@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "SponsorBlock clean \u2014 download video with sponsor segments and intros automatically removed",
+  "--format": "bestvideo+bestaudio/best",
+  "--merge-output-format": "mp4",
+  "--sponsorblock-remove": "sponsor,intro,outro,selfpromo",
+  "--embed-metadata": true,
+  "--embed-chapters": true,
+  "--output": "%(title)s.%(ext)s"
+}

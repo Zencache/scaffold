@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Audio-only FLAC \u2014 lossless audio extraction for music archiving",
+  "--extract-audio": true,
+  "--audio-format": "flac",
+  "--audio-quality": "0",
+  "--embed-thumbnail": true,
+  "--embed-metadata": true,
+  "--parse-metadata": "title:%(artist)s - %(title)s",
+  "--output": "%(artist,uploader)s/%(title)s.%(ext)s"
+}

@@ -30,8 +30,10 @@ Thumbs.db
 Desktop.ini
 
 # Scaffold runtime files
-presets/
 test.txt
+
+# Windows shortcuts
+*.lnk
 
 # Planning docs (local only)
 VERSION*.md

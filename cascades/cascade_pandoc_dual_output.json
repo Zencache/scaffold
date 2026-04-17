@@ -1,0 +1,29 @@
+{
+  "_format": "scaffold_cascade",
+  "name": "markdown-to-pdf-and-docx",
+  "description": "Convert a Markdown document to both PDF and Word docx in one run.",
+  "loop_mode": false,
+  "stop_on_error": true,
+  "variables": [
+    {
+      "name": "Input File",
+      "flag": "INPUT",
+      "type_hint": "string",
+      "apply_to": "all"
+    }
+  ],
+  "steps": [
+    {
+      "tool": "tools/pandoc.json",
+      "preset": "presets/pandoc/markdown_to_pdf.json",
+      "delay": 0,
+      "captures": []
+    },
+    {
+      "tool": "tools/pandoc.json",
+      "preset": "presets/pandoc/markdown_to_word.json",
+      "delay": 0,
+      "captures": []
+    }
+  ]
+}

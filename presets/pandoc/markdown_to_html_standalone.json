@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Markdown to HTML \u2014 self-contained HTML page with MathJax and table of contents",
+  "--from": "markdown",
+  "--to": "html",
+  "--standalone": true,
+  "--embed-resources": true,
+  "--toc": true,
+  "--mathjax": "",
+  "--output": "output.html"
+}

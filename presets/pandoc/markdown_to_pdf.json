@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Markdown to PDF \u2014 clean PDF from Markdown with table of contents and numbered sections",
+  "--from": "markdown",
+  "--to": "pdf",
+  "--standalone": true,
+  "--toc": true,
+  "--number-sections": true,
+  "--variable": "geometry:margin=1in",
+  "--output": "output.pdf"
+}

@@ -1,0 +1,11 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Markdown to Word \u2014 convert Markdown to a polished Word document",
+  "--from": "markdown",
+  "--to": "docx",
+  "--standalone": true,
+  "--toc": true,
+  "--output": "output.docx"
+}

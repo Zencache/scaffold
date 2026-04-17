@@ -6,7 +6,7 @@ Scaffold — Your CLI Tools, but with Buttons
 ![Lines of Code](https://img.shields.io/badge/lines-9%2C800%2B-informational)
 ![Tests](https://img.shields.io/badge/tests-2%2C773%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
-![Bundled Tools](https://img.shields.io/badge/bundled%20tools-20%20schemas-orange)
+![Bundled Tools](https://img.shields.io/badge/bundled%20tools-22%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
@@ -45,7 +45,7 @@ Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
 - **Windows, macOS, or Linux** — tested primarily on Windows. PySide6 is cross-platform, so macOS and Linux should work but have had less testing. If you hit platform-specific issues, please open an issue.
 - **Python 3.10+** — make sure Python is installed and up to date (`python --version`)
 - **The CLI tool you want to use** — Scaffold builds a GUI for tools already installed on your system. For example, if you want to use the nmap schema, you need nmap installed and available in your PATH.
-- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 19 tools in the `tools/` folder, plus example cascade files in `cascades/`. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
+- **A JSON schema for your tool** — Scaffold comes with bundled schemas for 21 tools in the `tools/` folder (two of which — `pandoc` and `yt-dlp` — are experimental), plus example cascade files in `cascades/`. To add your own, see [Creating Tool Schemas](#creating-tool-schemas) below.
 
 ### Install and Run
 
@@ -305,7 +305,8 @@ The main use case is script-based tools. Write a schema with `"binary": "myscrip
 - **Format markers** — `_format` metadata key prevents accidentally loading presets as tool schemas or vice versa, with clear error messages
 - **Bundled example schema** — `tools/example.json` demonstrates every feature in one file
 - **Portable mode** — place `portable.txt` next to `scaffold.py` to store all settings in a local INI file instead of the system registry. Run from a USB drive with fully isolated configuration
-- **Bundled tool schemas** — 20 schemas covering aircrack-ng, airodump-ng, ansible (4 tools), curl, docker (3 tools), ffmpeg, git, gobuster, hashcat, nikto, nmap, openclaw, ping, and rsync. Some are mostly untested — contributions and bug reports welcome
+- **Bundled tool schemas** — 22 schemas covering aircrack-ng, airodump-ng, ansible (4 tools), curl, docker (3 tools), ffmpeg, git, gobuster, hashcat, nikto, nmap, openclaw, ping, and rsync. Some are mostly untested — contributions and bug reports welcome
+- **Experimental schemas** — `tools/pandoc.json` and `tools/yt-dlp.json` are newly added and experimental. Bundled example presets live under `presets/pandoc/` and `presets/yt-dlp/`, and example cascades live at `cascades/cascade_pandoc_dual_output.json` and `cascades/cascade_archive_playlist.json`. Expect rough edges — please report any issues you find
 
 ---
 

@@ -1,0 +1,11 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "LaTeX to Word \u2014 convert a LaTeX paper to Word docx for journal submission",
+  "--from": "latex",
+  "--to": "docx",
+  "--standalone": true,
+  "--citeproc": true,
+  "--output": "paper.docx"
+}

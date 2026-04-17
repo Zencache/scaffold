@@ -1,0 +1,29 @@
+{
+  "_format": "scaffold_cascade",
+  "name": "archive-playlist-video-and-audio",
+  "description": "Two-step cascade: archive an entire playlist as video, then extract audio-only MP3s from the same source.",
+  "loop_mode": false,
+  "stop_on_error": false,
+  "variables": [
+    {
+      "name": "Playlist URL",
+      "flag": "URL",
+      "type_hint": "string",
+      "apply_to": "all"
+    }
+  ],
+  "steps": [
+    {
+      "tool": "tools/yt-dlp.json",
+      "preset": "presets/yt-dlp/playlist_archiver.json",
+      "delay": 0,
+      "captures": []
+    },
+    {
+      "tool": "tools/yt-dlp.json",
+      "preset": "presets/yt-dlp/extract_audio_mp3.json",
+      "delay": 2,
+      "captures": []
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Playlist archiver \u2014 incrementally download entire playlists, skipping already-downloaded videos",
+  "--yes-playlist": true,
+  "--download-archive": "archive.txt",
+  "--ignore-errors": true,
+  "--no-overwrites": true,
+  "--output": "%(playlist)s/%(playlist_index)03d - %(title)s.%(ext)s",
+  "--embed-metadata": true,
+  "--embed-thumbnail": true
+}

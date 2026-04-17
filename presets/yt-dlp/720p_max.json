@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "720p max \u2014 downloads at most 720p video for smaller file sizes and bandwidth-limited connections",
+  "--format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
+  "--merge-output-format": "mp4",
+  "--embed-subs": true,
+  "--write-auto-subs": true,
+  "--sub-langs": "en",
+  "--output": "%(title)s.%(ext)s"
+}

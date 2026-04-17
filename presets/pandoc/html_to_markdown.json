@@ -1,0 +1,10 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "HTML to Markdown \u2014 scrape and convert a web page to clean Markdown",
+  "--from": "html",
+  "--to": "markdown",
+  "--wrap": "none",
+  "--output": "output.md"
+}

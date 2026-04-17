@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Extract audio as MP3 320K \u2014 extracts audio track and converts to high-quality MP3",
+  "--extract-audio": true,
+  "--audio-format": "mp3",
+  "--audio-quality": "0",
+  "--embed-thumbnail": true,
+  "--embed-metadata": true,
+  "--output": "%(title)s.%(ext)s"
+}

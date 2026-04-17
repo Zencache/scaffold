@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Markdown to reveal.js slides \u2014 HTML5 presentation with incremental lists",
+  "--from": "markdown",
+  "--to": "revealjs",
+  "--standalone": true,
+  "--incremental": true,
+  "--slide-level": 2,
+  "--output": "slides.html"
+}

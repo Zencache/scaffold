@@ -1,0 +1,13 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Subtitles only \u2014 download English subtitles without downloading the video itself",
+  "--skip-download": true,
+  "--write-subs": true,
+  "--write-auto-subs": true,
+  "--sub-langs": "en",
+  "--sub-format": "srt/vtt/best",
+  "--convert-subs": "srt",
+  "--output": "%(title)s.%(ext)s"
+}

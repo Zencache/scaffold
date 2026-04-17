@@ -1,0 +1,12 @@
+{
+  "_format": "scaffold_preset",
+  "_schema_hash": "00000000",
+  "_subcommand": null,
+  "_description": "Best quality MP4 \u2014 downloads best video+audio and merges into MP4 container with embedded metadata and thumbnail",
+  "--format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+  "--merge-output-format": "mp4",
+  "--embed-metadata": true,
+  "--embed-thumbnail": true,
+  "--embed-chapters": true,
+  "--output": "%(title)s [%(id)s].%(ext)s"
+}
