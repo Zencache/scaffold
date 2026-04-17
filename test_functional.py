@@ -21361,6 +21361,137 @@ check(_s173l_parsed == ["echo", _s173l_orig],
 
 
 # =====================================================================
+# Section 174 — Cascade chain-button compact-QSS regression guard
+# =====================================================================
+# Guards the two failure modes shipped as v2.9.2:
+#   (a) init loop at CascadeSidebar.__init__ only applied the compact
+#       "padding: 2px 8px" QSS to 3 of 7 chain buttons — loop_btn,
+#       stop_on_error_btn, clear_all_btn, and add_step_btn kept native
+#       button chrome and clipped text on Linux light mode.
+#   (b) _style_loop_btn and _style_stop_on_error_btn OFF branches called
+#       setStyleSheet("") which wiped the padding on every _load_cascade
+#       and every toggle-off.
+# Regression tests for commit 6adb4de.
+print("\n=== SECTION 174: Cascade chain-button compact-QSS regression guard ===")
+
+# Clear any cascade state from prior runs so _load_cascade doesn't
+# resurrect a loop_enabled=True from a previous test session.
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+_s174_win = scaffold.MainWindow()
+app.processEvents()
+_s174_dock = _s174_win.cascade_dock
+
+# 174a: coverage guard — every chain button carries the compact padding.
+# Mirrors the init loop at scaffold.py:5800-5803 (setStyleSheet called
+# directly on each button, not an ancestor). Iterated by attribute name
+# so a failure message tells you which button regressed.
+_s174_chain_btns = (
+    "run_chain_btn", "pause_chain_btn", "stop_chain_btn",
+    "loop_btn", "stop_on_error_btn", "clear_all_btn", "add_step_btn",
+)
+for _s174_attr in _s174_chain_btns:
+    _s174_btn = getattr(_s174_dock, _s174_attr)
+    _s174_qss = _s174_btn.styleSheet()
+    check("padding: 2px 8px" in _s174_qss,
+          f"174a: {_s174_attr} carries compact padding at init "
+          f"(stylesheet={_s174_qss!r})")
+
+# 174b: single-source-of-truth invariant — the padding literal lives in
+# _chain_btn_body only, and _chain_qss is composed from it.
+check(hasattr(_s174_dock, "_chain_btn_body"),
+      "174b: _chain_btn_body attribute exists")
+check("padding: 2px 8px" in _s174_dock._chain_btn_body,
+      f"174b: _chain_btn_body carries the padding literal "
+      f"(got {_s174_dock._chain_btn_body!r})")
+check(_s174_dock._chain_btn_body in _s174_dock._chain_qss,
+      "174b: _chain_qss composes from _chain_btn_body (not a second literal)")
+
+# 174c: loop_btn ON retains padding (ON branch uses _chain_btn_body).
+_s174_dock._loop_enabled = False
+_s174_dock._toggle_loop()  # OFF -> ON
+check(_s174_dock._loop_enabled is True, "174c: loop toggled ON")
+check(_s174_dock.loop_btn.text() == "Loop \u2713",
+      f"174c: loop_btn text is 'Loop ✓' when ON "
+      f"(got {_s174_dock.loop_btn.text()!r})")
+check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
+      f"174c: loop_btn ON retains compact padding "
+      f"(stylesheet={_s174_dock.loop_btn.styleSheet()!r})")
+
+# 174d: loop_btn OFF retains padding — the real shipped bug. Pre-v2.9.2,
+# the OFF branch called setStyleSheet("") which wiped the padding and
+# let native chrome clip "Loop" on Linux.
+_s174_dock._toggle_loop()  # ON -> OFF
+check(_s174_dock._loop_enabled is False, "174d: loop toggled OFF")
+check(_s174_dock.loop_btn.text() == "Loop",
+      f"174d: loop_btn text is 'Loop' when OFF "
+      f"(got {_s174_dock.loop_btn.text()!r})")
+check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
+      f"174d: loop_btn OFF retains compact padding "
+      f"(stylesheet={_s174_dock.loop_btn.styleSheet()!r})")
+
+# 174e: stop_on_error_btn ON retains padding.
+_s174_dock._stop_on_error = False
+_s174_dock._toggle_stop_on_error()  # OFF -> ON
+check(_s174_dock._stop_on_error is True, "174e: stop_on_error toggled ON")
+check(_s174_dock.stop_on_error_btn.text() == "Err\u2713",
+      f"174e: stop_on_error_btn text is 'Err✓' when ON "
+      f"(got {_s174_dock.stop_on_error_btn.text()!r})")
+check("padding: 2px 8px" in _s174_dock.stop_on_error_btn.styleSheet(),
+      f"174e: stop_on_error_btn ON retains compact padding "
+      f"(stylesheet={_s174_dock.stop_on_error_btn.styleSheet()!r})")
+
+# 174f: stop_on_error_btn OFF retains padding — same class of bug as 174d.
+_s174_dock._toggle_stop_on_error()  # ON -> OFF
+check(_s174_dock._stop_on_error is False, "174f: stop_on_error toggled OFF")
+check(_s174_dock.stop_on_error_btn.text() == "Err\u2717",
+      f"174f: stop_on_error_btn text is 'Err✗' when OFF "
+      f"(got {_s174_dock.stop_on_error_btn.text()!r})")
+check("padding: 2px 8px" in _s174_dock.stop_on_error_btn.styleSheet(),
+      f"174f: stop_on_error_btn OFF retains compact padding "
+      f"(stylesheet={_s174_dock.stop_on_error_btn.styleSheet()!r})")
+
+# 174g: theme change preserves padding on every chain button. Exercises
+# update_theme's hoisted self._chain_qss refresh (scaffold.py:7363) and
+# the expanded refresh loop. A regression that drops clear_all_btn or
+# add_step_btn from the refresh loop, or reverts the OFF-branch fix,
+# would show up as missing padding after the flip.
+_s174_dark_before = scaffold._dark_mode
+scaffold.apply_theme(not _s174_dark_before)
+app.processEvents()
+for _s174_attr in _s174_chain_btns:
+    _s174_btn = getattr(_s174_dock, _s174_attr)
+    _s174_qss = _s174_btn.styleSheet()
+    check("padding: 2px 8px" in _s174_qss,
+          f"174g: {_s174_attr} keeps compact padding after theme flip "
+          f"(stylesheet={_s174_qss!r})")
+scaffold.apply_theme(_s174_dark_before)
+app.processEvents()
+
+# 174h: toggle + theme round-trip integration. Loop ON, flip theme, flip
+# back, toggle OFF — padding must survive every step. Covers the
+# wipe regression and an update_theme reordering regression in one pass.
+_s174_dock._loop_enabled = False
+_s174_dock._toggle_loop()  # OFF -> ON
+scaffold.apply_theme(not _s174_dark_before)
+app.processEvents()
+check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
+      "174h: loop_btn ON + theme flip retains padding")
+scaffold.apply_theme(_s174_dark_before)
+app.processEvents()
+check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
+      "174h: loop_btn ON + theme round-trip retains padding")
+_s174_dock._toggle_loop()  # ON -> OFF
+check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
+      "174h: loop_btn OFF after theme round-trip retains padding")
+
+# Cleanup
+_s174_win.close()
+_s174_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
