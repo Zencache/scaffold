@@ -3,6 +3,56 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.2] — 2026-04-17
+
+Cascade sidebar button-clipping fix on Linux.
+
+### Fixed
+
+- **Cascade chain button text no longer clips on Linux** —
+  `CascadeSidebar.__init__` previously applied the compact
+  `padding: 2px 8px` QSS to only three of the seven chain-row
+  buttons (`run`/`pause`/`stop`). `loop_btn`,
+  `stop_on_error_btn`, `clear_all_btn`, and `add_step_btn`
+  kept native button chrome, which on Linux light mode is
+  wider than the 65 px fixed width / 208 px row budget
+  assumed. Labels such as `"Loop ✓"`, `"+ Add Step"`, and
+  `"Err✗"` overflowed the button area and clipped at both
+  edges (centered overflow, so sometimes the left side,
+  sometimes the right). The init loop now applies the
+  compact QSS to all seven chain buttons.
+- **Toggle OFF no longer wipes compact padding** —
+  `_style_loop_btn` and `_style_stop_on_error_btn` OFF
+  branches previously called `setStyleSheet("")`, erasing
+  the compact QSS on every `_load_cascade` and every
+  toggle-off. Both now apply `self._chain_qss`, so padding
+  survives across state changes and cascade loads.
+
+### Changed
+
+- **Single source of truth for `padding: 2px 8px`** — new
+  `self._chain_btn_body` fragment plus `self._chain_qss`
+  composed from it. Four previous literal copies (init,
+  both `_style_*_btn` ON branches, `update_theme`) now
+  reference the shared fragment — one literal, one place.
+- **`update_theme` hoists `self._chain_qss` refresh above
+  `_style_loop_btn`** so the OFF branch picks up the current
+  theme's border color on mode switch. The theme-refresh
+  loop also now covers `clear_all_btn` and `add_step_btn`
+  since they gained compact-QSS styling.
+
+### Notes
+
+- `QFontMetrics.horizontalAdvance("Loop ✓")` measured 42 px
+  on Windows / Segoe UI 9 pt, fitting the 49 px budget
+  (65 px fixed width minus 16 px QSS padding) with 7 px of
+  headroom. Linux default sans fonts (DejaVu / Liberation /
+  Noto) render the same string wider; if users still see
+  clipping on `loop_btn` after this ships, the next
+  escalation is to drop `setFixedWidth(65)` in favor of
+  `setMinimumWidth(fm.horizontalAdvance(longest_label) + 24)`.
+
+
 ## [v2.9.1] — 2026-04-16
 
 POSIX shell-quoting correctness fix for the generic

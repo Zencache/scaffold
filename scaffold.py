@@ -5791,10 +5791,16 @@ class CascadeSidebar(QDockWidget):
         self.pause_chain_btn.setEnabled(False)
         # Compact padding prevents "Running..." text clipping in light mode
         # where native button chrome is wider than dark mode's QSS padding.
+        # _chain_btn_body is the single source for the padding literal; the
+        # accented ON-state variants in _style_loop_btn/_style_stop_on_error_btn
+        # reference it too.
         _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
-        _chain_qss = f"QPushButton {{ border: 1px solid {_border}; padding: 2px 8px; border-radius: 3px; }}"
-        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn):
-            _cbtn.setStyleSheet(_chain_qss)
+        self._chain_btn_body = "padding: 2px 8px; border-radius: 3px;"
+        self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
+        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn,
+                      self.loop_btn, self.stop_on_error_btn, self.clear_all_btn,
+                      self.add_step_btn):
+            _cbtn.setStyleSheet(self._chain_qss)
         self.run_chain_btn.clicked.connect(self._on_run_chain)
         self.pause_chain_btn.clicked.connect(self._on_pause_chain)
         self.stop_chain_btn.clicked.connect(self._on_stop_chain)
@@ -6031,10 +6037,10 @@ class CascadeSidebar(QDockWidget):
         """Update loop button appearance based on current state."""
         if self._loop_enabled:
             color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
-            self.loop_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; padding: 2px 8px; border-radius: 3px; }}")
+            self.loop_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; {self._chain_btn_body} }}")
             self.loop_btn.setText("Loop \u2713")
         else:
-            self.loop_btn.setStyleSheet("")
+            self.loop_btn.setStyleSheet(self._chain_qss)
             self.loop_btn.setText("Loop")
 
     def _toggle_stop_on_error(self) -> None:
@@ -6047,10 +6053,10 @@ class CascadeSidebar(QDockWidget):
         """Update stop-on-error button appearance based on current state."""
         if self._stop_on_error:
             color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
-            self.stop_on_error_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; padding: 2px 8px; border-radius: 3px; }}")
+            self.stop_on_error_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; {self._chain_btn_body} }}")
             self.stop_on_error_btn.setText("Err\u2713")
         else:
-            self.stop_on_error_btn.setStyleSheet("")
+            self.stop_on_error_btn.setStyleSheet(self._chain_qss)
             self.stop_on_error_btn.setText("Err\u2717")
 
     # ------------------------------------------------------------------
@@ -7350,17 +7356,20 @@ class CascadeSidebar(QDockWidget):
 
     def update_theme(self) -> None:
         """Re-apply theme colors to slot buttons and chain controls."""
+        # Refresh chain QSS first so _style_loop_btn's OFF branch picks up the
+        # current theme border; loop_btn/stop_on_error_btn are handled via
+        # _style_*_btn, the remaining plain chain buttons below.
+        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
+        self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         self._refresh_button_labels()
         self._clear_slot_highlights()
         self._style_loop_btn()
         dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
-        # Refresh chain button padding for the current theme
-        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
-        _chain_qss = f"QPushButton {{ border: 1px solid {_border}; padding: 2px 8px; border-radius: 3px; }}"
-        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn):
-            _cbtn.setStyleSheet(_chain_qss)
+        for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn,
+                      self.clear_all_btn, self.add_step_btn):
+            _cbtn.setStyleSheet(self._chain_qss)
 
 
 # ---------------------------------------------------------------------------
