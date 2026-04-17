@@ -3,6 +3,33 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.3] — 2026-04-17
+
+Completes the cascade TOCTOU hardening arc started in v2.8.7.3. Cascade preset loading now halts on `_schema_hash` mismatch instead of silently applying a stale preset and running the wrong command.
+
+### Fixed
+
+- **Cascade halts when a preset's `_schema_hash` doesn't match the current tool** — `_chain_advance` now gates `apply_values` on a hash check. Previously, if a tool schema had changed since a preset was saved (e.g. a flag renamed), the cascade silently dropped the renamed key, `build_command` produced an incomplete/wrong command, and the chain executed it against the live binary with no warning. The UI-mode load path (`_on_load_preset`, line ~8931) already detected this and surfaced a status-bar note — correct for interactive use, wrong for unattended cascades. The new check halts with `error_halted` status and a status-bar message of the form `Cascade stopped: preset schema changed for step N — {preset} (re-save against current {tool} schema)`. Both hashes are also written to stderr for forensic debugging. Absent `_schema_hash` is treated as a legacy preset and loads silently, mirroring the UI-mode guard. Closes the gap left by the v2.8.7.3 audit, which fixed the missing-tool and missing-preset TOCTOU cases but didn't catch the stale-preset case.
+
+### Added
+
+**Tests (test_functional.py):**
+- **Section 178** — cascade `_schema_hash` mismatch coverage (14 assertions).
+  - 178a (positive halt): builds V1 schema, computes its hash, writes a V1 preset, then writes a V2 schema with one flag renamed; asserts the cascade halts before reaching `_on_run_stop`, `_cascade_finish_status` is `"error_halted"`, status message contains the distinctive substring `"schema changed"`, and names both the preset and the step number.
+  - 178b (matching hash): identical setup but tool stays at V1; asserts execution is reached and no halt fires.
+  - 178c (legacy preset, no `_schema_hash`): asserts backward compatibility — chain runs normally, mirrors the UI-mode `if saved_hash is not None` guard.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,877/2,877 assertions, 0 failures**
+  - Functional: 2,504/2,504 (was 2,490; +14 from §178)
+  - Security: 159/159
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.2] — 2026-04-17
 
 Cascade sidebar button-clipping fix on Linux, a new `_tool` preset meta key, a cascade dependency pre-flight check, six new bundled tool schemas (`find`, `ncat`, `wget`, `ssh`, `scp`, `tar`) with default preset packs, and two new example cascades.

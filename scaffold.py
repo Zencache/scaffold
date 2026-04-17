@@ -7082,6 +7082,28 @@ class CascadeSidebar(QDockWidget):
         if preset_path and Path(preset_path).exists():
             try:
                 preset_data = _read_json_file(preset_path)
+                # Schema-hash gate: cascades run unattended, so a stale preset
+                # would silently produce a wrong command. UI mode (line ~8931)
+                # warns instead — correct there, since a human can react.
+                # Absent _schema_hash is treated as legacy (mirrors UI guard).
+                saved_hash = preset_data.get("_schema_hash")
+                if saved_hash is not None:
+                    current_hash = schema_hash(self._main_window.data)
+                    if saved_hash != current_hash:
+                        preset_name = Path(preset_path).stem
+                        tool_name = self._main_window.data["tool"]
+                        print(
+                            f"[cascade] schema_hash mismatch: "
+                            f"preset={saved_hash} current={current_hash}",
+                            file=sys.stderr,
+                        )
+                        self._cascade_finish_status = "error_halted"
+                        self._chain_cleanup(
+                            f"Cascade stopped: preset schema changed for step "
+                            f"{self._chain_current + 1} \u2014 {preset_name} "
+                            f"(re-save against current {tool_name} schema)"
+                        )
+                        return
                 # Return value (had_passwords) intentionally unused — chain runs
                 # are automated and cannot prompt for password re-entry.
                 self._main_window.form.apply_values(preset_data)
