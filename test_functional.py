@@ -22031,6 +22031,203 @@ shutil.rmtree(_s177_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+print("\n=== SECTION 178: Cascade halts on preset _schema_hash mismatch ===")
+# =====================================================================
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s178_tmpdir = Path(tempfile.mkdtemp(prefix="s178_"))
+
+
+def _s178_make_arg(name, flag, type_, separator="space"):
+    return {
+        "name": name, "flag": flag, "type": type_,
+        "description": "", "required": False, "default": None,
+        "choices": None, "group": None, "depends_on": None,
+        "repeatable": False, "separator": separator, "positional": False,
+        "short_flag": None, "validation": None, "examples": None,
+        "display_group": None, "min": None, "max": None,
+        "deprecated": None, "dangerous": False,
+    }
+
+
+# V1 schema — --flag-a (boolean), --flag-b (string)
+_s178_v1 = {
+    "_format": "scaffold_schema",
+    "tool": "s178_tool",
+    "binary": "echo",
+    "description": "section 178 V1 schema",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        _s178_make_arg("Flag A", "--flag-a", "boolean", separator="none"),
+        _s178_make_arg("Flag B", "--flag-b", "string"),
+    ],
+}
+_s178_v1_hash = scaffold.schema_hash(_s178_v1)
+
+# V2 schema — --flag-a renamed to --flag-renamed (breaking change)
+_s178_v2 = json.loads(json.dumps(_s178_v1))
+_s178_v2["arguments"][0]["name"] = "Flag Renamed"
+_s178_v2["arguments"][0]["flag"] = "--flag-renamed"
+_s178_v2["description"] = "section 178 V2 schema"
+_s178_v2_hash = scaffold.schema_hash(_s178_v2)
+check(_s178_v1_hash != _s178_v2_hash,
+      f"178: V1 and V2 schema_hashes differ ({_s178_v1_hash} vs {_s178_v2_hash})")
+
+# Shared MainWindow + dock for all three sub-tests
+_s178_win = scaffold.MainWindow()
+_s178_win.show()
+app.processEvents()
+_s178_dock = _s178_win.cascade_dock
+_s178_dock._cascade_variables = []
+
+
+def _s178_run_chain_capture():
+    """Run the configured 1-step chain. Captures (run_stop_called, status_msg,
+    captured_finish_status). Restores _on_run_stop and _chain_cleanup before
+    returning."""
+    captured = {"run_stop_called": False, "finish_status": None}
+
+    orig_run_stop = _s178_win._on_run_stop
+
+    def _mock_run_stop():
+        captured["run_stop_called"] = True
+        _s178_dock._chain_cleanup("test short-circuit")
+
+    orig_cleanup = _s178_dock._chain_cleanup
+
+    def _capture_cleanup(message):
+        if captured["finish_status"] is None:
+            captured["finish_status"] = _s178_dock._cascade_finish_status
+        orig_cleanup(message)
+
+    _s178_win._on_run_stop = _mock_run_stop
+    _s178_dock._chain_cleanup = _capture_cleanup
+    try:
+        _s178_dock._on_run_chain()
+        app.processEvents()
+        # 600ms total — covers the 150ms QTimer in _chain_advance + slack
+        for _ in range(30):
+            app.processEvents()
+            time.sleep(0.02)
+    finally:
+        _s178_win._on_run_stop = orig_run_stop
+        _s178_dock._chain_cleanup = orig_cleanup
+    return (
+        captured["run_stop_called"],
+        _s178_win.statusBar().currentMessage(),
+        captured["finish_status"],
+    )
+
+
+# --- 178a: V1 preset against V2 tool → halt with "schema changed" ---
+_s178a_tool_path = _s178_tmpdir / "s178a_tool.json"
+_s178a_tool_path.write_text(json.dumps(_s178_v2), encoding="utf-8")
+_s178a_preset_path = _s178_tmpdir / "s178a_preset.json"
+_s178a_preset_path.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s178_tool",
+    "_subcommand": None,
+    "_schema_hash": _s178_v1_hash,  # V1 hash, but tool is V2 → mismatch
+    "--flag-a": True,
+    "--flag-b": "hello",
+}), encoding="utf-8")
+
+_s178_dock._slots[0]["tool_path"] = str(_s178a_tool_path)
+_s178_dock._slots[0]["preset_path"] = str(_s178a_preset_path)
+for _s178_i in range(1, len(_s178_dock._slots)):
+    _s178_dock._slots[_s178_i]["tool_path"] = None
+
+_s178a_run_stop_called, _s178a_status, _s178a_finish = _s178_run_chain_capture()
+
+check(_s178_dock._chain_state == scaffold.CHAIN_IDLE,
+      f"178a: chain returned to IDLE after halt "
+      f"(state={_s178_dock._chain_state!r})")
+check(_s178a_run_stop_called is False,
+      f"178a: _on_run_stop NOT called — no command spawned "
+      f"(got called={_s178a_run_stop_called})")
+check(_s178_dock.run_chain_btn.isEnabled(),
+      "178a: run_chain_btn re-enabled after halt")
+check(_s178a_finish == "error_halted",
+      f"178a: _cascade_finish_status was 'error_halted' before cleanup "
+      f"(got {_s178a_finish!r})")
+check("schema changed" in _s178a_status,
+      f"178a: status message contains 'schema changed' "
+      f"(got {_s178a_status!r})")
+check("s178a_preset" in _s178a_status,
+      f"178a: status message names the preset 's178a_preset' "
+      f"(got {_s178a_status!r})")
+check("step 1" in _s178a_status,
+      f"178a: status message names 'step 1' "
+      f"(got {_s178a_status!r})")
+
+# --- 178b: matching hash → must NOT halt ---
+_s178b_tool_path = _s178_tmpdir / "s178b_tool.json"
+_s178b_tool_path.write_text(json.dumps(_s178_v1), encoding="utf-8")
+_s178b_preset_path = _s178_tmpdir / "s178b_preset.json"
+_s178b_preset_path.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s178_tool",
+    "_subcommand": None,
+    "_schema_hash": _s178_v1_hash,  # matches V1 tool → no halt
+    "--flag-a": True,
+    "--flag-b": "hello",
+}), encoding="utf-8")
+
+_s178_dock._slots[0]["tool_path"] = str(_s178b_tool_path)
+_s178_dock._slots[0]["preset_path"] = str(_s178b_preset_path)
+
+_s178b_run_stop_called, _s178b_status, _s178b_finish = _s178_run_chain_capture()
+
+check(_s178b_run_stop_called is True,
+      f"178b: matching hash — _on_run_stop reached "
+      f"(got called={_s178b_run_stop_called})")
+check("schema changed" not in _s178b_status,
+      f"178b: matching hash — status does NOT contain 'schema changed' "
+      f"(got {_s178b_status!r})")
+check(_s178b_finish != "error_halted",
+      f"178b: matching hash — finish_status is NOT 'error_halted' "
+      f"(got {_s178b_finish!r})")
+
+# --- 178c: legacy preset (no _schema_hash key) → must NOT halt ---
+_s178c_tool_path = _s178_tmpdir / "s178c_tool.json"
+_s178c_tool_path.write_text(json.dumps(_s178_v1), encoding="utf-8")
+_s178c_preset_path = _s178_tmpdir / "s178c_preset.json"
+_s178c_preset_path.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s178_tool",
+    "_subcommand": None,
+    # No _schema_hash key — simulates a preset from before hash tracking
+    "--flag-a": True,
+    "--flag-b": "hello",
+}), encoding="utf-8")
+
+_s178_dock._slots[0]["tool_path"] = str(_s178c_tool_path)
+_s178_dock._slots[0]["preset_path"] = str(_s178c_preset_path)
+
+_s178c_run_stop_called, _s178c_status, _s178c_finish = _s178_run_chain_capture()
+
+check(_s178c_run_stop_called is True,
+      f"178c: legacy preset — _on_run_stop reached "
+      f"(got called={_s178c_run_stop_called})")
+check("schema changed" not in _s178c_status,
+      f"178c: legacy preset — status does NOT contain 'schema changed' "
+      f"(got {_s178c_status!r})")
+check(_s178c_finish != "error_halted",
+      f"178c: legacy preset — finish_status is NOT 'error_halted' "
+      f"(got {_s178c_finish!r})")
+
+# Cleanup section 178
+_s178_dock._on_stop_chain()
+app.processEvents()
+_s178_win.close()
+_s178_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s178_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
