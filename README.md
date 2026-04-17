@@ -13,7 +13,7 @@ Scaffold — Your CLI Tools, but with Buttons
 
 Stop memorizing flags. Start clicking them.
 
-Scaffold turns command-line tools into native desktop GUIs. Any tool — public or internal, simple or complex. If it accepts flags and arguments, Scaffold can build a form for it. Seeing every option laid out visually in an interactive form makes tools dramatically easier to use, no more digging through --help or man pages to figure out what's available! New tools can easily be added to Scaffold with less than 10 clicks and an LLM with a large context window!
+Scaffold turns command-line tools into native desktop GUIs. If it accepts flags and arguments, Scaffold can build a form for it. Seeing every option laid out visually in an interactive form makes tools dramatically easier to use — no more digging through --help or man pages to figure out what's available. The best part? Adding new tools takes just two steps: paste our schema prompt plus the tool's docs into any LLM, then drop the returned JSON into tools/. In less than a minute you get full support for nearly any system binary, shell script, ,.cmd, or Python file! If it has docs, it works.
 
 Secure and immune to shell injection by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (159 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing inputs as literal strings directly to the target binary so no shell is ever invoked, and it leaves no shell history behind. (Scaffold streams command output live into its own panel, keeps a command history window for reviewing past runs, and lets you copy or export any output to a file.)
 
