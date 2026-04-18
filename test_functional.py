@@ -23277,6 +23277,250 @@ QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # =====================================================================
+print("\n=== SECTION 181: _read_user_json size-cap regression at remaining call sites ===")
+# =====================================================================
+# v2.9.4 introduced _read_user_json (2 MB cap via MAX_PRESET_SIZE) as a
+# single entry point for user-supplied JSON. §179 T7 covers the cascade-
+# step preset resolution path (chain runner, scaffold.py:7225) and T8
+# covers cascade import (scaffold.py:6660). The other three
+# _read_user_json call sites are not directly guarded by §179:
+#   • CascadeDock._on_load_cascade_list (scaffold.py:6562) — load a
+#     cascade picked from the Cascade List dialog.
+#   • PresetPicker._on_edit_description (scaffold.py:3555) — read a
+#     preset to edit its _description in the edit-mode picker.
+#   • CascadeDock._on_slot_clicked (scaffold.py:6807) — left-click a
+#     configured slot; tool is loaded then preset is applied.
+# §181 adds focused regression tests so a future refactor that bypasses
+# _read_user_json at any of those sites fails loudly. Each test plants
+# an oversized JSON (> MAX_PRESET_SIZE), drives the public entry point,
+# and asserts the rejection took effect (no install / no apply / no
+# write) and the user was informed (status bar or QMessageBox).
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+_s181_tmpdir = Path(tempfile.mkdtemp(prefix="s181_"))
+
+
+def _s181_make_oversized_preset(path, code="ORIG"):
+    """Write a >MAX_PRESET_SIZE preset JSON file matching the s181 schema."""
+    data = {
+        "_format": "scaffold_preset",
+        "_tool": "s181_py",
+        "_subcommand": None,
+        "_padding": "X" * (3 * 1024 * 1024),
+        "-c": code,
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def _s181_make_oversized_cascade(path, name="s181_rejectme"):
+    """Write a >MAX_PRESET_SIZE cascade JSON file."""
+    data = {
+        "_format": "scaffold_cascade",
+        "name": name,
+        "description": "oversized cascade — should never be loaded",
+        "loop_mode": False,
+        "stop_on_error": False,
+        "variables": [],
+        "steps": [],
+        "_padding": "Y" * (3 * 1024 * 1024),
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+# Shared minimal tool schema for 181b/181c (181a doesn't need a tool).
+_s181_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s181_py",
+    "binary": sys.executable,
+    "description": "section 181 runner",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [_s179_make_arg("Code", "-c", "string")],
+}
+_s181_tool_path = _s181_tmpdir / "s181_tool.json"
+_s181_tool_path.write_text(json.dumps(_s181_tool_data), encoding="utf-8")
+
+
+# ---------------------------------------------------------------
+# 181a — oversized cascade JSON loaded via the Cascade List dialog:
+#         rejected with size error, no slots populated.
+# ---------------------------------------------------------------
+print("\n--- 181a: oversized cascade in Cascade List → rejected with size error ---")
+
+_s181a_path = _s181_make_oversized_cascade(_s181_tmpdir / "s181a_oversized.json")
+check(_s181a_path.stat().st_size > scaffold.MAX_PRESET_SIZE,
+      f"181a: cascade size {_s181a_path.stat().st_size} exceeds MAX_PRESET_SIZE "
+      f"({scaffold.MAX_PRESET_SIZE})")
+
+_s181a_win = scaffold.MainWindow()
+_s181a_win.show()
+app.processEvents()
+_s181a_dock = _s181a_win.cascade_dock
+
+
+# Stub CascadeListDialog: avoids opening a real dialog and lets us inject
+# the oversized path. The handler reads dlg.selected_path after exec();
+# the attribute and the method are all that's needed.
+class _S181aFakeDialog:
+    def __init__(self, *args, **kwargs):
+        self.selected_path = str(_s181a_path)
+
+    def exec(self):
+        return 1  # QDialog.DialogCode.Accepted
+
+
+_s181a_orig_dialog = scaffold.CascadeListDialog
+scaffold.CascadeListDialog = _S181aFakeDialog
+
+try:
+    _s181a_dock._on_load_cascade_list()
+    app.processEvents()
+
+    _s181a_status = _s181a_win.statusBar().currentMessage().lower()
+
+    # Strongest check: the oversized cascade did NOT install into any slot.
+    check(not any(s.get("tool_path") for s in _s181a_dock._slots),
+          f"181a: oversized cascade NOT applied to slots "
+          f"(slots[0]={_s181a_dock._slots[0]!r})")
+    # Status must surface the size rejection.
+    check(any(tok in _s181a_status for tok in ("too large", "exceeds", "limit", "bytes")),
+          f"181a: status surfaces size error (got {_s181a_status!r})")
+    # Status must specifically name a cascade-load failure (not some
+    # other generic error from elsewhere in the dock).
+    check("error loading cascade" in _s181a_status,
+          f"181a: status names 'error loading cascade' (got {_s181a_status!r})")
+finally:
+    scaffold.CascadeListDialog = _s181a_orig_dialog
+    _s181a_win.close()
+    _s181a_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# 181b — PresetPicker._on_edit_description with oversized preset:
+#         QMessageBox.warning surfaces, file unchanged on disk.
+# ---------------------------------------------------------------
+print("\n--- 181b: oversized preset in edit-description → warning, file unchanged ---")
+
+_s181b_presets_dir = _s181_tmpdir / "s181b_presets"
+_s181b_presets_dir.mkdir()
+_s181b_preset = _s181_make_oversized_preset(
+    _s181b_presets_dir / "s181b_huge.json", code="ORIG"
+)
+check(_s181b_preset.stat().st_size > scaffold.MAX_PRESET_SIZE,
+      f"181b: preset size {_s181b_preset.stat().st_size} exceeds MAX_PRESET_SIZE")
+
+# Snapshot bytes so we can prove _atomic_write_json never ran.
+_s181b_before_bytes = _s181b_preset.read_bytes()
+
+_s181b_picker = scaffold.PresetPicker(
+    tool_name="s181_tool",
+    presets_dir=_s181b_presets_dir,
+    mode="edit",
+)
+app.processEvents()
+
+try:
+    _s181b_picker.table.selectRow(0)
+    app.processEvents()
+
+    with _patch_qmb("warning") as _s181b_warnings:
+        _s181b_picker._on_edit_description()
+        app.processEvents()
+
+    _s181b_text = " ".join(t + " " + m for t, m in _s181b_warnings).lower()
+
+    # File must be byte-for-byte unchanged (no _description was written).
+    check(_s181b_preset.read_bytes() == _s181b_before_bytes,
+          "181b: oversized preset file unchanged on disk after rejection")
+    # Warning text must mention size — guards against a regression that
+    # silently re-routes through _read_json_file (which has no size cap)
+    # and then fails for some other downstream reason.
+    check(any(tok in _s181b_text for tok in ("too large", "exceeds", "limit", "bytes")),
+          f"181b: warning surfaces size error (got {_s181b_warnings!r})")
+finally:
+    _s181b_picker.close()
+    _s181b_picker.deleteLater()
+    app.processEvents()
+    # PresetPicker writes to favorites/<tool_name> in QSettings during
+    # __init__ → _save_favorites if any pruning happens. Always remove
+    # the key to keep user QSettings clean.
+    QSettings("Scaffold", "Scaffold").remove("favorites/s181_tool")
+
+
+# ---------------------------------------------------------------
+# 181c — CascadeDock._on_slot_clicked with oversized preset: tool loads
+#         (happens before the preset read), preset is NOT applied to the
+#         form, status names the rejection.
+# ---------------------------------------------------------------
+print("\n--- 181c: oversized preset on slot click → preset rejected, form not modified ---")
+
+_s181c_preset = _s181_make_oversized_preset(
+    _s181_tmpdir / "s181c_oversized.json", code="SHOULD_NOT_APPLY"
+)
+check(_s181c_preset.stat().st_size > scaffold.MAX_PRESET_SIZE,
+      f"181c: preset size {_s181c_preset.stat().st_size} exceeds MAX_PRESET_SIZE")
+
+_s181c_win = scaffold.MainWindow()
+_s181c_win.show()
+app.processEvents()
+_s181c_dock = _s181c_win.cascade_dock
+
+try:
+    _s181c_dock._slots[0]["tool_path"] = str(_s181_tool_path)
+    _s181c_dock._slots[0]["preset_path"] = str(_s181c_preset)
+
+    _s181c_dock._on_slot_clicked(0)
+    app.processEvents()
+
+    _s181c_status = _s181c_win.statusBar().currentMessage().lower()
+
+    # Tool must have loaded — _load_tool_path runs BEFORE the preset read,
+    # so an oversized preset must not prevent the tool from loading.
+    check(_s181c_win.tool_path is not None
+          and Path(_s181c_win.tool_path).resolve() == _s181_tool_path.resolve(),
+          f"181c: tool loaded before preset rejection "
+          f"(got tool_path={_s181c_win.tool_path!r})")
+    # The preset's "-c" sentinel must NOT have reached the form — proves
+    # apply_values was never called on the rejected preset.
+    _s181c_c_value = _s181c_win.form.get_field_value(
+        ("__global__", "-c")
+    ) if _s181c_win.form is not None else None
+    check("SHOULD_NOT_APPLY" not in str(_s181c_c_value),
+          f"181c: -c field NOT populated by oversized preset "
+          f"(got {_s181c_c_value!r})")
+    # Status must name the rejection — distinguishes this branch from
+    # the success branch ("Loaded cascade step: …").
+    check("preset not loaded" in _s181c_status,
+          f"181c: status names 'preset not loaded' (got {_s181c_status!r})")
+finally:
+    _s181c_win.close()
+    _s181c_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# Cleanup section 181
+shutil.rmtree(_s181_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+QSettings("Scaffold", "Scaffold").remove("favorites/s181_tool")
+# Defensive: 181a stubs the dialog and writes the oversized cascade
+# only to tmpdir, so nothing should land in the real cascades dir. If a
+# future refactor changes that, this catches the leak.
+for _s181_stale_name in ("s181a_oversized.json", "s181_rejectme.json"):
+    try:
+        (scaffold._cascades_dir() / _s181_stale_name).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
