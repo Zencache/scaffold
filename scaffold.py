@@ -6805,6 +6805,37 @@ class CascadeSidebar(QDockWidget):
         if preset_path and Path(preset_path).exists():
             try:
                 preset_data = _read_user_json(preset_path)
+                # Format-marker gate — surface malformed presets before
+                # apply_values silently tolerates missing meta keys. Absent
+                # _tool is legacy-allowed (mirrors _on_import_preset).
+                fmt = preset_data.get("_format")
+                current_tool = self._main_window.data["tool"]
+                saved_tool = preset_data.get("_tool")
+                marker_problem = None
+                if fmt is None:
+                    marker_problem = 'missing "_format" marker'
+                elif fmt == "scaffold_cascade":
+                    marker_problem = "is a cascade file, not a preset"
+                elif fmt != "scaffold_preset":
+                    marker_problem = (
+                        f'has "_format": {fmt!r} (expected "scaffold_preset")'
+                    )
+                elif saved_tool is not None and saved_tool != current_tool:
+                    marker_problem = (
+                        f'has "_tool": {saved_tool!r} '
+                        f'(expected {current_tool!r})'
+                    )
+                if marker_problem:
+                    print(
+                        f"[cascade] slot load rejected: {preset_path} \u2014 "
+                        f"{marker_problem} (current tool: {current_tool!r})",
+                        file=sys.stderr,
+                    )
+                    self._main_window.statusBar().showMessage(
+                        f"Preset not loaded: {Path(preset_path).name} "
+                        f"{marker_problem}"
+                    )
+                    return
                 had_pw = self._main_window.form.apply_values(preset_data)
                 msg = f"Loaded cascade step: {Path(preset_path).stem}"
                 if had_pw:
@@ -7223,6 +7254,44 @@ class CascadeSidebar(QDockWidget):
         if preset_path and Path(preset_path).exists():
             try:
                 preset_data = _read_user_json(preset_path)
+                # Format-marker gate: cascades run unattended, so a preset
+                # missing _format, or with wrong _format / _tool, would
+                # silently produce a wrong command via apply_values' tolerant
+                # handling of missing meta keys. UI mode (_on_import_preset)
+                # prompts instead; here we halt. Absent _tool is legacy-allowed
+                # (mirrors UI guard). Runs before _schema_hash so marker errors
+                # are named specifically instead of masked by a hash mismatch.
+                fmt = preset_data.get("_format")
+                current_tool = self._main_window.data["tool"]
+                saved_tool = preset_data.get("_tool")
+                marker_problem = None
+                if fmt is None:
+                    marker_problem = 'missing "_format" marker'
+                elif fmt == "scaffold_cascade":
+                    marker_problem = "is a cascade file, not a preset"
+                elif fmt != "scaffold_preset":
+                    marker_problem = (
+                        f'has "_format": {fmt!r} (expected "scaffold_preset")'
+                    )
+                elif saved_tool is not None and saved_tool != current_tool:
+                    marker_problem = (
+                        f'has "_tool": {saved_tool!r} '
+                        f'(expected {current_tool!r})'
+                    )
+                if marker_problem:
+                    preset_name = Path(preset_path).name
+                    print(
+                        f"[cascade] preset rejected: {preset_path} \u2014 "
+                        f"{marker_problem} (current tool: {current_tool!r})",
+                        file=sys.stderr,
+                    )
+                    self._cascade_finish_status = "error_halted"
+                    self._chain_cleanup(
+                        f"Cascade stopped: preset {preset_name} "
+                        f"{marker_problem} for step "
+                        f"{self._chain_current + 1}"
+                    )
+                    return
                 # Schema-hash gate: cascades run unattended, so a stale preset
                 # would silently produce a wrong command. UI mode (line ~8931)
                 # warns instead — correct there, since a human can react.
