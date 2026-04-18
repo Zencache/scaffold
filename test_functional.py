@@ -22255,14 +22255,14 @@ _s179_tool_data = {
     "description": "section 179 runner",
     "elevated": None,
     "subcommands": None,
-    "arguments": [_s179_make_arg("Code", "-c", "string")],
+    "arguments": [_s179_make_arg("Code", "-c", "string"), _s179_make_arg("Name", "-n", "string")],
 }
 _s179_tool_hash = scaffold.schema_hash(_s179_tool_data)
 _s179_tool_path = _s179_tmpdir / "s179_tool.json"
 _s179_tool_path.write_text(json.dumps(_s179_tool_data), encoding="utf-8")
 
 
-def _s179_write_preset(filename, code, extra_flags=None):
+def _s179_write_preset(filename, code, extra_flags=None, n_value=None):
     """Write a preset file with _schema_hash for s179 tool."""
     data = {
         "_format": "scaffold_preset",
@@ -22273,6 +22273,8 @@ def _s179_write_preset(filename, code, extra_flags=None):
     }
     if extra_flags is not None:
         data["_extra_flags"] = extra_flags
+    if n_value is not None:
+        data["-n"] = n_value
     p = _s179_tmpdir / filename
     p.write_text(json.dumps(data), encoding="utf-8")
     return p
@@ -22721,10 +22723,6 @@ def _s179_run_cascade_capture_argv(step1_captures, fake_extract_result,
     """
     p1 = _s179_write_preset("run_p1.json", "import sys; sys.stdout.write('READY\\n')")
     p2 = _s179_write_preset("run_p2.json", "pass", extra_flags=step2_extra_flags)
-    # Belt-and-suspenders: scrub session/last_tool so MainWindow.__init__
-    # cannot auto-load a stale tool whose apply_values reset would wipe
-    # preset values after the Phase 2 snapshot overlay (v2.9.5 deferred bug).
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
     win = scaffold.MainWindow()
     win.show()
     app.processEvents()
@@ -22958,6 +22956,104 @@ check("regex" in _s179_t15_status_l and "pool" in _s179_t15_status_l,
       f"T15: status mentions 'regex' and 'pool' (got {_s179_t15_status_l!r})")
 check(_s179_t15_state == scaffold.CHAIN_IDLE,
       f"T15: chain returned to IDLE after halt (got {_s179_t15_state!r})")
+
+
+# ---------------------------------------------------------------
+# T16 — snapshot overlay preserves step-2 preset fields absent from step-1 snapshot
+# ---------------------------------------------------------------
+print("\n--- T16: step-2 preset field preserved when step-1 snapshot omits it ---")
+
+# Two-step cascade, same tool both steps. Step 1's preset sets only -c.
+# Step 2's preset sets -c (different value) AND -n. At step 2's entry,
+# the serialize_values snapshot captures step 1's -c but not -n (step 1
+# never set it, so serialize_values skips it as None). The per-key overlay
+# fix must satisfy BOTH halves of the merge semantic:
+#  (a) Fields present in snapshot override preset — step 2's argv has -c
+#      set to STEP 1's value (not step 2's preset value "pass"). This
+#      distinguishes a real fix from a silent no-op (e.g. one that passed
+#      string keys to _set_field_value, which expects a tuple and would
+#      silently return).
+#  (b) Fields absent from snapshot retain preset value — step 2's argv
+#      has -n="step2val" from step 2's preset. Pre-fix behavior would
+#      have zeroed -n because step 1's snapshot didn't mention it.
+
+_s179_t16_p1 = _s179_write_preset(
+    "t16_p1.json", "import sys; sys.stdout.write('READY\\n')"
+)
+_s179_t16_p2 = _s179_write_preset(
+    "t16_p2.json", "pass", n_value="step2val"
+)
+
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+_s179_t16_win = scaffold.MainWindow()
+_s179_t16_win.show()
+app.processEvents()
+_s179_t16_dock = _s179_t16_win.cascade_dock
+_s179_t16_dock._cascade_variables = []
+_s179_t16_dock._stop_on_error = False
+
+_s179_t16_dock._slots[0]["tool_path"] = str(_s179_tool_path)
+_s179_t16_dock._slots[0]["preset_path"] = str(_s179_t16_p1)
+_s179_t16_dock._slots[0]["captures"] = [
+    {"name": "x", "source": "stdout", "pattern": r"(READY)", "group": 1}
+]
+_s179_t16_dock._slots[1]["tool_path"] = str(_s179_tool_path)
+_s179_t16_dock._slots[1]["preset_path"] = str(_s179_t16_p2)
+for _s179_i in range(2, len(_s179_t16_dock._slots)):
+    _s179_t16_dock._slots[_s179_i]["tool_path"] = None
+
+_s179_t16_prev_extract = scaffold.extract_captures
+scaffold.extract_captures = lambda *a, **kw: ({"x": "READY"}, [])
+
+_s179_t16_argvs = []
+_s179_t16_orig_stop = _s179_t16_win._on_run_stop
+
+def _s179_t16_intercept():
+    cmd, _ = _s179_t16_win.form.build_command()
+    _s179_t16_argvs.append(list(cmd))
+    if len(_s179_t16_argvs) == 1:
+        _s179_t16_orig_stop()
+    else:
+        _s179_t16_dock._chain_cleanup("test: step 2 argv captured")
+
+_s179_t16_win._on_run_stop = _s179_t16_intercept
+
+try:
+    _s179_t16_dock._on_run_chain()
+    _s179_wait_idle(_s179_t16_dock, max_iters=300, sleep_s=0.05)
+finally:
+    scaffold.extract_captures = _s179_t16_prev_extract
+    _s179_t16_win._on_run_stop = _s179_t16_orig_stop
+    _s179_t16_win.close()
+    _s179_t16_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+check(len(_s179_t16_argvs) == 2,
+      f"T16: both steps reached _on_run_stop (got {len(_s179_t16_argvs)})")
+if len(_s179_t16_argvs) >= 2:
+    _s179_t16_step2 = _s179_t16_argvs[1]
+    # (b) snapshot-absent field preserved from preset
+    check("-n" in _s179_t16_step2,
+          f"T16: step-2 argv contains '-n' from step-2 preset (preset "
+          f"preserved for snapshot-absent field) (got {_s179_t16_step2!r})")
+    check("step2val" in _s179_t16_step2,
+          f"T16: step-2 argv contains 'step2val' from step-2 preset "
+          f"(got {_s179_t16_step2!r})")
+    # (a) snapshot-present field overrides preset — distinguishes real
+    # fix from a silent no-op (a no-op would leave step 2's -c == "pass")
+    check("import sys; sys.stdout.write('READY\\n')" in _s179_t16_step2,
+          f"T16: step-2 argv -c contains step 1's value (snapshot "
+          f"overlay applied) (got {_s179_t16_step2!r})")
+    check("pass" not in _s179_t16_step2,
+          f"T16: step-2 argv does NOT contain 'pass' (step 2's preset "
+          f"-c was overlaid by step 1's snapshot value) "
+          f"(got {_s179_t16_step2!r})")
+else:
+    check(False, "T16: step-2 '-n' check skipped — fewer than 2 argvs")
+    check(False, "T16: step-2 'step2val' check skipped")
+    check(False, "T16: step-2 overlay-applied check skipped")
+    check(False, "T16: step-2 no-op-guard check skipped")
 
 
 # Cleanup section 179

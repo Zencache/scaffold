@@ -7042,6 +7042,67 @@ class CascadeSidebar(QDockWidget):
         for key, new_value in pending:
             form._set_field_value(key, new_value)
 
+    def _substitute_in_extra_flags(self, form) -> None:
+        """Substitute {capture} tokens in the Additional Flags buffer.
+
+        Uses single-token semantics: each {name} must resolve to
+        exactly one shlex token. If any capture resolves to
+        multi-token text (e.g. contains a space outside quotes, or
+        a shell metacharacter that shlex treats as a separator),
+        halt the chain with a clear error naming the capture and
+        its resolved value.
+
+        Leaves the buffer unchanged if there are no {name} tokens
+        that match defined captures. Unset captures fall through
+        to substitute_captures' existing empty-string behavior.
+        """
+        if not self._chain_variable_values:
+            return
+        if not hasattr(form, "extra_flags_edit") or form.extra_flags_edit is None:
+            return
+        original = form.extra_flags_edit.toPlainText()
+
+        # Pre-validate: every {name} in the buffer whose name
+        # resolves to a multi-token value must halt. We do this
+        # BEFORE calling _substitute_captures so the halt message
+        # can name the specific capture and its resolved value.
+        import shlex as _shlex
+        pattern = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+        for m in pattern.finditer(original):
+            name = m.group(1)
+            if name not in self._chain_variable_values:
+                continue  # unset — let _substitute_captures handle (becomes empty)
+            value = str(self._chain_variable_values[name])
+            try:
+                tokens = _shlex.split(value)
+            except ValueError as _e:
+                self._cascade_finish_status = "error_halted"
+                self._chain_cleanup(
+                    f"Cascade stopped: capture '{name}' has unparseable "
+                    f"value {value!r} for extra flags ({_e})"
+                )
+                return
+            if len(tokens) != 1:
+                self._cascade_finish_status = "error_halted"
+                self._chain_cleanup(
+                    f"Cascade stopped: capture '{name}' resolved to "
+                    f"multi-token value {value!r} in extra flags "
+                    f"(expected single token, got {len(tokens)})"
+                )
+                return
+
+        # All {captures} in the buffer resolve to single tokens
+        # (or are unset). Delegate to _substitute_captures for the
+        # actual rewrite — it handles the unset-capture warnings
+        # and the argv-flag injection guard.
+        new_text = self._substitute_captures(
+            original, self._chain_variable_values
+        )
+        if self._chain_state == CHAIN_IDLE:
+            return  # halt fired inside _substitute_captures
+        if new_text != original:
+            form.extra_flags_edit.setPlainText(new_text)
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -7210,21 +7271,33 @@ class CascadeSidebar(QDockWidget):
             )
             return
 
-        # Overlay snapshot AFTER preset so user edits win.
-        # Intentional fallback: if overlay fails (e.g. snapshot has keys the
-        # current form doesn't expose), continue with the preset-only values
-        # rather than halting the chain. User edits are a best-effort overlay.
-        #
-        # Known bug (deferred to v2.9.5): apply_values() resets all fields
-        # before applying snapshot values, so an empty snapshot (e.g. when the
-        # cascade's first step matches the tool auto-loaded from
-        # session/last_tool and the user hasn't touched the form) wipes the
-        # preset values that were just applied. Fix is a per-key overlay loop
-        # that preserves preset values for fields the snapshot omits; will
-        # ship with its own targeted test.
+        # Overlay snapshot AFTER preset so user edits win. The snapshot captures
+        # the form state at the start of THIS step (before preset load), so keys
+        # present in the snapshot represent values that existed going into the
+        # step — we merge those OVER the preset. Fields absent from the snapshot
+        # retain their preset value. This fixes a bug where a full apply_values
+        # reset clobbered the just-applied preset for fields the snapshot didn't
+        # mention (common case: step N-1 and step N share a tool, step N-1's
+        # snapshot lacks step N's preset-only fields, apply_values zeroed them).
+        # Intentional fallback: if overlay fails for a specific key, continue
+        # with the preset-only value for that key rather than halting the chain.
         if snapshot is not None and self._main_window.form is not None:
+            form = self._main_window.form
             try:
-                self._main_window.form.apply_values(snapshot)
+                for key, field in form.fields.items():
+                    scope, flag = key
+                    pk = flag if scope == form.GLOBAL else f"{scope}:{flag}"
+                    if pk in snapshot:
+                        try:
+                            form._set_field_value(key, snapshot[pk])
+                        except Exception:
+                            pass
+                # _extra_flags is not a field key; handle separately.
+                # Absent from snapshot → preset's extra_flags survives.
+                if "_extra_flags" in snapshot and hasattr(form, "extra_flags_edit"):
+                    form.extra_flags_edit.setPlainText(snapshot["_extra_flags"])
+                    if hasattr(form, "extra_flags_group"):
+                        form.extra_flags_group.setChecked(True)
             except Exception:
                 pass
 
@@ -7262,6 +7335,10 @@ class CascadeSidebar(QDockWidget):
             self._substitute_in_form_fields(form)
             if self._chain_state == CHAIN_IDLE:
                 return  # guard or unset halt fired
+        if form is not None and self._chain_variable_values:
+            self._substitute_in_extra_flags(form)
+            if self._chain_state == CHAIN_IDLE:
+                return  # multi-token halt fired
 
         # Small delay to let the form render before executing
         QTimer.singleShot(150, self._chain_execute_current)
