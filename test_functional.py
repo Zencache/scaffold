@@ -23600,6 +23600,296 @@ for _s181_stale_name in ("s181a_oversized.json", "s181_rejectme.json"):
         pass
 
 
+print("\n=== SECTION 182: cascade-side malformed preset rejection ===")
+# =====================================================================
+# v2.9.3 shipped a _schema_hash mismatch halt at the cascade-step preset
+# resolution site (_chain_advance, scaffold.py:7225) to stop stale-preset
+# silent-run. The adjacent gap — preset missing _format, wrong _format,
+# or with a _tool mismatch — was not guarded. apply_values tolerates
+# missing meta keys, so a malformed preset silently produced a wrong
+# command when consumed during a cascade run. The _on_slot_clicked
+# interactive load path (scaffold.py:6807) had the same gap.
+#
+# §182 pins the rejection behavior at both sites:
+#   - Site 4 (_on_slot_clicked): status-bar message, form NOT modified.
+#   - Site 5 (_chain_advance):   _cascade_finish_status == "error_halted",
+#     _chain_cleanup halt message names the specific marker problem.
+# Both sites stderr-log a forensic [cascade] line with the file path and
+# current-tool context for post-mortem debugging.
+#
+# Positive coverage for Site 5 (valid-marker preset progresses through a
+# cascade run) is provided by §179 T17 (T17a-T17d exercise
+# _s179_run_cascade_capture_argv which writes markered presets via
+# _s179_write_preset). §182 T1 adds Site 4's positive regression guard.
+#
+# Negative coverage picks the most representative variants per site based
+# on Step 1 findings: missing _format (V1 — the most common silent-fall-
+# through from hand-edited or externally-generated presets), _tool
+# mismatch (V2-shaped — user moved a preset between tools), and wrong
+# _format == "scaffold_cascade" (V5-shaped — user pointed at a cascade
+# file). Truncated-JSON (V6) errors cleanly through the existing
+# JSONDecodeError branch and does not need new coverage.
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+_s182_tmpdir = Path(tempfile.mkdtemp(prefix="s182_"))
+
+_s182_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s182_py",
+    "binary": sys.executable,
+    "description": "section 182 runner",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [_s179_make_arg("Code", "-c", "string")],
+}
+_s182_tool_hash = scaffold.schema_hash(_s182_tool_data)
+_s182_tool_path = _s182_tmpdir / "s182_tool.json"
+_s182_tool_path.write_text(json.dumps(_s182_tool_data), encoding="utf-8")
+
+
+def _s182_write_preset(name, markers=None, code="import sys; sys.stdout.write('OK\\n')"):
+    """Write a preset file; *markers* overrides defaults.
+
+    Defaults produce a valid preset. Pass markers={"_format": None} to
+    omit _format; {"_tool": "other"} to set a mismatching _tool; etc.
+    Keys with value None are removed from the preset.
+    """
+    data = {
+        "_format": "scaffold_preset",
+        "_tool": "s182_py",
+        "_subcommand": None,
+        "_schema_hash": _s182_tool_hash,
+        "-c": code,
+    }
+    if markers:
+        for k, v in markers.items():
+            if v is None and k in data:
+                del data[k]
+            else:
+                data[k] = v
+    p = _s182_tmpdir / name
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+# ---------------------------------------------------------------
+# T1 — Site 4 positive: valid preset click loads form cleanly
+# ---------------------------------------------------------------
+# Regression guard: ensures the new Site 4 validation does not block
+# the happy path. A markered preset must still reach apply_values.
+print("\n--- T1: Site 4 valid preset on click → form loaded ---")
+
+_s182_t1_preset = _s182_write_preset("t1_valid.json", code="T1_SENTINEL")
+
+_s182_t1_win = scaffold.MainWindow()
+_s182_t1_win.show()
+app.processEvents()
+_s182_t1_dock = _s182_t1_win.cascade_dock
+try:
+    _s182_t1_dock._slots[0]["tool_path"] = str(_s182_tool_path)
+    _s182_t1_dock._slots[0]["preset_path"] = str(_s182_t1_preset)
+    _s182_t1_dock._on_slot_clicked(0)
+    app.processEvents()
+
+    _s182_t1_status = _s182_t1_win.statusBar().currentMessage().lower()
+    _s182_t1_c = _s182_t1_win.form.get_field_value(("__global__", "-c"))
+    check("T1_SENTINEL" in str(_s182_t1_c),
+          f"T1: form -c populated from valid preset (got {_s182_t1_c!r})")
+    check("loaded cascade step" in _s182_t1_status,
+          f"T1: status confirms load (got {_s182_t1_status!r})")
+finally:
+    _s182_t1_win.close()
+    _s182_t1_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# ---------------------------------------------------------------
+# T2 — Site 4 negative: missing _format → preset rejected, form unchanged
+# ---------------------------------------------------------------
+print("\n--- T2: Site 4 missing _format on click → rejected, stderr logged ---")
+
+_s182_t2_preset = _s182_write_preset(
+    "t2_no_format.json", markers={"_format": None}, code="T2_SHOULD_NOT_APPLY"
+)
+
+_s182_t2_win = scaffold.MainWindow()
+_s182_t2_win.show()
+app.processEvents()
+_s182_t2_dock = _s182_t2_win.cascade_dock
+try:
+    _s182_t2_dock._slots[0]["tool_path"] = str(_s182_tool_path)
+    _s182_t2_dock._slots[0]["preset_path"] = str(_s182_t2_preset)
+    with _patch_stderr() as _s182_t2_stderr:
+        _s182_t2_dock._on_slot_clicked(0)
+        app.processEvents()
+    _s182_t2_status = _s182_t2_win.statusBar().currentMessage().lower()
+    _s182_t2_stderr_text = _s182_t2_stderr.getvalue()
+    _s182_t2_c = _s182_t2_win.form.get_field_value(("__global__", "-c"))
+
+    check("T2_SHOULD_NOT_APPLY" not in str(_s182_t2_c),
+          f"T2: form -c NOT populated by rejected preset (got {_s182_t2_c!r})")
+    check("preset not loaded" in _s182_t2_status
+          and "missing" in _s182_t2_status and "_format" in _s182_t2_status,
+          f"T2: status names missing _format (got {_s182_t2_status!r})")
+    check("[cascade] slot load rejected" in _s182_t2_stderr_text
+          and "t2_no_format.json" in _s182_t2_stderr_text,
+          f"T2: stderr forensic line names file + rejection "
+          f"(got {_s182_t2_stderr_text!r})")
+finally:
+    _s182_t2_win.close()
+    _s182_t2_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# ---------------------------------------------------------------
+# T3 — Site 4 negative: _tool mismatch → preset rejected, form unchanged
+# ---------------------------------------------------------------
+print("\n--- T3: Site 4 _tool mismatch on click → rejected ---")
+
+_s182_t3_preset = _s182_write_preset(
+    "t3_wrong_tool.json", markers={"_tool": "other_tool"}, code="T3_SHOULD_NOT_APPLY"
+)
+
+_s182_t3_win = scaffold.MainWindow()
+_s182_t3_win.show()
+app.processEvents()
+_s182_t3_dock = _s182_t3_win.cascade_dock
+try:
+    _s182_t3_dock._slots[0]["tool_path"] = str(_s182_tool_path)
+    _s182_t3_dock._slots[0]["preset_path"] = str(_s182_t3_preset)
+    _s182_t3_dock._on_slot_clicked(0)
+    app.processEvents()
+    _s182_t3_status = _s182_t3_win.statusBar().currentMessage().lower()
+    _s182_t3_c = _s182_t3_win.form.get_field_value(("__global__", "-c"))
+
+    check("T3_SHOULD_NOT_APPLY" not in str(_s182_t3_c),
+          f"T3: form -c NOT populated by rejected preset (got {_s182_t3_c!r})")
+    check("preset not loaded" in _s182_t3_status
+          and "_tool" in _s182_t3_status and "other_tool" in _s182_t3_status,
+          f"T3: status names _tool mismatch (got {_s182_t3_status!r})")
+finally:
+    _s182_t3_win.close()
+    _s182_t3_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# ---------------------------------------------------------------
+# Helpers for T4, T5 — run a 2-step cascade where step 2 uses the given
+# malformed preset; captures whether step 2 reached _on_run_stop and
+# the halt path artifacts. Step 1 uses a valid preset and runs for real.
+# ---------------------------------------------------------------
+
+def _s182_run_cascade_with_malformed_step2(malformed_preset_path):
+    """Run a 2-step cascade where step 1 is valid and step 2 uses the
+    given (malformed) preset. Returns (finish_status, status_msg_lower,
+    stderr_text, step2_argv_reached_count).
+    """
+    p1 = _s182_write_preset("t45_p1.json", code="import sys; sys.stdout.write('READY\\n')")
+
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    win = scaffold.MainWindow()
+    win.show()
+    app.processEvents()
+    dock = win.cascade_dock
+    dock._cascade_variables = []
+    dock._stop_on_error = False
+
+    dock._slots[0]["tool_path"] = str(_s182_tool_path)
+    dock._slots[0]["preset_path"] = str(p1)
+    dock._slots[0]["captures"] = []
+    dock._slots[1]["tool_path"] = str(_s182_tool_path)
+    dock._slots[1]["preset_path"] = str(malformed_preset_path)
+    for i in range(2, len(dock._slots)):
+        dock._slots[i]["tool_path"] = None
+
+    step2_reached = [0]
+    orig_run_stop = win._on_run_stop
+
+    def intercept():
+        if step2_reached[0] == 0:
+            step2_reached[0] = 1
+            orig_run_stop()
+        else:
+            step2_reached[0] = 2
+            dock._chain_cleanup("t45: step 2 unexpectedly reached")
+
+    win._on_run_stop = intercept
+    try:
+        with _patch_stderr() as buf:
+            dock._on_run_chain()
+            _s179_wait_idle(dock, max_iters=300, sleep_s=0.05)
+        finish = dock._cascade_finish_status
+        status = win.statusBar().currentMessage().lower()
+        stderr_text = buf.getvalue()
+    finally:
+        win._on_run_stop = orig_run_stop
+        win.close()
+        win.deleteLater()
+        app.processEvents()
+        QSettings("Scaffold", "Scaffold").remove("cascade")
+        QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+    return finish, status, stderr_text, step2_reached[0]
+
+
+# ---------------------------------------------------------------
+# T4 — Site 5 cascade run: missing _format at step 2 → chain halts
+# ---------------------------------------------------------------
+print("\n--- T4: Site 5 missing _format during cascade → halt ---")
+
+_s182_t4_preset = _s182_write_preset(
+    "t4_no_format.json", markers={"_format": None}, code="pass"
+)
+_s182_t4_finish, _s182_t4_status, _s182_t4_stderr, _s182_t4_step2 = (
+    _s182_run_cascade_with_malformed_step2(_s182_t4_preset)
+)
+
+check(_s182_t4_finish == "error_halted",
+      f"T4: finish_status == 'error_halted' (got {_s182_t4_finish!r})")
+check("cascade stopped" in _s182_t4_status
+      and "missing" in _s182_t4_status and "_format" in _s182_t4_status,
+      f"T4: halt msg names missing _format (got {_s182_t4_status!r})")
+check("[cascade] preset rejected" in _s182_t4_stderr
+      and "t4_no_format.json" in _s182_t4_stderr,
+      f"T4: stderr forensic line present (got {_s182_t4_stderr!r})")
+
+
+# ---------------------------------------------------------------
+# T5 — Site 5 cascade run: _format="scaffold_cascade" at step 2 → halt
+# ---------------------------------------------------------------
+# Represents the V5 class: user pointed a cascade step at a cascade
+# file by mistake. The halt message must distinguish this from the
+# generic "wrong _format" case so the user knows what to fix.
+print("\n--- T5: Site 5 _format=scaffold_cascade during cascade → halt ---")
+
+_s182_t5_preset = _s182_write_preset(
+    "t5_cascade_fmt.json",
+    markers={"_format": "scaffold_cascade"}, code="pass",
+)
+_s182_t5_finish, _s182_t5_status, _s182_t5_stderr, _s182_t5_step2 = (
+    _s182_run_cascade_with_malformed_step2(_s182_t5_preset)
+)
+
+check(_s182_t5_finish == "error_halted",
+      f"T5: finish_status == 'error_halted' (got {_s182_t5_finish!r})")
+check("cascade stopped" in _s182_t5_status
+      and "cascade file" in _s182_t5_status,
+      f"T5: halt msg names wrong-format kind (got {_s182_t5_status!r})")
+
+
+# Cleanup section 182
+shutil.rmtree(_s182_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================
