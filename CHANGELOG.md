@@ -5,7 +5,7 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.9.3] — 2026-04-17
 
-Completes the cascade TOCTOU hardening arc that was deferred from a previous release. Cascade preset loading now halts on `_schema_hash` mismatch instead of silently applying a stale preset and running the wrong command.
+Completes the cascade TOC/TOU hardening arc that was deferred from a previous release. Cascade preset loading now halts on `_schema_hash` mismatch instead of silently applying a stale preset and running the wrong command.
 
 ### Fixed
 
