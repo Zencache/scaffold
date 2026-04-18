@@ -23082,6 +23082,86 @@ else:
     check(False, "T16: step-2 no-op-guard check skipped")
 
 
+# ---------------------------------------------------------------
+# T17 — mid-token {capture} substitution supported (positive cases)
+# ---------------------------------------------------------------
+# Pins mid-token substitution as supported behavior. The
+# _substitute_in_extra_flags enforcement is VALUE-level (the captured
+# value must be a single shlex token), not buffer-position. Patterns
+# that embed {capture} inside a larger argv token (prefix/suffix,
+# file-extension, --flag=value, host:port) must substitute cleanly
+# without halting. T10 covers the halt path (multi-token value);
+# T17 guards the legitimate mid-token use cases from silent breakage.
+print("\n--- T17: mid-token {capture} substitution positive cases ---")
+
+# T17a — prefix-{target}-suffix
+_s179_t17a_argvs, _s179_t17a_finish, _s179_t17a_status, _s179_t17a_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "target", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"target": "example.com"},
+    step2_extra_flags="prefix-{target}-suffix",
+    stop_on_error=False,
+)
+check(len(_s179_t17a_argvs) >= 2,
+      f"T17a: both steps reached _on_run_stop (got {len(_s179_t17a_argvs)})")
+if len(_s179_t17a_argvs) >= 2:
+    check("prefix-example.com-suffix" in _s179_t17a_argvs[1],
+          f"T17a: step-2 argv contains 'prefix-example.com-suffix' "
+          f"(got {_s179_t17a_argvs[1]!r})")
+else:
+    check(False, "T17a: step-2 argv substitution check skipped — fewer than 2 argvs")
+
+# T17b — {path}.log
+_s179_t17b_argvs, _s179_t17b_finish, _s179_t17b_status, _s179_t17b_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "path", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"path": "/tmp/scan"},
+    step2_extra_flags="{path}.log",
+    stop_on_error=False,
+)
+check(len(_s179_t17b_argvs) >= 2,
+      f"T17b: both steps reached _on_run_stop (got {len(_s179_t17b_argvs)})")
+if len(_s179_t17b_argvs) >= 2:
+    check("/tmp/scan.log" in _s179_t17b_argvs[1],
+          f"T17b: step-2 argv contains '/tmp/scan.log' "
+          f"(got {_s179_t17b_argvs[1]!r})")
+else:
+    check(False, "T17b: step-2 argv substitution check skipped — fewer than 2 argvs")
+
+# T17c — --output={logfile}
+_s179_t17c_argvs, _s179_t17c_finish, _s179_t17c_status, _s179_t17c_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "logfile", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"logfile": "out.txt"},
+    step2_extra_flags="--output={logfile}",
+    stop_on_error=False,
+)
+check(len(_s179_t17c_argvs) >= 2,
+      f"T17c: both steps reached _on_run_stop (got {len(_s179_t17c_argvs)})")
+if len(_s179_t17c_argvs) >= 2:
+    check("--output=out.txt" in _s179_t17c_argvs[1],
+          f"T17c: step-2 argv contains '--output=out.txt' "
+          f"(got {_s179_t17c_argvs[1]!r})")
+else:
+    check(False, "T17c: step-2 argv substitution check skipped — fewer than 2 argvs")
+
+# T17d — {host}:{port} (two captures combined inside one token)
+_s179_t17d_argvs, _s179_t17d_finish, _s179_t17d_status, _s179_t17d_state = _s179_run_cascade_capture_argv(
+    step1_captures=[
+        {"name": "host", "source": "stdout", "pattern": r"(READY)", "group": 1},
+        {"name": "port", "source": "stdout", "pattern": r"(READY)", "group": 1},
+    ],
+    fake_extract_result={"host": "example.com", "port": "8080"},
+    step2_extra_flags="{host}:{port}",
+    stop_on_error=False,
+)
+check(len(_s179_t17d_argvs) >= 2,
+      f"T17d: both steps reached _on_run_stop (got {len(_s179_t17d_argvs)})")
+if len(_s179_t17d_argvs) >= 2:
+    check("example.com:8080" in _s179_t17d_argvs[1],
+          f"T17d: step-2 argv contains 'example.com:8080' "
+          f"(got {_s179_t17d_argvs[1]!r})")
+else:
+    check(False, "T17d: step-2 argv substitution check skipped — fewer than 2 argvs")
+
+
 # Cleanup section 179
 shutil.rmtree(_s179_tmpdir, ignore_errors=True)
 QSettings("Scaffold", "Scaffold").remove("cascade")

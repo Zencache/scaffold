@@ -3,6 +3,30 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.6] — 2026-04-18
+
+Docs-plus-tests release — no behavior changes to `scaffold.py` beyond the version bump. Mid-token `{capture}` substitution pinned as supported behavior with positive-case tests at four canonical patterns. Two v2.9.4 CHANGELOG bullets corrected in place to accurately describe the implemented enforcement semantics.
+
+### Added
+
+- **§179 T17 — mid-token `{capture}` substitution positive-case tests (8 assertions across 4 patterns)** — `prefix-{capture}-suffix`, `{capture}.log`, `--output={capture}`, `{host}:{port}`. The `_substitute_in_extra_flags` enforcement is value-level (captured value must be a single shlex token), not buffer-position, so mid-token references are legitimate. T17 guards these patterns from silent breakage during future refactors. T10 remains the sole halt-path coverage for the multi-token injection case.
+
+### Changed
+
+- **v2.9.4 CHANGELOG entry amended in place** — the `_read_user_json` "five sites" bullet now accurately distinguishes the three cascade/slot sites covered by the new helper (cascade import, cascade list load, cascade-step preset resolution, 2 MB cap via `MAX_PRESET_SIZE`) from the two preset sites covered by the pre-existing `_read_json_file` path (preset load, preset import, 1 MB cap via `MAX_SCHEMA_SIZE`).
+- **v2.9.4 CHANGELOG entry amended in place** — the `extra_flags {capture}` bullet now describes value-level single-token enforcement (each `{capture}` must resolve to a single shlex token; multi-token values halt the chain) rather than buffer-position enforcement. Explicitly notes that mid-token references such as `prefix-{capture}-suffix` and `--output={capture}` are supported.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,965/2,965 assertions, 0 failures**
+  - Functional: 2,592/2,592 (was 2,584; +8 from §179 T17)
+  - Security: 159/159
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.5] — 2026-04-18
 
 Test-infrastructure release — no behavior changes to `scaffold.py` beyond the version bump. Adds `_patch_qmb` / `_patch_stderr` context-manager helpers for common patches, a multi-subcommand same-tool cascade overlay regression guard, and `_read_user_json` size-cap coverage at three previously-uncovered call sites.
@@ -35,9 +59,9 @@ Cascade resilience and data-layer hardening. Closes three silent-failure modes i
 - **Autosave failures now notify the user on first occurrence** — new `_autosave_warned` session flag drives a one-shot status-bar warning; subsequent failures stay silent to avoid noise. Previously failures logged to stderr only and users discovered the loss on next launch. §179 T3.
 - **Corrupted `cascade/slots` and `cascade/variables` QSettings surface a warning** — `_load_cascade` no longer swallows `json.JSONDecodeError` and silently resets. Stderr warning + status-bar notice name the corrupted key so the user can restore before re-saving clobbers recoverable state. §179 T4, T5.
 - **`CustomPathsDialog` surfaces corrupted `custom_paths` instead of dropping them** — `QMessageBox.warning` names the QSettings key on parse failure. §179 T6.
-- **Oversized preset and cascade files rejected at every load site** — five user-facing JSON load sites (cascade import, cascade list load, preset load, preset import, cascade-step preset resolution) now route through the new `_read_user_json` helper enforcing a 2 MB cap (`MAX_PRESET_SIZE`). §179 T7, T8.
+- **Oversized preset and cascade files rejected at every load site** — three cascade/slot JSON load sites (cascade import, cascade list load, cascade-step preset resolution) now route through the new `_read_user_json` helper enforcing a 2 MB cap (`MAX_PRESET_SIZE`). Preset load and preset import continue to use `_read_json_file` with the pre-existing `MAX_SCHEMA_SIZE` (1 MB) cap. §179 T7, T8.
 - **Snapshot overlay no longer clobbers step N's preset with step N-1's form state** — when consecutive cascade steps used the same tool, the overlay path replaced step N's preset wholesale with the step N-1 form snapshot. Now merges over the preset: snapshot wins only for keys present in the snapshot; other keys keep their step N preset value. Brought forward from deferred v2.9.5 scope as a prerequisite for T16. §179 T16.
-- **`extra_flags` buffer now substitutes `{capture}` tokens during cascade runs** — the buffer was copied into argv verbatim, so `{name}` reached the subprocess as literal braces. Cascade runs now route the buffer through `_substitute_in_extra_flags` with single-token enforcement (a `{capture}` must be a whole shell token, not a fragment). §179 T9–T12.
+- **`extra_flags` buffer now substitutes `{capture}` tokens during cascade runs** — the buffer was copied into argv verbatim, so `{name}` reached the subprocess as literal braces. Cascade runs now route the buffer through `_substitute_in_extra_flags` with value-level single-token enforcement (each `{capture}` must resolve to a single shlex token; injection via multi-token values halts the chain). Mid-token references such as `prefix-{capture}-suffix` or `--output={capture}` are supported. §179 T9–T12.
 
 ### Changed
 
