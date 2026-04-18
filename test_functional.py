@@ -22228,6 +22228,660 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # =====================================================================
+print("\n=== SECTION 179: v2.9.4 characterization — cascade/data-layer/extra_flags ===")
+# =====================================================================
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s179_tmpdir = Path(tempfile.mkdtemp(prefix="s179_"))
+
+
+def _s179_make_arg(name, flag, type_, separator="space"):
+    return {
+        "name": name, "flag": flag, "type": type_,
+        "description": "", "required": False, "default": None,
+        "choices": None, "group": None, "depends_on": None,
+        "repeatable": False, "separator": separator, "positional": False,
+        "short_flag": None, "validation": None, "examples": None,
+        "display_group": None, "min": None, "max": None,
+        "deprecated": None, "dangerous": False,
+    }
+
+
+# Shared tool schema: python -c "<code>" — portable, fast, predictable output
+_s179_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s179_py",
+    "binary": sys.executable,
+    "description": "section 179 runner",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [_s179_make_arg("Code", "-c", "string")],
+}
+_s179_tool_hash = scaffold.schema_hash(_s179_tool_data)
+_s179_tool_path = _s179_tmpdir / "s179_tool.json"
+_s179_tool_path.write_text(json.dumps(_s179_tool_data), encoding="utf-8")
+
+
+def _s179_write_preset(filename, code, extra_flags=None):
+    """Write a preset file with _schema_hash for s179 tool."""
+    data = {
+        "_format": "scaffold_preset",
+        "_tool": "s179_py",
+        "_subcommand": None,
+        "_schema_hash": _s179_tool_hash,
+        "-c": code,
+    }
+    if extra_flags is not None:
+        data["_extra_flags"] = extra_flags
+    p = _s179_tmpdir / filename
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+def _s179_wait_idle(dock, max_iters=300, sleep_s=0.05):
+    for _ in range(max_iters):
+        app.processEvents()
+        time.sleep(sleep_s)
+        if dock._chain_state == scaffold.CHAIN_IDLE:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------
+# T1 — multiprocessing.Pool failure during capture: chain must halt cleanly
+# ---------------------------------------------------------------
+print("\n--- T1: regex Pool OSError → chain halts cleanly ---")
+
+scaffold._reset_regex_pool()
+scaffold._regex_pool = None
+_s179_orig_pool = scaffold.multiprocessing.Pool
+
+def _s179_t1_bad_pool(*a, **kw):
+    raise OSError("EMFILE synthetic (T1)")
+
+scaffold.multiprocessing.Pool = _s179_t1_bad_pool
+
+_s179_t1_p1 = _s179_write_preset("t1_p1.json", "import sys; sys.stdout.write('HOST=example.com\\n')")
+_s179_t1_p2 = _s179_write_preset("t1_p2.json", "pass")
+_s179_t1_win = scaffold.MainWindow()
+_s179_t1_win.show()
+app.processEvents()
+_s179_t1_dock = _s179_t1_win.cascade_dock
+_s179_t1_dock._cascade_variables = []
+_s179_t1_orig_on_finished = _s179_t1_win._on_finished
+
+try:
+    _s179_t1_dock._slots[0]["tool_path"] = str(_s179_tool_path)
+    _s179_t1_dock._slots[0]["preset_path"] = str(_s179_t1_p1)
+    _s179_t1_dock._slots[0]["captures"] = [
+        {"name": "host", "source": "stdout", "pattern": r"HOST=(\S+)", "group": 1}
+    ]
+    _s179_t1_dock._slots[1]["tool_path"] = str(_s179_tool_path)
+    _s179_t1_dock._slots[1]["preset_path"] = str(_s179_t1_p2)
+    for _s179_i in range(2, len(_s179_t1_dock._slots)):
+        _s179_t1_dock._slots[_s179_i]["tool_path"] = None
+
+    _s179_t1_dock._on_run_chain()
+    _s179_wait_idle(_s179_t1_dock)
+
+    _s179_t1_status = _s179_t1_win.statusBar().currentMessage().lower()
+    check(_s179_t1_dock._chain_state == scaffold.CHAIN_IDLE,
+          f"T1: chain returned to IDLE after Pool failure (got {_s179_t1_dock._chain_state!r})")
+    check(_s179_t1_dock.run_chain_btn.isEnabled(),
+          "T1: run_chain_btn re-enabled after Pool failure")
+    check(_s179_t1_dock._cascade_finish_status == "error_halted" or
+          (_s179_t1_dock._cascade_finish_status is None and "error" in _s179_t1_status),
+          f"T1: finish_status == 'error_halted' or recorded (got {_s179_t1_dock._cascade_finish_status!r})")
+    check(any(tok in _s179_t1_status for tok in ("regex", "pool", "capture")),
+          f"T1: status names regex/pool/capture (got {_s179_t1_status!r})")
+    check(_s179_t1_win._on_finished is _s179_t1_orig_on_finished,
+          "T1: MainWindow._on_finished restored after halt")
+finally:
+    scaffold.multiprocessing.Pool = _s179_orig_pool
+    scaffold._reset_regex_pool()
+    scaffold._regex_pool = None
+    _s179_t1_win.close()
+    _s179_t1_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# T2 — extract_captures raising unexpected exception: chain must halt cleanly
+# ---------------------------------------------------------------
+print("\n--- T2: extract_captures RuntimeError → chain halts cleanly ---")
+
+_s179_orig_extract = scaffold.extract_captures
+
+def _s179_t2_bad_extract(*a, **kw):
+    raise RuntimeError("synthetic capture failure (T2)")
+
+scaffold.extract_captures = _s179_t2_bad_extract
+
+_s179_t2_p1 = _s179_write_preset("t2_p1.json", "import sys; sys.stdout.write('X\\n')")
+_s179_t2_p2 = _s179_write_preset("t2_p2.json", "pass")
+_s179_t2_win = scaffold.MainWindow()
+_s179_t2_win.show()
+app.processEvents()
+_s179_t2_dock = _s179_t2_win.cascade_dock
+_s179_t2_dock._cascade_variables = []
+_s179_t2_orig_on_finished = _s179_t2_win._on_finished
+
+try:
+    _s179_t2_dock._slots[0]["tool_path"] = str(_s179_tool_path)
+    _s179_t2_dock._slots[0]["preset_path"] = str(_s179_t2_p1)
+    _s179_t2_dock._slots[0]["captures"] = [
+        {"name": "x", "source": "stdout", "pattern": r"(X)", "group": 1}
+    ]
+    _s179_t2_dock._slots[1]["tool_path"] = str(_s179_tool_path)
+    _s179_t2_dock._slots[1]["preset_path"] = str(_s179_t2_p2)
+    for _s179_i in range(2, len(_s179_t2_dock._slots)):
+        _s179_t2_dock._slots[_s179_i]["tool_path"] = None
+
+    _s179_t2_dock._on_run_chain()
+    _s179_wait_idle(_s179_t2_dock)
+
+    _s179_t2_status = _s179_t2_win.statusBar().currentMessage().lower()
+    check(_s179_t2_dock._chain_state == scaffold.CHAIN_IDLE,
+          f"T2: chain returned to IDLE after extract_captures crash (got {_s179_t2_dock._chain_state!r})")
+    check(_s179_t2_dock.run_chain_btn.isEnabled(),
+          "T2: run_chain_btn re-enabled after extract_captures crash")
+    check(_s179_t2_dock._cascade_finish_status == "error_halted",
+          f"T2: finish_status == 'error_halted' (got {_s179_t2_dock._cascade_finish_status!r})")
+    check(any(tok in _s179_t2_status for tok in ("synthetic", "crash", "capture", "error")),
+          f"T2: status mentions capture crash (got {_s179_t2_status!r})")
+    check(_s179_t2_win._on_finished is _s179_t2_orig_on_finished,
+          "T2: MainWindow._on_finished restored after crash")
+finally:
+    scaffold.extract_captures = _s179_orig_extract
+    _s179_t2_win.close()
+    _s179_t2_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# T3 — autosave OSError must surface warning exactly once
+# ---------------------------------------------------------------
+print("\n--- T3: autosave OSError → warning surfaced + dedup ---")
+
+_s179_orig_atomic = scaffold._atomic_write_json
+_s179_t3_write_calls = [0]
+
+def _s179_t3_bad_write(path, data):
+    _s179_t3_write_calls[0] += 1
+    raise OSError("ENOSPC synthetic (T3)")
+
+scaffold._atomic_write_json = _s179_t3_bad_write
+
+_s179_t3_win = scaffold.MainWindow()
+_s179_t3_win.show()
+app.processEvents()
+try:
+    # Load the s179 tool so a form exists and snapshot is taken
+    _s179_t3_win._load_tool_path(str(_s179_tool_path))
+    app.processEvents()
+
+    # Dirty the form: type a value into the -c field
+    _s179_t3_key = (_s179_t3_win.form.GLOBAL, "-c")
+    _s179_t3_win.form._set_field_value(_s179_t3_key, "print('dirty')")
+    app.processEvents()
+
+    # Reset any pre-existing warned flag
+    if hasattr(_s179_t3_win, "_autosave_warned"):
+        _s179_t3_win._autosave_warned = False
+
+    _s179_t3_win.statusBar().clearMessage()
+    _s179_t3_win._autosave_form()
+    app.processEvents()
+    _s179_t3_status1 = _s179_t3_win.statusBar().currentMessage().lower()
+
+    check(_s179_t3_write_calls[0] >= 1,
+          f"T3: _atomic_write_json was invoked (calls={_s179_t3_write_calls[0]})")
+    check(any(tok in _s179_t3_status1 for tok in ("auto-save", "autosave", "recovery", "save failed")),
+          f"T3: status surfaces autosave/recovery warning (got {_s179_t3_status1!r})")
+    check(getattr(_s179_t3_win, "_autosave_warned", False) is True,
+          "T3: _autosave_warned flag set to True after first failure")
+
+    # Second call: warning must NOT be shown again (dedup)
+    _s179_t3_win.statusBar().showMessage("SENTINEL_PRESERVED")
+    _s179_t3_win._autosave_form()
+    app.processEvents()
+    _s179_t3_status2 = _s179_t3_win.statusBar().currentMessage()
+    check(_s179_t3_status2 == "SENTINEL_PRESERVED",
+          f"T3: second failure does NOT overwrite status (got {_s179_t3_status2!r})")
+finally:
+    scaffold._atomic_write_json = _s179_orig_atomic
+    _s179_t3_win.close()
+    _s179_t3_win.deleteLater()
+    app.processEvents()
+    _cleanup_recovery_files()
+
+
+# ---------------------------------------------------------------
+# T4 — corrupted cascade/slots QSettings: must reset + warn, not silent fallback
+# ---------------------------------------------------------------
+print("\n--- T4: corrupted cascade/slots → reset + warn ---")
+
+_s179_t4_settings = QSettings("Scaffold", "Scaffold")
+_s179_t4_settings.setValue("cascade/slots", "not valid json {{")
+_s179_t4_settings.sync()
+
+# Redirect stderr to capture any warning
+_s179_t4_stderr_buf = io.StringIO()
+_s179_t4_orig_stderr = sys.stderr
+sys.stderr = _s179_t4_stderr_buf
+try:
+    _s179_t4_win = scaffold.MainWindow()
+    _s179_t4_win.show()
+    app.processEvents()
+    _s179_t4_dock = _s179_t4_win.cascade_dock
+    _s179_t4_status = _s179_t4_win.statusBar().currentMessage().lower()
+    _s179_t4_stderr_text = _s179_t4_stderr_buf.getvalue().lower()
+    _s179_t4_n_slots = len(_s179_t4_dock._slots)
+
+    check(_s179_t4_n_slots == scaffold.CASCADE_INITIAL_SLOTS,
+          f"T4: slots reset to CASCADE_INITIAL_SLOTS (got {_s179_t4_n_slots})")
+    check(any(tok in _s179_t4_stderr_text for tok in ("cascade", "slots", "corrupt", "invalid", "reset"))
+          or any(tok in _s179_t4_status for tok in ("cascade", "reset", "corrupt", "invalid")),
+          f"T4: warning surfaced via stderr or status "
+          f"(stderr={_s179_t4_stderr_text!r}, status={_s179_t4_status!r})")
+finally:
+    sys.stderr = _s179_t4_orig_stderr
+    if "_s179_t4_win" in dir():
+        _s179_t4_win.close()
+        _s179_t4_win.deleteLater()
+        app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# T5 — corrupted cascade/variables QSettings: must reset + warn
+# ---------------------------------------------------------------
+print("\n--- T5: corrupted cascade/variables → reset + warn ---")
+
+_s179_t5_settings = QSettings("Scaffold", "Scaffold")
+_s179_t5_settings.setValue("cascade/variables", "{{ broken json")
+_s179_t5_settings.sync()
+
+_s179_t5_stderr_buf = io.StringIO()
+_s179_t5_orig_stderr = sys.stderr
+sys.stderr = _s179_t5_stderr_buf
+try:
+    _s179_t5_win = scaffold.MainWindow()
+    _s179_t5_win.show()
+    app.processEvents()
+    _s179_t5_dock = _s179_t5_win.cascade_dock
+    _s179_t5_status = _s179_t5_win.statusBar().currentMessage().lower()
+    _s179_t5_stderr_text = _s179_t5_stderr_buf.getvalue().lower()
+
+    check(_s179_t5_dock._cascade_variables == [],
+          f"T5: cascade_variables reset to [] (got {_s179_t5_dock._cascade_variables!r})")
+    check(any(tok in _s179_t5_stderr_text for tok in ("variable", "cascade", "corrupt", "invalid", "reset"))
+          or any(tok in _s179_t5_status for tok in ("variable", "cascade", "corrupt", "invalid", "reset")),
+          f"T5: warning surfaced via stderr or status "
+          f"(stderr={_s179_t5_stderr_text!r}, status={_s179_t5_status!r})")
+finally:
+    sys.stderr = _s179_t5_orig_stderr
+    if "_s179_t5_win" in dir():
+        _s179_t5_win.close()
+        _s179_t5_win.deleteLater()
+        app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# T6 — corrupted custom_paths QSettings: CustomPathDialog must warn, not silent
+# ---------------------------------------------------------------
+print("\n--- T6: corrupted custom_paths → CustomPathDialog warns ---")
+
+_s179_t6_settings = QSettings("Scaffold", "Scaffold")
+_s179_t6_settings.setValue("custom_paths", "this is not json at all")
+_s179_t6_settings.sync()
+
+_s179_t6_stderr_buf = io.StringIO()
+_s179_t6_orig_stderr = sys.stderr
+sys.stderr = _s179_t6_stderr_buf
+try:
+    _s179_t6_dlg = scaffold.CustomPathDialog()
+    app.processEvents()
+    _s179_t6_stderr_text = _s179_t6_stderr_buf.getvalue().lower()
+
+    check(_s179_t6_dlg._paths == [],
+          f"T6: _paths reset to [] (got {_s179_t6_dlg._paths!r})")
+    check(any(tok in _s179_t6_stderr_text for tok in ("custom_paths", "custom path", "corrupt", "invalid", "reset")),
+          f"T6: warning surfaced to stderr (got {_s179_t6_stderr_text!r})")
+    _s179_t6_dlg.close()
+    _s179_t6_dlg.deleteLater()
+    app.processEvents()
+finally:
+    sys.stderr = _s179_t6_orig_stderr
+    QSettings("Scaffold", "Scaffold").remove("custom_paths")
+
+
+# ---------------------------------------------------------------
+# T7 — oversized cascade preset loaded via cascade step: halt with size error
+# ---------------------------------------------------------------
+print("\n--- T7: oversized preset in cascade step → halt with size error ---")
+
+_s179_t7_preset_path = _s179_tmpdir / "t7_big_preset.json"
+_s179_t7_big = {
+    "_format": "scaffold_preset",
+    "_tool": "s179_py",
+    "_subcommand": None,
+    "_schema_hash": _s179_tool_hash,
+    "-c": "pass",
+    "_padding": "X" * (3 * 1024 * 1024),  # 3 MB of padding
+}
+_s179_t7_preset_path.write_text(json.dumps(_s179_t7_big), encoding="utf-8")
+check(_s179_t7_preset_path.stat().st_size > scaffold.MAX_SCHEMA_SIZE,
+      f"T7: preset file size {_s179_t7_preset_path.stat().st_size} exceeds MAX_SCHEMA_SIZE")
+
+_s179_t7_win = scaffold.MainWindow()
+_s179_t7_win.show()
+app.processEvents()
+_s179_t7_dock = _s179_t7_win.cascade_dock
+_s179_t7_dock._cascade_variables = []
+
+try:
+    _s179_t7_dock._slots[0]["tool_path"] = str(_s179_tool_path)
+    _s179_t7_dock._slots[0]["preset_path"] = str(_s179_t7_preset_path)
+    for _s179_i in range(1, len(_s179_t7_dock._slots)):
+        _s179_t7_dock._slots[_s179_i]["tool_path"] = None
+
+    _s179_t7_orig_run_stop = _s179_t7_win._on_run_stop
+    _s179_t7_run_stop_called = [False]
+    def _s179_t7_mock_run_stop():
+        _s179_t7_run_stop_called[0] = True
+        _s179_t7_dock._chain_cleanup("test: step reached run_stop unexpectedly")
+    _s179_t7_win._on_run_stop = _s179_t7_mock_run_stop
+
+    _s179_t7_dock._on_run_chain()
+    _s179_wait_idle(_s179_t7_dock)
+
+    _s179_t7_win._on_run_stop = _s179_t7_orig_run_stop
+    _s179_t7_status = _s179_t7_win.statusBar().currentMessage().lower()
+
+    check(_s179_t7_dock._chain_state == scaffold.CHAIN_IDLE,
+          f"T7: chain IDLE after oversized preset (got {_s179_t7_dock._chain_state!r})")
+    check(_s179_t7_dock._cascade_finish_status == "error_halted",
+          f"T7: finish_status == 'error_halted' (got {_s179_t7_dock._cascade_finish_status!r})")
+    check(_s179_t7_run_stop_called[0] is False,
+          f"T7: step NEVER reached _on_run_stop (got called={_s179_t7_run_stop_called[0]})")
+    check(any(tok in _s179_t7_status for tok in ("too large", "size", "exceeds", "limit")),
+          f"T7: status names size/limit (got {_s179_t7_status!r})")
+finally:
+    _s179_t7_win.close()
+    _s179_t7_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# T8 — oversized cascade file import: reject with size error, do not install
+# ---------------------------------------------------------------
+print("\n--- T8: oversized cascade import → rejected with size error ---")
+
+_s179_t8_cascade_path = _s179_tmpdir / "t8_big_cascade.json"
+_s179_t8_big = {
+    "_format": "scaffold_cascade",
+    "name": "t8_rejectme",
+    "description": "oversized test cascade",
+    "loop_mode": False,
+    "stop_on_error": False,
+    "variables": [],
+    "steps": [],
+    "_padding": "Y" * (3 * 1024 * 1024),
+}
+_s179_t8_cascade_path.write_text(json.dumps(_s179_t8_big), encoding="utf-8")
+check(_s179_t8_cascade_path.stat().st_size > scaffold.MAX_SCHEMA_SIZE,
+      f"T8: cascade file size {_s179_t8_cascade_path.stat().st_size} exceeds MAX_SCHEMA_SIZE")
+
+# Pre-clean any stale destination from earlier runs
+_s179_t8_dest = scaffold._cascades_dir() / "t8_rejectme.json"
+if _s179_t8_dest.exists():
+    try:
+        _s179_t8_dest.unlink()
+    except OSError:
+        pass
+
+_s179_t8_win = scaffold.MainWindow()
+_s179_t8_win.show()
+app.processEvents()
+_s179_t8_dock = _s179_t8_win.cascade_dock
+
+# Monkey-patch QFileDialog and QMessageBox
+_s179_t8_orig_file = QFileDialog.getOpenFileName
+QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s179_t8_cascade_path), "JSON files (*.json)"))
+
+_s179_t8_critical_messages = []
+_s179_t8_orig_critical = QMessageBox.critical
+QMessageBox.critical = staticmethod(
+    lambda parent, title, text, *a, **kw: (
+        _s179_t8_critical_messages.append((str(title), str(text))),
+        QMessageBox.StandardButton.Ok,
+    )[1]
+)
+
+try:
+    _s179_t8_dock._on_import_cascade()
+    app.processEvents()
+
+    _s179_t8_status = _s179_t8_win.statusBar().currentMessage().lower()
+    _s179_t8_all_messages = " ".join(t + " " + m for t, m in _s179_t8_critical_messages).lower()
+
+    # Strongest check: the oversized file must NOT have been installed
+    check(not _s179_t8_dest.exists(),
+          f"T8: oversized cascade file NOT installed to cascades dir "
+          f"(dest={_s179_t8_dest}, exists={_s179_t8_dest.exists()})")
+    # Size error must surface in either QMessageBox.critical or status bar.
+    # Avoid 'size' token — it substring-matches 'oversized' in success strings.
+    _s179_t8_combined = _s179_t8_all_messages + " " + _s179_t8_status
+    check(any(tok in _s179_t8_combined for tok in ("too large", "exceeds", "limit", "reject", "maximum", "bytes")),
+          f"T8: size error surfaced "
+          f"(messages={_s179_t8_all_messages!r}, status={_s179_t8_status!r})")
+    # Status must NOT say 'cascade imported' (the success path)
+    check("cascade imported" not in _s179_t8_status,
+          f"T8: status must NOT say 'cascade imported' on rejection "
+          f"(got {_s179_t8_status!r})")
+finally:
+    QFileDialog.getOpenFileName = _s179_t8_orig_file
+    QMessageBox.critical = _s179_t8_orig_critical
+    _s179_t8_win.close()
+    _s179_t8_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+
+
+# ---------------------------------------------------------------
+# Helpers for T9-T12 — cascade with argv capture at step 2
+# ---------------------------------------------------------------
+
+def _s179_run_cascade_capture_argv(step1_captures, fake_extract_result,
+                                    step2_extra_flags, stop_on_error=False):
+    """Run a 2-step cascade. Step 1 runs python briefly. extract_captures is
+    mocked to return fake_extract_result. Step 2 has the given extra_flags.
+    Intercepts _on_run_stop: records argv for each step; step 2's call
+    short-circuits via _chain_cleanup instead of launching subprocess.
+    Returns (captured_argvs, finish_status, status_msg, state).
+    """
+    p1 = _s179_write_preset("run_p1.json", "import sys; sys.stdout.write('READY\\n')")
+    p2 = _s179_write_preset("run_p2.json", "pass", extra_flags=step2_extra_flags)
+    win = scaffold.MainWindow()
+    win.show()
+    app.processEvents()
+    dock = win.cascade_dock
+    dock._cascade_variables = []
+    dock._stop_on_error = stop_on_error
+
+    dock._slots[0]["tool_path"] = str(_s179_tool_path)
+    dock._slots[0]["preset_path"] = str(p1)
+    dock._slots[0]["captures"] = step1_captures
+    dock._slots[1]["tool_path"] = str(_s179_tool_path)
+    dock._slots[1]["preset_path"] = str(p2)
+    for i in range(2, len(dock._slots)):
+        dock._slots[i]["tool_path"] = None
+
+    prev_extract = scaffold.extract_captures
+    scaffold.extract_captures = lambda *a, **kw: (dict(fake_extract_result), [])
+
+    captured_argvs = []
+    orig_run_stop = win._on_run_stop
+
+    def intercept():
+        cmd, _ = win.form.build_command()
+        captured_argvs.append(list(cmd))
+        if len(captured_argvs) == 1:
+            orig_run_stop()
+        else:
+            dock._chain_cleanup("test: step 2 argv captured")
+
+    win._on_run_stop = intercept
+    try:
+        dock._on_run_chain()
+        _s179_wait_idle(dock, max_iters=300, sleep_s=0.05)
+        finish = dock._cascade_finish_status
+        status = win.statusBar().currentMessage()
+        state = dock._chain_state
+    finally:
+        scaffold.extract_captures = prev_extract
+        win._on_run_stop = orig_run_stop
+        win.close()
+        win.deleteLater()
+        app.processEvents()
+        QSettings("Scaffold", "Scaffold").remove("cascade")
+    return captured_argvs, finish, status, state
+
+
+# ---------------------------------------------------------------
+# T9 — {capture} in extra_flags substituted with single token
+# ---------------------------------------------------------------
+print("\n--- T9: single-token {capture} in extra_flags → substituted ---")
+
+_s179_t9_argvs, _s179_t9_finish, _s179_t9_status, _s179_t9_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "target", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"target": "192.168.1.1"},
+    step2_extra_flags="{target} --scan",
+    stop_on_error=False,
+)
+
+check(len(_s179_t9_argvs) == 2,
+      f"T9: two steps reached _on_run_stop (got {len(_s179_t9_argvs)})")
+if len(_s179_t9_argvs) >= 2:
+    _s179_t9_step2 = _s179_t9_argvs[1]
+    check("192.168.1.1" in _s179_t9_step2,
+          f"T9: step-2 argv contains '192.168.1.1' (got {_s179_t9_step2!r})")
+    check("--scan" in _s179_t9_step2,
+          f"T9: step-2 argv contains '--scan' (got {_s179_t9_step2!r})")
+    check("{target}" not in _s179_t9_step2,
+          f"T9: step-2 argv does NOT contain literal '{{target}}' (got {_s179_t9_step2!r})")
+else:
+    check(False, "T9: step-2 '192.168.1.1' check skipped — fewer than 2 argvs captured")
+    check(False, "T9: step-2 '--scan' check skipped")
+    check(False, "T9: step-2 no-literal-{target} check skipped")
+
+
+# ---------------------------------------------------------------
+# T10 — multi-token expansion in extra_flags halts when stop_on_error=True
+# ---------------------------------------------------------------
+print("\n--- T10: multi-token {capture} + stop_on_error → halt ---")
+
+_s179_t10_argvs, _s179_t10_finish, _s179_t10_status, _s179_t10_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "target", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"target": "22; rm -rf /"},
+    step2_extra_flags="{target}",
+    stop_on_error=True,
+)
+
+_s179_t10_status_l = _s179_t10_status.lower()
+check(_s179_t10_finish == "error_halted",
+      f"T10: finish_status == 'error_halted' (got {_s179_t10_finish!r})")
+check(len(_s179_t10_argvs) == 1,
+      f"T10: step-2 never reached _on_run_stop — only step 1's argv captured (got {len(_s179_t10_argvs)})")
+check(any(tok in _s179_t10_status_l for tok in ("multi-token", "multiple tokens", "expand", "multi token", "expansion")),
+      f"T10: status mentions multi-token/expansion (got {_s179_t10_status_l!r})")
+check(_s179_t10_state == scaffold.CHAIN_IDLE,
+      f"T10: chain returned to IDLE after halt (got {_s179_t10_state!r})")
+
+
+# ---------------------------------------------------------------
+# T11 — extra_flags with no {tokens} routed through substitute_captures unchanged
+# ---------------------------------------------------------------
+print("\n--- T11: no-brace extra_flags text passes through substitute_captures ---")
+
+_s179_t11_sub_orig = scaffold.substitute_captures
+_s179_t11_sub_calls = []
+
+def _s179_t11_wrap_sub(text, values):
+    _s179_t11_sub_calls.append(text)
+    return _s179_t11_sub_orig(text, values)
+
+scaffold.substitute_captures = _s179_t11_wrap_sub
+try:
+    _s179_t11_argvs, _s179_t11_finish, _s179_t11_status, _s179_t11_state = _s179_run_cascade_capture_argv(
+        step1_captures=[{"name": "target", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+        fake_extract_result={"target": "192.168.1.1"},
+        step2_extra_flags="--verbose -n 5",
+        stop_on_error=False,
+    )
+finally:
+    scaffold.substitute_captures = _s179_t11_sub_orig
+
+check("--verbose -n 5" in _s179_t11_sub_calls,
+      f"T11: substitute_captures was called with extra_flags text verbatim "
+      f"(calls={_s179_t11_sub_calls!r})")
+check(len(_s179_t11_argvs) == 2,
+      f"T11: both steps reached _on_run_stop (got {len(_s179_t11_argvs)})")
+if len(_s179_t11_argvs) >= 2:
+    _s179_t11_step2 = _s179_t11_argvs[1]
+    check("--verbose" in _s179_t11_step2 and "-n" in _s179_t11_step2 and "5" in _s179_t11_step2,
+          f"T11: step-2 argv preserves --verbose/-n/5 (got {_s179_t11_step2!r})")
+else:
+    check(False, "T11: step-2 argv preservation skipped — fewer than 2 argvs")
+
+
+# ---------------------------------------------------------------
+# T12 — unset {token} in extra_flags substituted to empty when stop_on_error=False
+# ---------------------------------------------------------------
+print("\n--- T12: unset {token} in extra_flags → empty sub when not stop-on-error ---")
+
+_s179_t12_argvs, _s179_t12_finish, _s179_t12_status, _s179_t12_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "other", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"other": "hello"},  # "field" intentionally absent
+    step2_extra_flags="--filter name={field}",
+    stop_on_error=False,
+)
+
+check(len(_s179_t12_argvs) == 2,
+      f"T12: both steps reached _on_run_stop (got {len(_s179_t12_argvs)})")
+if len(_s179_t12_argvs) >= 2:
+    _s179_t12_step2 = _s179_t12_argvs[1]
+    check("name=" in _s179_t12_step2,
+          f"T12: step-2 argv contains 'name=' after empty substitution (got {_s179_t12_step2!r})")
+    check("name={field}" not in _s179_t12_step2,
+          f"T12: step-2 argv does NOT contain literal 'name={{field}}' (got {_s179_t12_step2!r})")
+    check(_s179_t12_state == scaffold.CHAIN_IDLE,
+          f"T12: chain IDLE after clean completion (got {_s179_t12_state!r})")
+else:
+    check(False, "T12: empty-sub check skipped — fewer than 2 argvs")
+    check(False, "T12: no-literal-{field} check skipped")
+    check(False, "T12: IDLE check skipped")
+
+
+# Cleanup section 179
+shutil.rmtree(_s179_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("custom_paths")
+# T8 may install a stale oversized cascade pre-fix; remove if present
+try:
+    _s179_t8_stale = scaffold._cascades_dir() / "t8_rejectme.json"
+    if _s179_t8_stale.exists():
+        _s179_t8_stale.unlink()
+except OSError:
+    pass
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

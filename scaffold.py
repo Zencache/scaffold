@@ -166,6 +166,34 @@ def _read_json_file(path) -> dict:
     return json.loads(text)
 
 
+MAX_PRESET_SIZE = 2 * 1024 * 1024  # 2 MB cap for user JSON files
+
+
+def _read_user_json(path, max_size: int = MAX_PRESET_SIZE) -> dict:
+    """Read a user-supplied JSON file with size cap.
+
+    Wraps _read_json_file with a pre-read size check. Use for
+    any JSON that originates outside Scaffold (imported
+    presets/cascades, preset files referenced by cascade steps,
+    user-picked files from dialogs). Do NOT use for Scaffold's
+    own writes (recovery files, atomic-written QSettings-backed
+    data) — those are size-bounded by our own serialization.
+
+    Raises RuntimeError on oversize; propagates OSError and
+    JSONDecodeError for callers that already handle them.
+    """
+    p = Path(path)
+    try:
+        size = p.stat().st_size
+    except OSError as e:
+        raise RuntimeError(f"Cannot stat file: {p} — {e}")
+    if size > max_size:
+        raise RuntimeError(
+            f"File too large ({size:,} bytes, limit {max_size:,}): {p.name}"
+        )
+    return _read_json_file(p)
+
+
 def _atomic_write_json(path: Path, data: dict) -> None:
     """Write JSON atomically: write to temp, then os.replace.
 
@@ -3524,7 +3552,10 @@ class PresetPicker(QDialog):
 
         # Read current preset
         try:
-            data = _read_json_file(preset_path)
+            data = _read_user_json(preset_path)
+        except RuntimeError as e:
+            QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
+            return
         except (OSError, json.JSONDecodeError) as e:
             QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
             return
@@ -4941,13 +4972,22 @@ class CustomPathDialog(QDialog):
         s = _create_settings()
         raw = s.value("custom_paths", "")
         self._paths: list[str] = []
+        _load_failed = False
         if raw:
             try:
                 loaded = json.loads(raw)
                 if isinstance(loaded, list):
                     self._paths = [p for p in loaded if p and isinstance(p, str)]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+                print(
+                    f"[scaffold] custom_paths settings unreadable: {_e}",
+                    file=sys.stderr,
+                )
+                _load_failed = True
+        if _load_failed:
+            _warn_label = QLabel("Previous paths could not be loaded")
+            _warn_label.setStyleSheet("color: #c62828;")
+            layout.insertWidget(layout.indexOf(self._list), _warn_label)
         self._refresh_list()
 
         btn_row = QHBoxLayout()
@@ -6162,8 +6202,17 @@ class CascadeSidebar(QDockWidget):
                             "delay": item.get("delay", 0) if isinstance(item, dict) else 0,
                             "captures": item.get("captures", []) if isinstance(item, dict) else [],
                         })
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+                print(
+                    f"[scaffold] cascade slots settings unreadable: {_e}",
+                    file=sys.stderr,
+                )
+                if hasattr(self, "_main_window") and self._main_window is not None:
+                    self._main_window.statusBar().showMessage(
+                        "Cascade slots could not be loaded \u2014 resetting to empty",
+                        5000,
+                    )
+                loaded_slots = None
 
         # Migrate renamed capture sources (stdout_full → stdout_tail, etc.)
         _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
@@ -6206,8 +6255,17 @@ class CascadeSidebar(QDockWidget):
                 loaded_vars = json.loads(raw_vars)
                 if isinstance(loaded_vars, list):
                     self._cascade_variables = loaded_vars
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+                print(
+                    f"[scaffold] cascade variables settings unreadable: {_e}",
+                    file=sys.stderr,
+                )
+                if hasattr(self, "_main_window") and self._main_window is not None:
+                    self._main_window.statusBar().showMessage(
+                        "Cascade variables could not be loaded \u2014 resetting",
+                        5000,
+                    )
+                self._cascade_variables = []
 
         # Restore cascade name
         name = settings.value("cascade/current_name", "") or ""
@@ -6487,7 +6545,10 @@ class CascadeSidebar(QDockWidget):
 
         cascade_path = Path(dlg.selected_path)
         try:
-            data = _read_json_file(cascade_path)
+            data = _read_user_json(cascade_path)
+        except RuntimeError as e:
+            self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
+            return
         except (json.JSONDecodeError, OSError) as e:
             self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
             return
@@ -6582,7 +6643,10 @@ class CascadeSidebar(QDockWidget):
         src = Path(path)
 
         try:
-            data = _read_json_file(src)
+            data = _read_user_json(src)
+        except RuntimeError as e:
+            QMessageBox.critical(self, "Import Failed", f"{e}")
+            return
         except (json.JSONDecodeError, OSError) as e:
             QMessageBox.critical(self, "Import Failed", f"Invalid JSON file:\n{e}")
             return
@@ -6726,12 +6790,14 @@ class CascadeSidebar(QDockWidget):
 
         if preset_path and Path(preset_path).exists():
             try:
-                preset_data = _read_json_file(preset_path)
+                preset_data = _read_user_json(preset_path)
                 had_pw = self._main_window.form.apply_values(preset_data)
                 msg = f"Loaded cascade step: {Path(preset_path).stem}"
                 if had_pw:
                     msg += " \u2014 password fields were not restored"
                 self._main_window.statusBar().showMessage(msg)
+            except RuntimeError as e:
+                self._main_window.statusBar().showMessage(f"Preset not loaded: {e}")
             except (json.JSONDecodeError, OSError):
                 self._main_window.statusBar().showMessage("Preset file could not be loaded")
         elif preset_path:
@@ -7081,7 +7147,7 @@ class CascadeSidebar(QDockWidget):
         # Apply preset
         if preset_path and Path(preset_path).exists():
             try:
-                preset_data = _read_json_file(preset_path)
+                preset_data = _read_user_json(preset_path)
                 # Schema-hash gate: cascades run unattended, so a stale preset
                 # would silently produce a wrong command. UI mode (line ~8931)
                 # warns instead — correct there, since a human can react.
@@ -7107,6 +7173,13 @@ class CascadeSidebar(QDockWidget):
                 # Return value (had_passwords) intentionally unused — chain runs
                 # are automated and cannot prompt for password re-entry.
                 self._main_window.form.apply_values(preset_data)
+            except RuntimeError as e:
+                preset_name = Path(preset_path).name
+                self._cascade_finish_status = "error_halted"
+                self._chain_cleanup(
+                    f"Cascade stopped: preset {preset_name} — {e}"
+                )
+                return
             except (json.JSONDecodeError, OSError) as e:
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup(f"Cascade failed loading preset: {e}")
@@ -7124,6 +7197,9 @@ class CascadeSidebar(QDockWidget):
             return
 
         # Overlay snapshot AFTER preset so user edits win.
+        # Intentional fallback: if overlay fails (e.g. snapshot has keys the
+        # current form doesn't expose), continue with the preset-only values
+        # rather than halting the chain. User edits are a best-effort overlay.
         if snapshot is not None and self._main_window.form is not None:
             try:
                 self._main_window.form.apply_values(snapshot)
@@ -7378,7 +7454,10 @@ class CascadeSidebar(QDockWidget):
         self._cascade_run_id = None
         self._cascade_steps = []
         self._cascade_step_start = None
-        self._cascade_finish_status = None
+        # _cascade_finish_status is intentionally NOT reset here. It persists
+        # until the next _on_run_chain() so callers (and Section 179 tests)
+        # can read the final status of the last run. The field is reset to
+        # None at the start of each new run at _on_run_chain (~line 6900).
 
         self._chain_state = CHAIN_IDLE
         self._chain_paused = False
@@ -7488,6 +7567,7 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(AUTOSAVE_DEBOUNCE_MS)
         self._autosave_timer.timeout.connect(self._autosave_form)
+        self._autosave_warned = False
         self._default_form_snapshot = None
         self._chain_preserve_output = False
         self._copy_password_choice: bool | None = None
@@ -8289,8 +8369,14 @@ class MainWindow(QMainWindow):
                 os.chmod(path, 0o600)
             except OSError:
                 pass
-        except OSError:
-            pass
+        except OSError as _e:
+            if not self._autosave_warned:
+                self._autosave_warned = True
+                self.statusBar().showMessage(
+                    f"Auto-save failed \u2014 crash recovery unavailable ({_e.strerror or 'I/O error'})",
+                    10000,
+                )
+            print(f"[scaffold] autosave write failed: {_e}", file=sys.stderr)
 
     def _clear_recovery_file(self) -> None:
         """Delete the recovery file if it exists."""
