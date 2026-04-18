@@ -3,6 +3,30 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.7] — 2026-04-18
+
+Hardens cascade-side preset loading against silent acceptance of malformed format markers. `CascadeDock._on_slot_clicked` and `_chain_advance` now validate `_format` and `_tool` before calling `apply_values`, which is tolerant of missing meta keys. Previously a preset file missing `_format`, carrying `_format: "scaffold_cascade"`, or bound to a different tool was parsed, loaded into the form, and either populated silently (Site 4) or consumed by the next cascade step (Site 5) — the `_format`/`_tool` equivalent of the `_schema_hash` gap closed in v2.9.3.
+
+### Fixed
+
+- **Cascade slot click silently accepted malformed preset markers** — `CascadeDock._on_slot_clicked` now checks `_format` and `_tool` before `apply_values`. A slot file with missing `_format`, `_format: "scaffold_cascade"`, an unexpected `_format` value, or a `_tool` that does not match the current tool is now rejected with a status-bar message naming the problem and a stderr forensic line citing the file path. Previously `apply_values` tolerated the missing/mismatched meta keys and populated the form from whatever scalar keys happened to collide with current-tool flags. §182 T2, T3.
+- **Cascade-step preset resolution silently accepted malformed format markers** — `_chain_advance` now checks `_format` and `_tool` before the existing `_schema_hash` gate. A step whose preset file is missing `_format`, carries `_format: "scaffold_cascade"`, or binds to a different tool is halted via `_chain_cleanup` with `_cascade_finish_status = "error_halted"` and a status-bar message of the form `"Cascade stopped: preset {name} {problem} for step {N}"`. Stderr forensic line cites the file path and current tool. §182 T4, T5.
+
+### Added
+
+- **§182 — cascade-side format-marker validation regression guard (12 assertions across 5 tests)** — T1 positive (valid markers → form populated, status confirms load), T2/T3 Site 4 (missing `_format`, `_tool` mismatch), T4/T5 Site 5 (missing `_format` halts mid-cascade, `_format: "scaffold_cascade"` halts with "is a cascade file, not a preset"). Each negative test asserts the status-bar message text, the stderr forensic line, and — for Site 5 — that the chain reached `error_halted` rather than silently continuing. §179 T17 continues to cover the Site 5 happy-path mid-token `{capture}` cascade case and is not duplicated here.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,977/2,977 assertions, 0 failures**
+  - Functional: 2,604/2,604 (was 2,592; +12 from §182)
+  - Security: 159/159
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.6] — 2026-04-18
 
 Docs-plus-tests release — no behavior changes to `scaffold.py` beyond the version bump. Mid-token `{capture}` substitution pinned as supported behavior with positive-case tests at four canonical patterns. Two v2.9.4 CHANGELOG bullets corrected in place to accurately describe the implemented enforcement semantics.
