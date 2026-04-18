@@ -3,6 +3,27 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.5] — 2026-04-18
+
+Test-infrastructure release — no behavior changes to `scaffold.py` beyond the version bump. Adds `_patch_qmb` / `_patch_stderr` context-manager helpers for common patches, a multi-subcommand same-tool cascade overlay regression guard, and `_read_user_json` size-cap coverage at three previously-uncovered call sites.
+
+### Added
+
+- **`_patch_qmb(level)` and `_patch_stderr()` context-manager helpers in `test_functional.py`** — reduce restore-surface-area for test patches against `QMessageBox.critical` / `QMessageBox.warning` and `sys.stderr`. §179 T4–T6, T8 refactored to use them. Net-zero assertion-count change.
+- **§180 — multi-subcommand same-tool cascade snapshot overlay guard (8 assertions)** — pins subcommand and elevation behavior on consecutive same-tool cascade steps, the corner v2.9.4's CHANGELOG flagged as "file an issue if it surfaces." Asserts step 2's `_subcommand` and `_elevated` survive the overlay and step 1's values do not leak into step 2's argv.
+- **§181 — `_read_user_json` size-cap regression guard at three uncovered sites (11 assertions)** — `CascadeDock._on_load_cascade_list`, `PresetPicker._on_edit_description`, and `CascadeDock._on_slot_clicked`. Each test exercises its site's native error-surfacing path (status bar for two, `QMessageBox.warning` for one).
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,957/2,957 assertions, 0 failures**
+  - Functional: 2,584/2,584 (was 2,565; +19 from §180 and §181; §179 Phase 1 refactor was net-zero)
+  - Security: 159/159
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.4] — 2026-04-18
 
 Cascade resilience and data-layer hardening. Closes three silent-failure modes in the cascade pipeline (wrapper exceptions, uncaught pool-creation failures, literal `{capture}` tokens in `extra_flags`), adds size caps at every user-JSON load site, surfaces QSettings corruption instead of resetting silently, and repairs a snapshot-overlay bug where consecutive same-tool cascade steps clobbered each other's presets.
