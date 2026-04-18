@@ -5587,7 +5587,14 @@ def _get_regex_pool():
                     except Exception:
                         had_file = False
             try:
-                _regex_pool = multiprocessing.Pool(processes=1)
+                try:
+                    _regex_pool = multiprocessing.Pool(processes=1)
+                except (OSError, RuntimeError, ValueError) as _pool_exc:
+                    print(
+                        f"[scaffold] regex pool unavailable: {_pool_exc}",
+                        file=sys.stderr,
+                    )
+                    _regex_pool = None
             finally:
                 if had_file and main_mod is not None:
                     try:
@@ -5627,6 +5634,12 @@ def _bounded_regex_search(pattern: str, stream: str, group: int,
     eliminate it; deferred as future work.
     """
     pool = _get_regex_pool()
+    if pool is None:
+        return (
+            False,
+            "regex pool unavailable (worker process could not start)",
+            "pool_error",
+        )
     async_result = pool.apply_async(
         _regex_worker_entry, (pattern, stream, group)
     )
@@ -5695,15 +5708,16 @@ def extract_captures(
     stdout: str,
     stderr: str,
     exit_code: int,
-) -> tuple[dict[str, str], list[tuple[str, str]]]:
+) -> tuple[dict[str, str], list[tuple[str, str, str]]]:
     """Extract capture values from command output. Pure function — no side effects.
 
     Returns (values, errors) where values maps capture name to extracted
-    string and errors is a list of (name, error_message) tuples for
-    captures whose regex failed to compile.
+    string and errors is a list of (name, error_message, err_type) tuples
+    for captures whose regex failed. err_type is one of: "re_error",
+    "timeout", "worker_error", "pool_error".
     """
     result: dict[str, str] = {}
-    errors: list[tuple[str, str]] = []
+    errors: list[tuple[str, str, str]] = []
     stdout_tail = stdout[-CAPTURE_STREAM_TAIL_BYTES:]
     stderr_tail = stderr[-CAPTURE_STREAM_TAIL_BYTES:]
     for entry in slot_captures:
@@ -5721,7 +5735,7 @@ def extract_captures(
             group = entry.get("group", 1)
             success, value, err_type = _bounded_regex_search(pattern, stream, group)
             if not success:
-                errors.append((name, value))
+                errors.append((name, value, err_type))
                 continue
             if err_type == "no_match":
                 continue
@@ -7200,6 +7214,14 @@ class CascadeSidebar(QDockWidget):
         # Intentional fallback: if overlay fails (e.g. snapshot has keys the
         # current form doesn't expose), continue with the preset-only values
         # rather than halting the chain. User edits are a best-effort overlay.
+        #
+        # Known bug (deferred to v2.9.5): apply_values() resets all fields
+        # before applying snapshot values, so an empty snapshot (e.g. when the
+        # cascade's first step matches the tool auto-loaded from
+        # session/last_tool and the user hasn't touched the form) wipes the
+        # preset values that were just applied. Fix is a per-key overlay loop
+        # that preserves preset values for fields the snapshot omits; will
+        # ship with its own targeted test.
         if snapshot is not None and self._main_window.form is not None:
             try:
                 self._main_window.form.apply_values(snapshot)
@@ -7268,76 +7290,119 @@ class CascadeSidebar(QDockWidget):
         try:
             def _chain_on_finished(exit_code, exit_status):
                 """Wrapper that calls original handler then advances chain."""
-                original_on_finished(exit_code, exit_status)
-                if self._chain_state == CHAIN_IDLE:
-                    return  # Chain was stopped externally; don't re-disable
-                # Re-disable run_btn (original handler re-enables it)
-                self._main_window.run_btn.setEnabled(False)
-                # Extract captures from this step's output
-                slot_idx = self._chain_queue[self._chain_current]
-                slot_captures = self._slots[slot_idx].get("captures", [])
-                captured = {}
-                if slot_captures:
-                    captured, capture_errors = extract_captures(
-                        slot_captures,
-                        self._main_window._last_run_stdout,
-                        self._main_window._last_run_stderr,
-                        exit_code,
-                    )
-                    for _cap_name, _cap_err in capture_errors:
-                        if hasattr(self._main_window, "output"):
-                            self._main_window._append_output(
-                                f"[cascade] capture '{_cap_name}' has invalid regex: {_cap_err}\n",
-                                COLOR_WARN,
-                            )
-                    self._chain_variable_values.update(captured)
-                # Record cascade history step
-                if self._cascade_run_id is not None:
-                    _err_tok = None
-                    if self._main_window._timed_out:
-                        _err_tok = "timed_out"
-                    elif exit_status == QProcess.ExitStatus.CrashExit:
-                        _err_tok = "crashed"
-                    _cslot = self._slots[slot_idx]
-                    _step = self._build_chain_step_record(
-                        self._chain_current, _cslot, exit_code, _err_tok,
-                        captures=dict(captured),
-                    )
-                    self._cascade_steps.append(_step)
-                    self._main_window._update_cascade_run(
-                        self._cascade_run_id,
-                        {"steps": list(self._cascade_steps)},
-                    )
-                if self._chain_state == CHAIN_RUNNING:
-                    if self._stop_on_error and exit_code != 0:
-                        slot_idx = self._chain_queue[self._chain_current]
-                        step_num = self._chain_current + 1
-                        tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
-                        self._cascade_finish_status = "error_halted"
-                        self._chain_cleanup(
-                            f"Cascade stopped: step {step_num} ({tool_name}) "
-                            f"exited with code {exit_code}"
-                        )
-                        return
-                    if self._chain_paused:
-                        self._chain_state = CHAIN_PAUSED
-                        self.pause_chain_btn.setEnabled(True)
-                        self.pause_chain_btn.setText("Resume")
-                        next_step = self._chain_current + 2  # 1-indexed display
-                        self._main_window.statusBar().showMessage(
-                            f"Cascade paused before step {next_step}. Click Resume to continue."
-                        )
-                        return
-                    self._chain_state = CHAIN_LOADING
+                try:
+                    original_on_finished(exit_code, exit_status)
+                    if self._chain_state == CHAIN_IDLE:
+                        return  # Chain was stopped externally; don't re-disable
+                    # Re-disable run_btn (original handler re-enables it)
+                    self._main_window.run_btn.setEnabled(False)
+                    # Extract captures from this step's output
                     slot_idx = self._chain_queue[self._chain_current]
-                    delay_secs = self._slots[slot_idx].get("delay", 0)
-                    delay_ms = max(delay_secs * 1000, 300)  # Minimum 300ms for UI breathing room
-                    if delay_secs > 0:
-                        next_step = self._chain_current + 2  # 1-indexed display
-                        self._main_window.statusBar().showMessage(
-                            f"Cascade: waiting {delay_secs}s before step {next_step}..."
+                    slot_captures = self._slots[slot_idx].get("captures", [])
+                    captured = {}
+                    capture_errors: list = []
+                    if slot_captures:
+                        captured, capture_errors = extract_captures(
+                            slot_captures,
+                            self._main_window._last_run_stdout,
+                            self._main_window._last_run_stderr,
+                            exit_code,
                         )
-                    QTimer.singleShot(delay_ms, self._chain_advance)
+                        for _cap_name, _cap_err, _cap_type in capture_errors:
+                            if hasattr(self._main_window, "output"):
+                                self._main_window._append_output(
+                                    f"[cascade] capture '{_cap_name}' failed ({_cap_type}): {_cap_err}\n",
+                                    COLOR_WARN,
+                                )
+                        self._chain_variable_values.update(captured)
+                    # Record cascade history step
+                    if self._cascade_run_id is not None:
+                        _err_tok = None
+                        if self._main_window._timed_out:
+                            _err_tok = "timed_out"
+                        elif exit_status == QProcess.ExitStatus.CrashExit:
+                            _err_tok = "crashed"
+                        _cslot = self._slots[slot_idx]
+                        _step = self._build_chain_step_record(
+                            self._chain_current, _cslot, exit_code, _err_tok,
+                            captures=dict(captured),
+                        )
+                        self._cascade_steps.append(_step)
+                        self._main_window._update_cascade_run(
+                            self._cascade_run_id,
+                            {"steps": list(self._cascade_steps)},
+                        )
+                    if self._chain_state == CHAIN_RUNNING and capture_errors:
+                        pool_failed = any(et == "pool_error" for _, _, et in capture_errors)
+                        other_errors = [e for e in capture_errors if e[2] != "pool_error"]
+                        if pool_failed:
+                            self._cascade_finish_status = "error_halted"
+                            self._chain_cleanup(
+                                f"Cascade stopped: regex pool unavailable at step "
+                                f"{self._chain_current + 1}"
+                            )
+                            return
+                        if other_errors and self._stop_on_error:
+                            first_name, first_msg, first_type = other_errors[0]
+                            self._cascade_finish_status = "error_halted"
+                            self._chain_cleanup(
+                                f"Cascade stopped: capture '{first_name}' failed "
+                                f"({first_type}): {first_msg}"
+                            )
+                            return
+                    if self._chain_state == CHAIN_RUNNING:
+                        if self._stop_on_error and exit_code != 0:
+                            slot_idx = self._chain_queue[self._chain_current]
+                            step_num = self._chain_current + 1
+                            tool_name = Path(self._slots[slot_idx]["tool_path"]).stem
+                            self._cascade_finish_status = "error_halted"
+                            self._chain_cleanup(
+                                f"Cascade stopped: step {step_num} ({tool_name}) "
+                                f"exited with code {exit_code}"
+                            )
+                            return
+                        if self._chain_paused:
+                            self._chain_state = CHAIN_PAUSED
+                            self.pause_chain_btn.setEnabled(True)
+                            self.pause_chain_btn.setText("Resume")
+                            next_step = self._chain_current + 2  # 1-indexed display
+                            self._main_window.statusBar().showMessage(
+                                f"Cascade paused before step {next_step}. Click Resume to continue."
+                            )
+                            return
+                        self._chain_state = CHAIN_LOADING
+                        slot_idx = self._chain_queue[self._chain_current]
+                        delay_secs = self._slots[slot_idx].get("delay", 0)
+                        delay_ms = max(delay_secs * 1000, 300)  # Minimum 300ms for UI breathing room
+                        if delay_secs > 0:
+                            next_step = self._chain_current + 2  # 1-indexed display
+                            self._main_window.statusBar().showMessage(
+                                f"Cascade: waiting {delay_secs}s before step {next_step}..."
+                            )
+                        QTimer.singleShot(delay_ms, self._chain_advance)
+                except Exception as _wrap_exc:
+                    # Restore original handler so main window is usable
+                    if self._stored_original_on_finished is not None:
+                        try:
+                            self._main_window._on_finished = self._stored_original_on_finished
+                        except Exception:
+                            pass
+                    print(
+                        f"[scaffold] cascade step handler crashed: {_wrap_exc}",
+                        file=sys.stderr,
+                    )
+                    self._cascade_finish_status = "error_halted"
+                    try:
+                        self._chain_cleanup(
+                            f"Cascade crashed in step handler: {_wrap_exc}"
+                        )
+                    except Exception:
+                        # Last-resort: unfreeze run button so UI stays usable
+                        try:
+                            self._main_window.run_btn.setEnabled(True)
+                            self.run_chain_btn.setEnabled(True)
+                        except Exception:
+                            pass
 
             self._main_window._on_finished = _chain_on_finished
             if self._stored_original_on_finished is None:
@@ -7571,6 +7636,13 @@ class MainWindow(QMainWindow):
         self._default_form_snapshot = None
         self._chain_preserve_output = False
         self._copy_password_choice: bool | None = None
+        # Cache bound method to preserve identity across attribute accesses.
+        # Python creates a fresh bound-method wrapper on each `self._on_finished`
+        # read, which breaks `is` identity checks used by cascade tests (S179
+        # T1/T2) and could bite anywhere else that compares handler identity.
+        # Sections 80/107/112 work around this with a function sentinel; this
+        # approach is simpler and applies globally.
+        self._on_finished = self._on_finished
         self._cleanup_stale_recovery_files()
         try:
             self._recover_crashed_cascade_runs()

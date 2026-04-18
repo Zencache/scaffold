@@ -22292,6 +22292,11 @@ def _s179_wait_idle(dock, max_iters=300, sleep_s=0.05):
 # ---------------------------------------------------------------
 print("\n--- T1: regex Pool OSError → chain halts cleanly ---")
 
+# Belt-and-suspenders: scrub session/last_tool before the fresh MainWindow
+# is created so __init__'s auto-load path can't reuse state left by a
+# prior section. The matching teardown is in the finally block.
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
 scaffold._reset_regex_pool()
 scaffold._regex_pool = None
 _s179_orig_pool = scaffold.multiprocessing.Pool
@@ -22344,12 +22349,17 @@ finally:
     _s179_t1_win.deleteLater()
     app.processEvents()
     QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
 # T2 — extract_captures raising unexpected exception: chain must halt cleanly
 # ---------------------------------------------------------------
 print("\n--- T2: extract_captures RuntimeError → chain halts cleanly ---")
+
+# Belt-and-suspenders: scrub session/last_tool before MainWindow construction
+# so __init__ cannot auto-load a tool left behind by T1 or earlier sections.
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 _s179_orig_extract = scaffold.extract_captures
 
@@ -22398,6 +22408,7 @@ finally:
     _s179_t2_win.deleteLater()
     app.processEvents()
     QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -22698,15 +22709,22 @@ finally:
 # ---------------------------------------------------------------
 
 def _s179_run_cascade_capture_argv(step1_captures, fake_extract_result,
-                                    step2_extra_flags, stop_on_error=False):
+                                    step2_extra_flags, stop_on_error=False,
+                                    fake_extract_errors=None):
     """Run a 2-step cascade. Step 1 runs python briefly. extract_captures is
     mocked to return fake_extract_result. Step 2 has the given extra_flags.
     Intercepts _on_run_stop: records argv for each step; step 2's call
     short-circuits via _chain_cleanup instead of launching subprocess.
+    fake_extract_errors, if provided, is the errors list the mock returns
+    (list of (name, msg, err_type) 3-tuples).
     Returns (captured_argvs, finish_status, status_msg, state).
     """
     p1 = _s179_write_preset("run_p1.json", "import sys; sys.stdout.write('READY\\n')")
     p2 = _s179_write_preset("run_p2.json", "pass", extra_flags=step2_extra_flags)
+    # Belt-and-suspenders: scrub session/last_tool so MainWindow.__init__
+    # cannot auto-load a stale tool whose apply_values reset would wipe
+    # preset values after the Phase 2 snapshot overlay (v2.9.5 deferred bug).
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
     win = scaffold.MainWindow()
     win.show()
     app.processEvents()
@@ -22723,7 +22741,8 @@ def _s179_run_cascade_capture_argv(step1_captures, fake_extract_result,
         dock._slots[i]["tool_path"] = None
 
     prev_extract = scaffold.extract_captures
-    scaffold.extract_captures = lambda *a, **kw: (dict(fake_extract_result), [])
+    _errs = list(fake_extract_errors) if fake_extract_errors else []
+    scaffold.extract_captures = lambda *a, **kw: (dict(fake_extract_result), list(_errs))
 
     captured_argvs = []
     orig_run_stop = win._on_run_stop
@@ -22866,6 +22885,79 @@ else:
     check(False, "T12: empty-sub check skipped — fewer than 2 argvs")
     check(False, "T12: no-literal-{field} check skipped")
     check(False, "T12: IDLE check skipped")
+
+
+# ---------------------------------------------------------------
+# T13 — capture timeout + stop_on_error=False → continue to step 2
+# ---------------------------------------------------------------
+print("\n--- T13: capture timeout + stop_on_error=False → continue ---")
+
+_s179_t13_argvs, _s179_t13_finish, _s179_t13_status, _s179_t13_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "x", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={},
+    fake_extract_errors=[("x", "timeout: regex exceeded 2.0s", "timeout")],
+    step2_extra_flags="--go",
+    stop_on_error=False,
+)
+
+check(len(_s179_t13_argvs) == 2,
+      f"T13: both steps reached _on_run_stop despite timeout (got {len(_s179_t13_argvs)})")
+check(_s179_t13_state == scaffold.CHAIN_IDLE,
+      f"T13: chain IDLE after clean completion (got {_s179_t13_state!r})")
+check(_s179_t13_finish != "error_halted",
+      f"T13: finish_status NOT 'error_halted' when stop_on_error=False "
+      f"(got {_s179_t13_finish!r})")
+
+
+# ---------------------------------------------------------------
+# T14 — capture timeout + stop_on_error=True → halt with err_type in status
+# ---------------------------------------------------------------
+print("\n--- T14: capture timeout + stop_on_error=True → halt ---")
+
+_s179_t14_argvs, _s179_t14_finish, _s179_t14_status, _s179_t14_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "x", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={},
+    fake_extract_errors=[("x", "timeout: regex exceeded 2.0s", "timeout")],
+    step2_extra_flags="--go",
+    stop_on_error=True,
+)
+
+_s179_t14_status_l = _s179_t14_status.lower()
+check(_s179_t14_finish == "error_halted",
+      f"T14: finish_status == 'error_halted' (got {_s179_t14_finish!r})")
+check(len(_s179_t14_argvs) == 1,
+      f"T14: step-2 never reached _on_run_stop (got {len(_s179_t14_argvs)})")
+check("timeout" in _s179_t14_status_l,
+      f"T14: status mentions 'timeout' err_type (got {_s179_t14_status_l!r})")
+check("'x'" in _s179_t14_status,
+      f"T14: status names the failing capture 'x' (got {_s179_t14_status!r})")
+check(_s179_t14_state == scaffold.CHAIN_IDLE,
+      f"T14: chain returned to IDLE after halt (got {_s179_t14_state!r})")
+
+
+# ---------------------------------------------------------------
+# T15 — pool_error halts unconditionally even with stop_on_error=False
+# ---------------------------------------------------------------
+print("\n--- T15: pool_error halts unconditionally ---")
+
+_s179_t15_argvs, _s179_t15_finish, _s179_t15_status, _s179_t15_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "x", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={},
+    fake_extract_errors=[("x", "regex pool unavailable (worker process could not start)", "pool_error")],
+    step2_extra_flags="--go",
+    stop_on_error=False,
+)
+
+_s179_t15_status_l = _s179_t15_status.lower()
+check(_s179_t15_finish == "error_halted",
+      f"T15: finish_status == 'error_halted' despite stop_on_error=False "
+      f"(got {_s179_t15_finish!r})")
+check(len(_s179_t15_argvs) == 1,
+      f"T15: step-2 never reached _on_run_stop (got {len(_s179_t15_argvs)})")
+check("regex" in _s179_t15_status_l and "pool" in _s179_t15_status_l,
+      f"T15: status mentions 'regex' and 'pool' (got {_s179_t15_status_l!r})")
+check(_s179_t15_state == scaffold.CHAIN_IDLE,
+      f"T15: chain returned to IDLE after halt (got {_s179_t15_state!r})")
 
 
 # Cleanup section 179
