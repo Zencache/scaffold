@@ -3,6 +3,55 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.4] — 2026-04-18
+
+Cascade resilience and data-layer hardening. Closes three silent-failure modes in the cascade pipeline (wrapper exceptions, uncaught pool-creation failures, literal `{capture}` tokens in `extra_flags`), adds size caps at every user-JSON load site, surfaces QSettings corruption instead of resetting silently, and repairs a snapshot-overlay bug where consecutive same-tool cascade steps clobbered each other's presets.
+
+### Fixed
+
+- **Cascade wrapper exception no longer silently locks the UI** — `_chain_on_finished` now catches every `Exception`, logs to stderr, forces the chain back to `IDLE`, restores the original `_on_finished`, and surfaces a status-bar message naming the failing step. Previously an uncaught exception from a Qt signal slot left the chain mid-step with inconsistent button state and no recovery short of restart. §179 T1.
+- **`multiprocessing.Pool` creation failure now halts the cascade cleanly** — `_bounded_regex_search` wraps `Pool()` construction in a try/except and converts failures (resource exhaustion, fork/spawn denial) into a `pool_error` capture-error entry. §179 T2, T15.
+- **Autosave failures now notify the user on first occurrence** — new `_autosave_warned` session flag drives a one-shot status-bar warning; subsequent failures stay silent to avoid noise. Previously failures logged to stderr only and users discovered the loss on next launch. §179 T3.
+- **Corrupted `cascade/slots` and `cascade/variables` QSettings surface a warning** — `_load_cascade` no longer swallows `json.JSONDecodeError` and silently resets. Stderr warning + status-bar notice name the corrupted key so the user can restore before re-saving clobbers recoverable state. §179 T4, T5.
+- **`CustomPathsDialog` surfaces corrupted `custom_paths` instead of dropping them** — `QMessageBox.warning` names the QSettings key on parse failure. §179 T6.
+- **Oversized preset and cascade files rejected at every load site** — five user-facing JSON load sites (cascade import, cascade list load, preset load, preset import, cascade-step preset resolution) now route through the new `_read_user_json` helper enforcing a 2 MB cap (`MAX_PRESET_SIZE`). §179 T7, T8.
+- **Snapshot overlay no longer clobbers step N's preset with step N-1's form state** — when consecutive cascade steps used the same tool, the overlay path replaced step N's preset wholesale with the step N-1 form snapshot. Now merges over the preset: snapshot wins only for keys present in the snapshot; other keys keep their step N preset value. Brought forward from deferred v2.9.5 scope as a prerequisite for T16. §179 T16.
+- **`extra_flags` buffer now substitutes `{capture}` tokens during cascade runs** — the buffer was copied into argv verbatim, so `{name}` reached the subprocess as literal braces. Cascade runs now route the buffer through `_substitute_in_extra_flags` with single-token enforcement (a `{capture}` must be a whole shell token, not a fragment). §179 T9–T12.
+
+### Changed
+
+- **Capture-error halt semantics tightened** — `pool_error` halts unconditionally; `re_error`, `timeout`, and `worker_error` halt only when `stop_on_error` is True. Previously all four silently logged a warning and continued. Mirrors the `_substitute_captures` pattern at ~line 6914. §179 T13–T15.
+- **`extract_captures` return shape** — error-list element changed from `tuple[str, str]` to `tuple[str, str, str]` (name, message, err_type). Internal; no public API. Err-type values: `"re_error"`, `"timeout"`, `"worker_error"`, `"pool_error"`.
+- **Snapshot overlay: subcommand and elevation now follow the step N preset** — consequence of the overlay-merge fix. No existing test exercises multi-subcommand cascades so this corner is untested; file an issue if it surfaces.
+
+### Added
+
+- **`_read_user_json` helper and `MAX_PRESET_SIZE` constant** — single entry point for user-supplied JSON with a 2 MB cap.
+- **`_autosave_warned` session flag on `MainWindow`** — drives one-shot autosave-failure notification.
+- **`CascadeSidebar._substitute_in_extra_flags`** — applies the capture-substitution pipeline to the `extra_flags` buffer with single-token enforcement.
+- **`_on_finished` bound-method cached in `MainWindow.__init__`** — init now caches the original bound method once so the wrapper's install/restore dance is idempotent.
+
+**Tests (test_functional.py):**
+- **Section 179** — cascade resilience and data-layer hardening coverage (T1–T16, 61 assertions).
+  - T1–T2: wrapper and pool-failure recovery.
+  - T3: autosave notification dedup.
+  - T4–T6: QSettings corruption surfaces a warning.
+  - T7–T8: size-cap rejection at preset and cascade load sites.
+  - T9–T12: `extra_flags` `{capture}` substitution (single-token, multi-token, unset, literal-brace passthrough).
+  - T13–T15: capture-error halt asymmetry (timeout gated on `stop_on_error`; `pool_error` unconditional).
+  - T16: snapshot overlay merge behavior.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,938/2,938 assertions, 0 failures**
+  - Functional: 2,565/2,565 (was 2,504; +61 from §179 T1–T16)
+  - Security: 159/159
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.3] — 2026-04-17
 
 Completes the cascade TOC/TOU hardening arc that was deferred from a previous release. Cascade preset loading now halts on `_schema_hash` mismatch instead of silently applying a stale preset and running the wrong command.

@@ -23060,13 +23060,14 @@ else:
 shutil.rmtree(_s179_tmpdir, ignore_errors=True)
 QSettings("Scaffold", "Scaffold").remove("cascade")
 QSettings("Scaffold", "Scaffold").remove("custom_paths")
-# T8 may install a stale oversized cascade pre-fix; remove if present
-try:
-    _s179_t8_stale = scaffold._cascades_dir() / "t8_rejectme.json"
-    if _s179_t8_stale.exists():
-        _s179_t8_stale.unlink()
-except OSError:
-    pass
+# T8 may install a stale oversized cascade pre-fix; remove if present.
+# Also remove legacy "t8_oversized.json" from earlier T8 iterations.
+for _s179_t8_name in ("t8_rejectme.json", "t8_oversized.json"):
+    try:
+        _s179_t8_stale = scaffold._cascades_dir() / _s179_t8_name
+        _s179_t8_stale.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # =====================================================================
