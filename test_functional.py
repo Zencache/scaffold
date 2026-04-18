@@ -34,6 +34,7 @@ Companion suites: test_security.py (injection resistance), test_preset_validatio
 test_smoke.py (launch sanity), test_manual_verification.py (regression locks).
 """
 
+import contextlib
 import io
 import json
 import os
@@ -70,6 +71,49 @@ def _patched_warning(parent, title, text, *args, **kwargs):
     return _original_qmb_warning(parent, title, text, *args, **kwargs)
 
 QMessageBox.warning = _patched_warning
+
+
+@contextlib.contextmanager
+def _patch_qmb(level):
+    """Patch QMessageBox.<level> to capture (title, text) calls.
+
+    level: "critical" or "warning" (anything else raises ValueError).
+    Yields a list; each patched call appends (str(title), str(text)) and
+    returns QMessageBox.StandardButton.Ok. Restores original on exit.
+    """
+    if level not in ("critical", "warning"):
+        raise ValueError(
+            f"_patch_qmb: level must be 'critical' or 'warning', got {level!r}"
+        )
+    messages = []
+    original = getattr(QMessageBox, level)
+
+    def _capture(parent, title, text, *args, **kwargs):
+        messages.append((str(title), str(text)))
+        return QMessageBox.StandardButton.Ok
+
+    setattr(QMessageBox, level, staticmethod(_capture))
+    try:
+        yield messages
+    finally:
+        setattr(QMessageBox, level, original)
+
+
+@contextlib.contextmanager
+def _patch_stderr():
+    """Redirect sys.stderr to an io.StringIO buffer for the duration.
+
+    Yields the buffer; caller inspects .getvalue() after (or inside) the
+    with block. Restores the original sys.stderr on exit.
+    """
+    buf = io.StringIO()
+    original = sys.stderr
+    sys.stderr = buf
+    try:
+        yield buf
+    finally:
+        sys.stderr = original
+
 
 # Monkeypatch QMessageBox.question to auto-decline recovery prompts.
 # Without this, stale recovery files from crashed test runs or manual sessions
@@ -22481,31 +22525,28 @@ _s179_t4_settings.setValue("cascade/slots", "not valid json {{")
 _s179_t4_settings.sync()
 
 # Redirect stderr to capture any warning
-_s179_t4_stderr_buf = io.StringIO()
-_s179_t4_orig_stderr = sys.stderr
-sys.stderr = _s179_t4_stderr_buf
-try:
-    _s179_t4_win = scaffold.MainWindow()
-    _s179_t4_win.show()
-    app.processEvents()
-    _s179_t4_dock = _s179_t4_win.cascade_dock
-    _s179_t4_status = _s179_t4_win.statusBar().currentMessage().lower()
-    _s179_t4_stderr_text = _s179_t4_stderr_buf.getvalue().lower()
-    _s179_t4_n_slots = len(_s179_t4_dock._slots)
-
-    check(_s179_t4_n_slots == scaffold.CASCADE_INITIAL_SLOTS,
-          f"T4: slots reset to CASCADE_INITIAL_SLOTS (got {_s179_t4_n_slots})")
-    check(any(tok in _s179_t4_stderr_text for tok in ("cascade", "slots", "corrupt", "invalid", "reset"))
-          or any(tok in _s179_t4_status for tok in ("cascade", "reset", "corrupt", "invalid")),
-          f"T4: warning surfaced via stderr or status "
-          f"(stderr={_s179_t4_stderr_text!r}, status={_s179_t4_status!r})")
-finally:
-    sys.stderr = _s179_t4_orig_stderr
-    if "_s179_t4_win" in dir():
-        _s179_t4_win.close()
-        _s179_t4_win.deleteLater()
+with _patch_stderr() as buf:
+    try:
+        _s179_t4_win = scaffold.MainWindow()
+        _s179_t4_win.show()
         app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+        _s179_t4_dock = _s179_t4_win.cascade_dock
+        _s179_t4_status = _s179_t4_win.statusBar().currentMessage().lower()
+        _s179_t4_stderr_text = buf.getvalue().lower()
+        _s179_t4_n_slots = len(_s179_t4_dock._slots)
+
+        check(_s179_t4_n_slots == scaffold.CASCADE_INITIAL_SLOTS,
+              f"T4: slots reset to CASCADE_INITIAL_SLOTS (got {_s179_t4_n_slots})")
+        check(any(tok in _s179_t4_stderr_text for tok in ("cascade", "slots", "corrupt", "invalid", "reset"))
+              or any(tok in _s179_t4_status for tok in ("cascade", "reset", "corrupt", "invalid")),
+              f"T4: warning surfaced via stderr or status "
+              f"(stderr={_s179_t4_stderr_text!r}, status={_s179_t4_status!r})")
+    finally:
+        if "_s179_t4_win" in dir():
+            _s179_t4_win.close()
+            _s179_t4_win.deleteLater()
+            app.processEvents()
+        QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22517,30 +22558,27 @@ _s179_t5_settings = QSettings("Scaffold", "Scaffold")
 _s179_t5_settings.setValue("cascade/variables", "{{ broken json")
 _s179_t5_settings.sync()
 
-_s179_t5_stderr_buf = io.StringIO()
-_s179_t5_orig_stderr = sys.stderr
-sys.stderr = _s179_t5_stderr_buf
-try:
-    _s179_t5_win = scaffold.MainWindow()
-    _s179_t5_win.show()
-    app.processEvents()
-    _s179_t5_dock = _s179_t5_win.cascade_dock
-    _s179_t5_status = _s179_t5_win.statusBar().currentMessage().lower()
-    _s179_t5_stderr_text = _s179_t5_stderr_buf.getvalue().lower()
-
-    check(_s179_t5_dock._cascade_variables == [],
-          f"T5: cascade_variables reset to [] (got {_s179_t5_dock._cascade_variables!r})")
-    check(any(tok in _s179_t5_stderr_text for tok in ("variable", "cascade", "corrupt", "invalid", "reset"))
-          or any(tok in _s179_t5_status for tok in ("variable", "cascade", "corrupt", "invalid", "reset")),
-          f"T5: warning surfaced via stderr or status "
-          f"(stderr={_s179_t5_stderr_text!r}, status={_s179_t5_status!r})")
-finally:
-    sys.stderr = _s179_t5_orig_stderr
-    if "_s179_t5_win" in dir():
-        _s179_t5_win.close()
-        _s179_t5_win.deleteLater()
+with _patch_stderr() as buf:
+    try:
+        _s179_t5_win = scaffold.MainWindow()
+        _s179_t5_win.show()
         app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+        _s179_t5_dock = _s179_t5_win.cascade_dock
+        _s179_t5_status = _s179_t5_win.statusBar().currentMessage().lower()
+        _s179_t5_stderr_text = buf.getvalue().lower()
+
+        check(_s179_t5_dock._cascade_variables == [],
+              f"T5: cascade_variables reset to [] (got {_s179_t5_dock._cascade_variables!r})")
+        check(any(tok in _s179_t5_stderr_text for tok in ("variable", "cascade", "corrupt", "invalid", "reset"))
+              or any(tok in _s179_t5_status for tok in ("variable", "cascade", "corrupt", "invalid", "reset")),
+              f"T5: warning surfaced via stderr or status "
+              f"(stderr={_s179_t5_stderr_text!r}, status={_s179_t5_status!r})")
+    finally:
+        if "_s179_t5_win" in dir():
+            _s179_t5_win.close()
+            _s179_t5_win.deleteLater()
+            app.processEvents()
+        QSettings("Scaffold", "Scaffold").remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22552,24 +22590,21 @@ _s179_t6_settings = QSettings("Scaffold", "Scaffold")
 _s179_t6_settings.setValue("custom_paths", "this is not json at all")
 _s179_t6_settings.sync()
 
-_s179_t6_stderr_buf = io.StringIO()
-_s179_t6_orig_stderr = sys.stderr
-sys.stderr = _s179_t6_stderr_buf
-try:
-    _s179_t6_dlg = scaffold.CustomPathDialog()
-    app.processEvents()
-    _s179_t6_stderr_text = _s179_t6_stderr_buf.getvalue().lower()
+with _patch_stderr() as buf:
+    try:
+        _s179_t6_dlg = scaffold.CustomPathDialog()
+        app.processEvents()
+        _s179_t6_stderr_text = buf.getvalue().lower()
 
-    check(_s179_t6_dlg._paths == [],
-          f"T6: _paths reset to [] (got {_s179_t6_dlg._paths!r})")
-    check(any(tok in _s179_t6_stderr_text for tok in ("custom_paths", "custom path", "corrupt", "invalid", "reset")),
-          f"T6: warning surfaced to stderr (got {_s179_t6_stderr_text!r})")
-    _s179_t6_dlg.close()
-    _s179_t6_dlg.deleteLater()
-    app.processEvents()
-finally:
-    sys.stderr = _s179_t6_orig_stderr
-    QSettings("Scaffold", "Scaffold").remove("custom_paths")
+        check(_s179_t6_dlg._paths == [],
+              f"T6: _paths reset to [] (got {_s179_t6_dlg._paths!r})")
+        check(any(tok in _s179_t6_stderr_text for tok in ("custom_paths", "custom path", "corrupt", "invalid", "reset")),
+              f"T6: warning surfaced to stderr (got {_s179_t6_stderr_text!r})")
+        _s179_t6_dlg.close()
+        _s179_t6_dlg.deleteLater()
+        app.processEvents()
+    finally:
+        QSettings("Scaffold", "Scaffold").remove("custom_paths")
 
 
 # ---------------------------------------------------------------
@@ -22663,43 +22698,34 @@ _s179_t8_win.show()
 app.processEvents()
 _s179_t8_dock = _s179_t8_win.cascade_dock
 
-# Monkey-patch QFileDialog and QMessageBox
+# Monkey-patch QFileDialog (QMessageBox.critical handled by _patch_qmb)
 _s179_t8_orig_file = QFileDialog.getOpenFileName
 QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s179_t8_cascade_path), "JSON files (*.json)"))
 
-_s179_t8_critical_messages = []
-_s179_t8_orig_critical = QMessageBox.critical
-QMessageBox.critical = staticmethod(
-    lambda parent, title, text, *a, **kw: (
-        _s179_t8_critical_messages.append((str(title), str(text))),
-        QMessageBox.StandardButton.Ok,
-    )[1]
-)
-
 try:
-    _s179_t8_dock._on_import_cascade()
-    app.processEvents()
+    with _patch_qmb("critical") as _s179_t8_critical_messages:
+        _s179_t8_dock._on_import_cascade()
+        app.processEvents()
 
-    _s179_t8_status = _s179_t8_win.statusBar().currentMessage().lower()
-    _s179_t8_all_messages = " ".join(t + " " + m for t, m in _s179_t8_critical_messages).lower()
+        _s179_t8_status = _s179_t8_win.statusBar().currentMessage().lower()
+        _s179_t8_all_messages = " ".join(t + " " + m for t, m in _s179_t8_critical_messages).lower()
 
-    # Strongest check: the oversized file must NOT have been installed
-    check(not _s179_t8_dest.exists(),
-          f"T8: oversized cascade file NOT installed to cascades dir "
-          f"(dest={_s179_t8_dest}, exists={_s179_t8_dest.exists()})")
-    # Size error must surface in either QMessageBox.critical or status bar.
-    # Avoid 'size' token — it substring-matches 'oversized' in success strings.
-    _s179_t8_combined = _s179_t8_all_messages + " " + _s179_t8_status
-    check(any(tok in _s179_t8_combined for tok in ("too large", "exceeds", "limit", "reject", "maximum", "bytes")),
-          f"T8: size error surfaced "
-          f"(messages={_s179_t8_all_messages!r}, status={_s179_t8_status!r})")
-    # Status must NOT say 'cascade imported' (the success path)
-    check("cascade imported" not in _s179_t8_status,
-          f"T8: status must NOT say 'cascade imported' on rejection "
-          f"(got {_s179_t8_status!r})")
+        # Strongest check: the oversized file must NOT have been installed
+        check(not _s179_t8_dest.exists(),
+              f"T8: oversized cascade file NOT installed to cascades dir "
+              f"(dest={_s179_t8_dest}, exists={_s179_t8_dest.exists()})")
+        # Size error must surface in either QMessageBox.critical or status bar.
+        # Avoid 'size' token — it substring-matches 'oversized' in success strings.
+        _s179_t8_combined = _s179_t8_all_messages + " " + _s179_t8_status
+        check(any(tok in _s179_t8_combined for tok in ("too large", "exceeds", "limit", "reject", "maximum", "bytes")),
+              f"T8: size error surfaced "
+              f"(messages={_s179_t8_all_messages!r}, status={_s179_t8_status!r})")
+        # Status must NOT say 'cascade imported' (the success path)
+        check("cascade imported" not in _s179_t8_status,
+              f"T8: status must NOT say 'cascade imported' on rejection "
+              f"(got {_s179_t8_status!r})")
 finally:
     QFileDialog.getOpenFileName = _s179_t8_orig_file
-    QMessageBox.critical = _s179_t8_orig_critical
     _s179_t8_win.close()
     _s179_t8_win.deleteLater()
     app.processEvents()
