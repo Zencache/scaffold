@@ -23097,6 +23097,186 @@ for _s179_t8_name in ("t8_rejectme.json", "t8_oversized.json"):
 
 
 # =====================================================================
+print("\n=== SECTION 180: multi-subcommand same-tool cascade snapshot overlay ===")
+# =====================================================================
+# The v2.9.4 snapshot-overlay fix changed the merge from wholesale
+# replace to per-key. Per the CHANGELOG, a documented consequence was:
+# "subcommand and elevation now follow the step N preset" — the overlay
+# loop iterates form.fields and handles _extra_flags, but does NOT touch
+# _subcommand or _elevated, so step N's preset values for those survive.
+# §179 T16 covers the per-field merge with a single-subcommand schema;
+# §180 covers the subcommand/elevation complement with two subcommands.
+#
+# Setup: same tool both steps (so the snapshot path triggers), schema
+# has two subcommands ("alpha" and "beta") each with one distinctive
+# string flag. Step 1 selects alpha + sets --alpha-flag=A_VALUE +
+# elevation off. Step 2 selects beta + sets --beta-flag=B_VALUE +
+# elevation on. Step 2's argv must reflect preset 2's subcommand and
+# flag — pre-fix wholesale-overlay would have left subcommand="alpha"
+# and elevation=False, producing argv [..., "alpha", "--alpha-flag",
+# "A_VALUE"] instead of [..., "beta", "--beta-flag", "B_VALUE"].
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+_s180_tmpdir = Path(tempfile.mkdtemp(prefix="s180_"))
+
+_s180_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s180_py",
+    "binary": sys.executable,
+    "description": "section 180 multi-subcommand runner",
+    "elevated": "optional",
+    "subcommands": [
+        {
+            "name": "alpha",
+            "description": "alpha subcommand",
+            "arguments": [_s179_make_arg("Alpha", "--alpha-flag", "string")],
+        },
+        {
+            "name": "beta",
+            "description": "beta subcommand",
+            "arguments": [_s179_make_arg("Beta", "--beta-flag", "string")],
+        },
+    ],
+    "arguments": [],
+}
+_s180_tool_hash = scaffold.schema_hash(_s180_tool_data)
+_s180_tool_path = _s180_tmpdir / "s180_tool.json"
+_s180_tool_path.write_text(json.dumps(_s180_tool_data), encoding="utf-8")
+
+
+def _s180_write_preset(filename, subcmd, alpha_value=None, beta_value=None,
+                       elevated=False):
+    """Write a §180 preset. _elevated is included unconditionally so the
+    overlay's no-touch-on-elevation behavior is exercised on both steps."""
+    data = {
+        "_format": "scaffold_preset",
+        "_tool": "s180_py",
+        "_subcommand": subcmd,
+        "_schema_hash": _s180_tool_hash,
+        "_elevated": elevated,
+    }
+    if alpha_value is not None:
+        data["alpha:--alpha-flag"] = alpha_value
+    if beta_value is not None:
+        data["beta:--beta-flag"] = beta_value
+    p = _s180_tmpdir / filename
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+_s180_p1 = _s180_write_preset("s180_p1.json", "alpha",
+                              alpha_value="A_VALUE", elevated=False)
+_s180_p2 = _s180_write_preset("s180_p2.json", "beta",
+                              beta_value="B_VALUE", elevated=True)
+
+_s180_win = scaffold.MainWindow()
+_s180_win.show()
+app.processEvents()
+_s180_dock = _s180_win.cascade_dock
+_s180_dock._cascade_variables = []
+_s180_dock._stop_on_error = False
+
+_s180_dock._slots[0]["tool_path"] = str(_s180_tool_path)
+_s180_dock._slots[0]["preset_path"] = str(_s180_p1)
+_s180_dock._slots[0]["captures"] = [
+    {"name": "x", "source": "stdout", "pattern": r"(READY)", "group": 1}
+]
+_s180_dock._slots[1]["tool_path"] = str(_s180_tool_path)
+_s180_dock._slots[1]["preset_path"] = str(_s180_p2)
+for _s180_i in range(2, len(_s180_dock._slots)):
+    _s180_dock._slots[_s180_i]["tool_path"] = None
+
+_s180_prev_extract = scaffold.extract_captures
+scaffold.extract_captures = lambda *a, **kw: ({"x": "READY"}, [])
+
+_s180_argvs = []
+# Captured at step-2 intercept; one entry means step 2 was reached.
+# is_elevation_checked() returns the checkbox state when the checkbox
+# exists, else short-circuits via _check_already_elevated() — both modes
+# yield True after preset 2 applies, so the assertion is robust against
+# elevated-shell test runs even though the meaningful signal comes from
+# the checkbox-present case.
+_s180_elev_capture = []
+_s180_orig_stop = _s180_win._on_run_stop
+
+
+def _s180_intercept():
+    cmd, _ = _s180_win.form.build_command()
+    _s180_argvs.append(list(cmd))
+    if len(_s180_argvs) == 1:
+        _s180_orig_stop()
+    else:
+        _s180_elev_capture.append(_s180_win.form.is_elevation_checked())
+        _s180_dock._chain_cleanup("test: step 2 argv captured")
+
+
+_s180_win._on_run_stop = _s180_intercept
+
+try:
+    _s180_dock._on_run_chain()
+    _s179_wait_idle(_s180_dock, max_iters=300, sleep_s=0.05)
+finally:
+    scaffold.extract_captures = _s180_prev_extract
+    _s180_win._on_run_stop = _s180_orig_stop
+    _s180_win.close()
+    _s180_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+check(len(_s180_argvs) == 2,
+      f"180a: both steps reached _on_run_stop (got {len(_s180_argvs)})")
+if len(_s180_argvs) >= 2:
+    _s180_step2 = _s180_argvs[1]
+    check("beta" in _s180_step2,
+          f"180b: step-2 argv contains 'beta' subcommand token "
+          f"(got {_s180_step2!r})")
+    check("--beta-flag" in _s180_step2,
+          f"180c: step-2 argv contains '--beta-flag' from preset 2 "
+          f"(got {_s180_step2!r})")
+    if "--beta-flag" in _s180_step2:
+        _s180_idx = _s180_step2.index("--beta-flag")
+        check(_s180_idx + 1 < len(_s180_step2)
+              and _s180_step2[_s180_idx + 1] == "B_VALUE",
+              f"180d: step-2 argv has 'B_VALUE' immediately after "
+              f"'--beta-flag' (got {_s180_step2!r})")
+    else:
+        check(False, "180d: B_VALUE adjacency check skipped — "
+                     "--beta-flag missing")
+    # Note: the overlay DOES write step-1's "alpha:--alpha-flag" into the
+    # inactive alpha-scope field at step 2. Harmless because build_command
+    # scopes by active subcommand ("beta") — but worth knowing if scope
+    # filtering in build_command or the overlay loop is ever refactored.
+    check("alpha" not in _s180_step2,
+          f"180e: step-2 argv does NOT contain 'alpha' (step-1 "
+          f"subcommand did not leak via overlay) (got {_s180_step2!r})")
+    check("--alpha-flag" not in _s180_step2,
+          f"180f: step-2 argv does NOT contain '--alpha-flag' (step-1 "
+          f"flag did not leak via overlay) (got {_s180_step2!r})")
+    check("A_VALUE" not in _s180_step2,
+          f"180g: step-2 argv does NOT contain 'A_VALUE' (step-1 flag "
+          f"value did not leak via overlay) (got {_s180_step2!r})")
+    check(len(_s180_elev_capture) == 1 and _s180_elev_capture[0] is True,
+          f"180h: step-2 elevation reflects preset 2's _elevated=True "
+          f"(got {_s180_elev_capture!r})")
+else:
+    check(False, "180b: 'beta' check skipped — fewer than 2 argvs")
+    check(False, "180c: --beta-flag check skipped")
+    check(False, "180d: B_VALUE adjacency check skipped")
+    check(False, "180e: alpha-not-in check skipped")
+    check(False, "180f: --alpha-flag-not-in check skipped")
+    check(False, "180g: A_VALUE-not-in check skipped")
+    check(False, "180h: elevation check skipped")
+
+
+# Cleanup section 180
+shutil.rmtree(_s180_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
