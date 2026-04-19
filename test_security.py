@@ -6,10 +6,13 @@ no network access, typed widget constraints, safe preset handling, and literal
 metacharacter passthrough.
 """
 
+import copy
 import html
 import json
 import os
+import random
 import re
+import string
 import sys
 import tempfile
 import shutil
@@ -879,6 +882,130 @@ _s10_win.deleteLater()
 _s10_win_d.close()
 _s10_win_d.deleteLater()
 app.processEvents()
+
+
+# =====================================================================
+# SECTION 11: Schema fuzzing (validate_tool + normalize_tool)
+# Goal: validate_tool never crashes and always returns list[str];
+# normalize_tool never crashes on dict input and raises TypeError on non-dict.
+# No new deps; uses stdlib random/string/copy and the repo's check() harness.
+# =====================================================================
+print("\n=== SECTION 11: Schema fuzzing (validate_tool + normalize_tool) ===")
+
+random.seed(0)  # deterministic — same mutations every run
+
+_s11_seed = {
+    "tool": "fuzz_seed",
+    "binary": "echo",
+    "description": "Seed for fuzzing",
+    "arguments": [
+        {"name": "Foo", "flag": "--foo", "type": "string"},
+    ],
+}
+
+def _s11_rand_text(max_len=60):
+    base = string.ascii_letters + string.digits + " -_./\\!@#$%^&*()[]{};:'\",<>?`~"
+    if random.random() < 0.12:
+        base += "✓✔✕✖漢字한글"
+    return "".join(random.choice(base) for _ in range(random.randint(0, max_len)))
+
+def _s11_mutate(seed):
+    s = copy.deepcopy(seed)
+    choice = random.choice([
+        "swap_types", "corrupt_keys", "big_strings", "replace_lists",
+        "deep_nest", "random_kv", "empty", "weird_flags", "bad_types"
+    ])
+    if choice == "swap_types":
+        for k in list(s.keys()):
+            if isinstance(s[k], str):
+                s[k] = random.randint(-9999, 9999)
+            elif isinstance(s[k], list):
+                s[k] = {"_replaced": _s11_rand_text(20)}
+    elif choice == "corrupt_keys":
+        for k in list(s.keys()):
+            if random.random() < 0.5:
+                v = s.pop(k)
+                s[k + _s11_rand_text(3)] = v
+        s[_s11_rand_text(6)] = _s11_rand_text(10)
+    elif choice == "big_strings":
+        s["huge"] = _s11_rand_text(5000)
+        if isinstance(s.get("arguments"), list):
+            for arg in s["arguments"]:
+                if isinstance(arg, dict):
+                    arg["description"] = _s11_rand_text(2000)
+    elif choice == "replace_lists":
+        s["arguments"] = _s11_rand_text(40) if random.random() < 0.5 else random.randint(0, 9999)
+    elif choice == "deep_nest":
+        node = {}
+        cur = node
+        for _ in range(random.randint(12, 80)):
+            cur["x"] = {}
+            cur = cur["x"]
+        cur["leaf"] = _s11_rand_text(20)
+        s["deep"] = node
+    elif choice == "random_kv":
+        for _ in range(random.randint(1, 30)):
+            s[_s11_rand_text(8)] = random.choice([None, random.randint(-1000, 1000), _s11_rand_text(30), [], {}])
+    elif choice == "empty":
+        s = {}
+    elif choice == "weird_flags":
+        if isinstance(s.get("arguments"), list):
+            for arg in s["arguments"]:
+                if isinstance(arg, dict):
+                    arg["flag"] = _s11_rand_text(1)
+    elif choice == "bad_types":
+        if isinstance(s.get("arguments"), list):
+            s["arguments"].append("not-a-dict")
+    return s
+
+_s11_ITER = 300
+_s11_validate_crashes = []
+_s11_validate_non_list = []
+_s11_validate_bad_elems = []
+_s11_normalize_crashes = []
+_s11_normalize_non_dict = []
+
+for _s11_i in range(_s11_ITER):
+    _s11_mut = _s11_mutate(_s11_seed)
+    try:
+        _s11_res = scaffold.validate_tool(_s11_mut)
+        if not isinstance(_s11_res, list):
+            _s11_validate_non_list.append((_s11_i, type(_s11_res).__name__))
+        else:
+            for _s11_item in _s11_res:
+                if not isinstance(_s11_item, str):
+                    _s11_validate_bad_elems.append((_s11_i, type(_s11_item).__name__))
+                    break
+    except Exception as _s11_e:
+        _s11_validate_crashes.append((_s11_i, type(_s11_e).__name__, str(_s11_e)[:120]))
+
+    try:
+        _s11_norm = scaffold.normalize_tool(_s11_mut)
+        if not isinstance(_s11_norm, dict):
+            _s11_normalize_non_dict.append((_s11_i, type(_s11_norm).__name__))
+    except Exception as _s11_e:
+        _s11_normalize_crashes.append((_s11_i, type(_s11_e).__name__, str(_s11_e)[:120]))
+
+check(len(_s11_validate_crashes) == 0,
+      f"11a: validate_tool did not crash on {_s11_ITER} mutations (crashes: {_s11_validate_crashes[:3]})")
+check(len(_s11_validate_non_list) == 0,
+      f"11b: validate_tool always returned a list (bad returns: {_s11_validate_non_list[:3]})")
+check(len(_s11_validate_bad_elems) == 0,
+      f"11c: validate_tool list elements are all strings (bad: {_s11_validate_bad_elems[:3]})")
+check(len(_s11_normalize_crashes) == 0,
+      f"11d: normalize_tool did not crash on {_s11_ITER} dict mutations (crashes: {_s11_normalize_crashes[:3]})")
+check(len(_s11_normalize_non_dict) == 0,
+      f"11e: normalize_tool always returned a dict (bad returns: {_s11_normalize_non_dict[:3]})")
+
+# Top-level TypeError contract for normalize_tool
+for _s11_bad in (None, [], "not a dict", 42, 3.14, True):
+    try:
+        scaffold.normalize_tool(_s11_bad)
+        check(False, f"11f: normalize_tool({_s11_bad!r}) should raise TypeError")
+    except TypeError:
+        check(True, f"11f: normalize_tool({type(_s11_bad).__name__}) raises TypeError")
+    except Exception as _s11_e:
+        check(False, f"11f: normalize_tool({_s11_bad!r}) raised {type(_s11_e).__name__}, expected TypeError")
 
 
 # =====================================================================
