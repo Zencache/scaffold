@@ -3,6 +3,30 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.8] — 2026-04-19
+
+Defensive hardening of `normalize_tool` against malformed input, plus a seeded schema-fuzzing section in the security suite. `normalize_tool` previously assumed every `arguments` value was a list and every element within it was a dict; 300-iteration fuzzing revealed crashes on non-list `arguments` and non-dict entries. The function now guards each level with `isinstance` checks and raises `TypeError` only at the top level, where a non-dict is unambiguously a programmer error.
+
+### Fixed
+
+- **`normalize_tool` crashed on non-list `arguments` and non-dict subcommand/argument entries** — the inner `_normalize_args` iterated `args` directly and called `arg.setdefault`, raising `AttributeError` / `TypeError` if the input was a string, int, or contained non-dict elements. Same problem on `subcommands` and each `sub` within it. `validate_tool` catches most of these up front in the real call path, but `normalize_tool` had no independent guard and would crash if called on unvalidated data. Fixed by adding `isinstance(args, list)` / `isinstance(arg, dict)` / `isinstance(data["subcommands"], list)` / `isinstance(sub, dict)` guards that skip malformed shapes rather than raising. The top-level `data` parameter is treated differently: a non-dict at this level is a programmer error (the contract is `dict -> dict`), so it now raises `TypeError` with the observed type rather than silently coercing. test_security.py §11 d–f.
+
+### Added
+
+**Tests (test_security.py):**
+- **Section 11 — Schema fuzzing (`validate_tool` + `normalize_tool`), 11 assertions across 6 checks.** 300 seeded mutations (`random.seed(0)` for reproducibility across runs) across 9 mutation categories: `swap_types`, `corrupt_keys`, `big_strings`, `replace_lists`, `deep_nest`, `random_kv`, `empty`, `weird_flags`, `bad_types`. 11a–11c pin `validate_tool`'s contract — never raises, always returns `list[str]`. 11d–11e pin `normalize_tool`'s contract on dict input — never raises, always returns a `dict`. 11f asserts `normalize_tool` raises `TypeError` (not any other exception) on six non-dict inputs: `None`, `[]`, `"not a dict"`, `42`, `3.14`, `True`. `copy`, `random`, and `string` added to the top import block.
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,988/2,988 assertions, 0 failures**
+  - Functional: 2,604/2,604
+  - Security: 170/170 (was 159/159; +11 from §11)
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.7] — 2026-04-18
 
 Hardens cascade-side preset loading against silent acceptance of malformed format markers. `CascadeDock._on_slot_clicked` and `_chain_advance` now validate `_format` and `_tool` before calling `apply_values`, which is tolerant of missing meta keys. Previously a preset file missing `_format`, carrying `_format: "scaffold_cascade"`, or bound to a different tool was parsed, loaded into the form, and either populated silently (Site 4) or consumed by the next cascade step (Site 5) — the `_format`/`_tool` equivalent of the `_schema_hash` gap closed in v2.9.3.
