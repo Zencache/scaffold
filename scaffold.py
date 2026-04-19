@@ -474,14 +474,25 @@ def normalize_tool(data: dict) -> dict:
     """Fill in missing optional fields with safe defaults.
 
     Returns a deep copy with defaults filled in; the original is never mutated.
+    This function is defensive: callers may pass unvalidated data and we avoid
+    raising AttributeError/TypeError by skipping non-list/non-dict shapes.
+    Raises TypeError if data itself is not a dict — the contract is dict->dict
+    and a non-dict at this level is a programmer error, not a data issue.
     """
+    if not isinstance(data, dict):
+        raise TypeError(f"normalize_tool expected dict, got {type(data).__name__}")
+
     data = deepcopy(data)
     data.setdefault("subcommands", None)
     data.setdefault("description", "")
     data.setdefault("elevated", None)
 
     def _normalize_args(args):
+        if not isinstance(args, list):
+            return
         for arg in args:
+            if not isinstance(arg, dict):
+                continue
             for key, default in ARG_DEFAULTS.items():
                 arg.setdefault(key, default)
             if isinstance(arg.get("flag"), str):
@@ -490,9 +501,12 @@ def normalize_tool(data: dict) -> dict:
     _normalize_args(data.get("arguments", []))
 
     if data.get("subcommands"):
-        for sub in data["subcommands"]:
-            sub.setdefault("description", "")
-            _normalize_args(sub.get("arguments", []))
+        if isinstance(data["subcommands"], list):
+            for sub in data["subcommands"]:
+                if not isinstance(sub, dict):
+                    continue
+                sub.setdefault("description", "")
+                _normalize_args(sub.get("arguments", []))
 
     return data
 
