@@ -166,14 +166,14 @@ If validation reports errors, paste them back into the LLM and ask it to fix the
 
 ### Using tools that aren't on your PATH
 
-The `binary` field in a schema expects either a bare name that resolves through your PATH (`nmap`, `docker`, `git`) or an absolute path (`/opt/tools/installer` on Unix, `C:\Tools\installer.exe` on Windows). Shell-relative paths like `./installer` do **not** work — Scaffold doesn't invoke a shell, so there's nothing to evaluate the `./` prefix.
+The binary field in a schema expects either a bare name that resolves through your PATH (nmap, docker, git) or an absolute path (/opt/tools/installer on Unix, C:\Tools\installer.exe on Windows). Shell-relative paths like ./installer do not work — Scaffold doesn't invoke a shell, so there's nothing to evaluate the ./ prefix.
+This most often trips up downloaded release binaries and script-based tools. If you extracted rayhunter's release zip and the schema says "binary": "installer", running it fails with "command not found" because installer isn't on your PATH. Three fixes, in order of preference:
 
-This most often trips up downloaded release binaries. If you extracted rayhunter's release zip and the schema says `"binary": "installer"`, running it fails with "command not found" because `installer` isn't on your PATH. Two fixes, in order of preference:
+Add the containing folder via Custom PATH Directories (File > Custom PATH Directories...). Cross-platform, doesn't modify your system, persists across sessions, and works identically for binaries and scripts. See the Custom PATH Directories section below for details. Best choice when you only need the binary available inside Scaffold.
+Put the binary on your system PATH. On Unix, symlink it into /usr/local/bin (e.g. ln -s ~/rayhunter/installer /usr/local/bin/installer). On Windows, add the containing folder to your PATH environment variable.
+Edit the schema to use an absolute path. Change "binary": "installer" to "binary": "/home/you/rayhunter/installer" (or on Windows, "C:\\Tools\\rayhunter\\installer.exe" — note the doubled backslashes inside JSON strings).
 
-1. **Put the binary on PATH.** On Unix, symlink it into `/usr/local/bin` (e.g. `ln -s ~/rayhunter/installer /usr/local/bin/installer`). On Windows, add the containing folder to your PATH environment variable, or use **File > Custom PATH Directories...** to register it just for Scaffold.
-2. **Edit the schema to use an absolute path.** Change `"binary": "installer"` to `"binary": "/home/you/rayhunter/installer"` (or on Windows, `"C:\\Tools\\rayhunter\\installer.exe"` — note the doubled backslashes inside JSON strings).
-
-The PATH approach keeps the schema portable across machines; the absolute-path approach is quicker when you only need it locally.
+Options 1 and 2 keep the schema portable across machines; the absolute-path approach is quicker when you only need it locally.
 
 ---
 
