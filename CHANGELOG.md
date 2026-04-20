@@ -3,6 +3,30 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.9.9] — 2026-04-20
+
+Defense-in-depth hardening of `get_elevation_command` raised by an external reviewer: pkexec invocations now include the documented `--` options-terminator between the tool binary and the target command. The `--` is pkexec(1)'s documented convention; it matters here because Scaffold's `binary` field validation (`_SHELL_METACHAR` at scaffold.py:51) does not reject a leading `-`, so a schema with `"binary": "--user"` would otherwise be parsed as a pkexec option rather than as the target program. Impact under the pre-fix shape was at most DoS / misrouted command — pkexec defaults to root regardless — but the terminator costs nothing and closes the parser-confusion surface. gsudo on win32 is intentionally excluded because older gsudo versions reject `--` and the convention does not apply the same way.
+
+### Fixed
+
+- **`get_elevation_command` omitted the pkexec `--` options terminator** — `[tool] + cmd_list` is now `[tool, "--"] + cmd_list` on non-win32 (pkexec and darwin branches), unchanged on win32 (gsudo). Single-line change at scaffold.py:670 using `sys.platform == "win32"` to match the existing branching style in the same function (no new `IS_WINDOWS` constant). Binary validation remains unchanged — this is belt-and-braces, not a replacement for input validation. test_functional.py §102f.
+
+### Added
+
+**Tests (test_functional.py):**
+- **§102f amended in place + 2 new assertions (102f3, 102f4).** 102f previously used the real host platform and asserted `[tool] + cmd` unconditionally; it is now split into 102f1 (linux/pkexec: asserts `[tool, '--'] + cmd` and error `None`) and 102f2 (win32/gsudo: asserts `[tool] + cmd` and error `None`) with explicit `sys.platform` patching. Two new assertions guard the separator shape: 102f3 asserts `argv.count("--") == 1` (no double separator if `--` appears in cmd_list already), 102f4 asserts `argv.index("--") == 1` (separator is immediately after the tool, not buried elsewhere). Net assertion count: +2 (2 original checks → 4 new checks).
+
+#### Full suite results
+
+- **All 6 test suites pass: 2,990/2,990 assertions, 0 failures**
+  - Functional: 2,606/2,606 (was 2,604; +2 from §102f amendment)
+  - Security: 170/170
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+  - Preset validation: 23/23
+
+
 ## [v2.9.8] — 2026-04-19
 
 Defensive hardening of `normalize_tool` against malformed input, plus a seeded schema-fuzzing section in the security suite. `normalize_tool` previously assumed every `arguments` value was a list and every element within it was a dict; 300-iteration fuzzing revealed crashes on non-list `arguments` and non-dict entries. The function now guards each level with `isinstance` checks and raises `TypeError` only at the top level, where a non-dict is unambiguously a programmer error.
