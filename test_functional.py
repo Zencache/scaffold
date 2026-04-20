@@ -12220,13 +12220,42 @@ scaffold.shutil.which = _s102_orig_which
 scaffold._elevation_tool = None
 
 # --- 102f: With tool available, returns [tool_path] + cmd and None error ---
-scaffold._elevation_tool = None
+# Platform-patched because pkexec (non-win32) inserts a `--` options terminator
+# between the tool and the target command; gsudo (win32) does not.
 scaffold.shutil.which = lambda name: "/usr/bin/fake_tool"
 _s102_cmd_f = ["nmap", "-sS", "target"]
-_s102_result_f, _s102_error_f = scaffold.get_elevation_command(_s102_cmd_f)
-check(_s102_result_f == ["/usr/bin/fake_tool", "nmap", "-sS", "target"],
-      "102f: returns [tool] + cmd when tool available")
-check(_s102_error_f is None, "102f: returns None error when tool available")
+
+# 102f1: non-win32 (pkexec) returns [tool, '--'] + cmd, error None
+scaffold.sys.platform = "linux"
+scaffold._elevation_tool = None
+_s102_result_f1, _s102_error_f1 = scaffold.get_elevation_command(_s102_cmd_f)
+check(_s102_result_f1 == ["/usr/bin/fake_tool", "--", "nmap", "-sS", "target"]
+      and _s102_error_f1 is None,
+      "102f1: returns [tool, '--'] + cmd on non-win32 (pkexec)")
+
+# 102f2: win32 (gsudo) returns [tool] + cmd with no separator, error None
+scaffold.sys.platform = "win32"
+scaffold._elevation_tool = None
+_s102_result_f2, _s102_error_f2 = scaffold.get_elevation_command(_s102_cmd_f)
+check(_s102_result_f2 == ["/usr/bin/fake_tool", "nmap", "-sS", "target"]
+      and _s102_error_f2 is None,
+      "102f2: returns [tool] + cmd on win32 (gsudo, no separator)")
+
+# 102f3: non-win32 argv contains exactly one '--' (no double separator)
+scaffold.sys.platform = "linux"
+scaffold._elevation_tool = None
+_s102_result_f3, _ = scaffold.get_elevation_command(_s102_cmd_f)
+check(_s102_result_f3.count("--") == 1,
+      "102f3: argv contains exactly one '--' separator on non-win32")
+
+# 102f4: non-win32 '--' is at index 1, immediately after tool
+scaffold.sys.platform = "linux"
+scaffold._elevation_tool = None
+_s102_result_f4, _ = scaffold.get_elevation_command(_s102_cmd_f)
+check(_s102_result_f4.index("--") == 1,
+      "102f4: '--' separator is immediately after tool on non-win32")
+
+scaffold.sys.platform = _s102_orig_platform
 scaffold.shutil.which = _s102_orig_which
 scaffold._elevation_tool = None
 
