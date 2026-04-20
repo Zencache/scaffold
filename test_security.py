@@ -583,6 +583,119 @@ errs = _enum_arg_errors(type_="enum", required=True,
 check(_has_required_default_msg(errs),
       f"3aq: required enum with default=null inside a subcommand rejected ({errs})")
 
+
+# 3ar–3bb: argument "validation" regex must not be ReDoS-prone (F2).
+# The three re.compile(arg["validation"]) consumer sites in ToolForm run
+# every keystroke on user input; a catastrophic-backtracking pattern in
+# the schema would hang the form validator. Gate at validate_tool time.
+
+def _validation_arg_errors(regex, in_subcommand=False):
+    """Return validation errors for a schema whose single string arg
+    has the given validation regex. Covers both top-level and subcommand
+    scopes so the F2 check's cross-scope coverage can be proved."""
+    arg = {
+        "name": "pattern_field",
+        "flag": "--pf",
+        "type": "string",
+        "validation": regex,
+    }
+    if in_subcommand:
+        data = {
+            "tool": "test", "binary": "echo", "description": "test",
+            "arguments": [],
+            "subcommands": [{"name": "scan", "arguments": [arg]}],
+        }
+    else:
+        data = {"tool": "test", "binary": "echo", "description": "test",
+                "arguments": [arg]}
+    return scaffold.validate_tool(data)
+
+
+def _has_redos_msg(errs):
+    return any(
+        "validation" in e.lower()
+        and ("catastrophic" in e.lower() or "redos" in e.lower()
+             or "backtracking" in e.lower())
+        for e in errs
+    )
+
+
+# Rejection cases — the helper's two heuristics (nested quantifier,
+# alternation-under-quantifier) cover the classical ReDoS shapes.
+
+# 3ar: (a+)+$ (canonical nested quantifier) rejected
+errs = _validation_arg_errors("(a+)+$")
+check(_has_redos_msg(errs), f"3ar: '(a+)+$' rejected ({errs})")
+
+# 3as: (a*)*b (another nested quantifier shape) rejected
+errs = _validation_arg_errors("(a*)*b")
+check(_has_redos_msg(errs), f"3as: '(a*)*b' rejected ({errs})")
+
+# 3at: (a|a)+$ (overlapping alternation under quantifier) rejected
+errs = _validation_arg_errors("(a|a)+$")
+check(_has_redos_msg(errs), f"3at: '(a|a)+$' rejected ({errs})")
+
+# 3au: (a|ab)*c (shared-prefix alternation under quantifier) rejected
+errs = _validation_arg_errors("(a|ab)*c")
+check(_has_redos_msg(errs), f"3au: '(a|ab)*c' rejected ({errs})")
+
+# 3av: a{200,500} (large bounded repetition) — currently ACCEPTED.
+# _pattern_is_redos_prone has only H1/H2 heuristics and does not flag
+# large bounded repetition. Documented-behavior regression guard: if the
+# helper is ever tightened to include an H3-style bound check, this test
+# breaks and we should update the shipped-schema acceptance list at the
+# same time.
+errs = _validation_arg_errors("a{200,500}")
+check(not _has_redos_msg(errs),
+      f"3av: 'a{{200,500}}' currently accepted (helper has no H3 check) ({errs})")
+
+# Acceptance cases — shipped-style shapes must not be false-positived.
+
+# 3aw: MAC-address-style character-class pattern accepted
+errs = _validation_arg_errors("^[0-9A-Fa-f:]{17}$")
+check(not _has_redos_msg(errs), f"3aw: MAC-style pattern accepted ({errs})")
+
+# 3ax: simple date pattern accepted
+errs = _validation_arg_errors(r"^\d{4}-\d{2}-\d{2}$")
+check(not _has_redos_msg(errs), f"3ax: date pattern accepted ({errs})")
+
+# 3ay: 2-letter country code pattern accepted
+errs = _validation_arg_errors("^[a-z]{2}$")
+check(not _has_redos_msg(errs), f"3ay: country-code pattern accepted ({errs})")
+
+# 3az: identifier pattern accepted
+errs = _validation_arg_errors("^[a-zA-Z0-9_-]+$")
+check(not _has_redos_msg(errs), f"3az: identifier pattern accepted ({errs})")
+
+# 3ba: same ReDoS-prone shape inside a subcommand → also rejected
+# (proves the F2 check applies to subcommand args too, not just top-level)
+errs = _validation_arg_errors("(a+)+$", in_subcommand=True)
+check(_has_redos_msg(errs),
+      f"3ba: '(a+)+$' inside subcommand rejected ({errs})")
+
+# 3bb: shipped-schema cohort — walk tools/**/*.json and assert no
+# shipped schema is now rejected because of the F2 check. Guards
+# against a future helper tightening that silently breaks a shipped
+# schema.
+_shipped_tools = Path(__file__).parent / "tools"
+_cohort_problems = []
+for _schema_path in sorted(_shipped_tools.rglob("*.json")):
+    try:
+        _data = scaffold.load_tool(_schema_path)
+    except Exception as _e:
+        _cohort_problems.append(f"{_schema_path.name} load failed: {_e}")
+        continue
+    _errs = scaffold.validate_tool(_data)
+    _rejected_by_f2 = [e for e in _errs if _has_redos_msg([e])]
+    if _rejected_by_f2:
+        _cohort_problems.append(
+            f"{_schema_path.relative_to(_shipped_tools).as_posix()}: {_rejected_by_f2}"
+        )
+check(not _cohort_problems,
+      f"3bb: shipped-schema cohort — no shipped regex tripped the F2 check "
+      f"({len(_cohort_problems)} problems: {_cohort_problems})")
+
+
 # =====================================================================
 print("\n=== SECTION 4: Preset Injection Resistance ===")
 # =====================================================================
