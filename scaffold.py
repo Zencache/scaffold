@@ -9290,15 +9290,15 @@ class MainWindow(QMainWindow):
         preset_path = Path(picker.selected_path)
         name = preset_path.stem
 
-        # Size guard — same limit as tool schemas
+        # Size guard — preset size cap (MAX_PRESET_SIZE)
         try:
             size = preset_path.stat().st_size
         except OSError:
             size = 0
-        if size > MAX_SCHEMA_SIZE:
+        if size > MAX_PRESET_SIZE:
             QMessageBox.warning(
                 self, "Preset Too Large",
-                f"Preset file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}).",
+                f"Preset file too large ({size:,} bytes, limit {MAX_PRESET_SIZE:,}).",
             )
             return
 
@@ -9400,15 +9400,15 @@ class MainWindow(QMainWindow):
             return
         src = Path(path)
 
-        # Size guard — same limit as tool schemas
+        # Size guard — preset size cap (MAX_PRESET_SIZE)
         try:
             size = src.stat().st_size
         except OSError:
             size = 0
-        if size > MAX_SCHEMA_SIZE:
+        if size > MAX_PRESET_SIZE:
             QMessageBox.warning(
                 self, "Import Failed",
-                f"Preset file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}).",
+                f"Preset file too large ({size:,} bytes, limit {MAX_PRESET_SIZE:,}).",
             )
             return
 
