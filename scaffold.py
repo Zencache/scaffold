@@ -448,6 +448,15 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
         if "dangerous" in arg and not isinstance(arg["dangerous"], bool):
             errors.append(f"{prefix}: \"dangerous\" must be a boolean")
 
+        # validation regex (F2): reject ReDoS-prone patterns at schema-load
+        # time so the downstream re.compile(arg["validation"]) sites in
+        # ToolForm widgets cannot be fed a catastrophic-backtracking regex.
+        v = arg.get("validation")
+        if isinstance(v, str) and v:
+            is_prone, reason = _pattern_is_redos_prone(v)
+            if is_prone:
+                errors.append(f"{prefix}: \"validation\" regex has {reason}")
+
 
 def _check_duplicate_flag_values(args: list, scope_label: str, errors: list) -> None:
     """Check for duplicate flag and short_flag values within a single scope.
