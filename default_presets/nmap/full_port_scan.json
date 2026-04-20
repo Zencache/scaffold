@@ -1,4 +1,5 @@
 {
+  "_format": "scaffold_preset",
   "_subcommand": null,
   "-sS": true,
   "-p": "1-65535",

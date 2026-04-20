@@ -21634,8 +21634,10 @@ check(_s176_preset.get("_tool") == "s176_tool_a",
       f"176a: serialize_values includes _tool=tool_a (got {_s176_preset.get('_tool')!r})")
 
 # --- 176b: validate_preset treats _tool as a meta key (not flagged as unknown) ---
+# Global flags are stored flat (no "__global__:" prefix) — matches what
+# serialize_values writes and what validate_preset builds known_flags against.
 _s176_vresult = scaffold.validate_preset(
-    {"_tool": "s176_tool_a", "__global__:--foo": "x"},
+    {"_tool": "s176_tool_a", "--foo": "x"},
     tool_data=_s176_tool_a,
 )
 check(_s176_vresult == [],

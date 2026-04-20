@@ -3,6 +3,45 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.0] — 2026-04-20
+
+Code was submitted to an external code auditor for another deep code audit, surfacing the findings in this changelog. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
+
+### Fixed
+
+- **`validate_tool` accepted `binary` fields starting with `-`** — a schema with `"binary": "--user"` would be parsed as an option to the elevation helper (gsudo/pkexec) rather than as the target program. `validate_tool` now rejects any `binary` whose first character is `-` on all platforms, preventing option-injection into elevation helpers. Belt-and-braces alongside the v2.9.9 `--` terminator fix.
+- **`validate_tool` accepted `tool` field values that silently created arbitrary directories under `presets/`** — path-traversal values such as `"../../etc"` or `" .. "` passed schema scan and produced unexpected filesystem state on preset save. `validate_tool` now requires `tool` to be 1–64 chars of letters, digits, spaces, or `_.()-`, to start with alphanumeric, and to contain no `..` or leading/trailing whitespace.
+- **`validate_tool` accepted a subcommand named `__global__`** — the reserved name silently clobbered global field registrations in `ToolForm.fields` (keyed by `(scope, flag)` tuples with `GLOBAL = "__global__"`). `validate_tool` now rejects any subcommand whose name equals the reserved global scope constant.
+- **`validate_tool` accepted required `enum` and `multi_enum` arguments with a null or missing `default`** — at form-build time the widget silently selected the first choice, producing a concrete argv value the user never entered. `validate_tool` now rejects required enum-family arguments without an explicit default, forcing the schema author to either provide a default or mark the argument optional.
+- **`validate_preset(preset, tool_data=schema)` produced spurious "Unknown preset key" warnings for 100% of valid global flags** — the validator's `known_flags` set did not match the flat `scope:flag` format that `serialize_values` emits and `apply_values` consumes. Rebuilt the set to match the round-trip shape; validated presets now cleanly pass when `tool_data` is supplied.
+- **Cascade slot click and cascade chain advance skipped `validate_preset` entirely** — malformed preset data (type mismatches, oversized values, schema-as-preset shape) reached `apply_values` and silently produced wrong commands during unattended cascade runs. All 4 preset-load paths now call `validate_preset` before `apply_values`. Interactive load and import continue to prompt "Load/Import anyway?" on missing `_format`; cascade slot click and cascade chain advance reject on missing `_format` and halt with a specific error naming the file.
+- **Three shipped nmap default presets missing the `_format` field** — `full_port_scan.json`, `quick_ping_sweep.json`, and `stealth_recon.json` now carry `"_format": "scaffold_preset"` consistent with the other 50 shipped defaults. Previously these triggered the new legacy-preset prompt on every load.
+
+### Changed
+
+- **Loading a preset that lacks a `_format` marker now prompts "Load anyway?" (default: Cancel)** — previously silent. Affects hand-edited preset files and presets saved by pre-`_format` versions of Scaffold. All presets saved by Scaffold itself carry the marker and load silently. Cascade paths reject outright rather than prompting, since cascade runs are unattended.
+
+### Added
+
+**Tests (test_security.py, test_preset_validation.py):**
+- **Validator rejection coverage for the four new `validate_tool` guards** — leading-`-` binary, `tool` field shape (path-traversal, oversize, whitespace, leading punctuation), reserved `__global__` subcommand name, required enum/multi_enum with null or missing default.
+- **Round-trip serialize→validate with `tool_data`** — pins that `serialize_values(form)` output validates cleanly against the originating schema under `validate_preset(preset, tool_data=schema)`. Regression guard for the flag-set mismatch that caused the spurious-warning bug.
+- **Cohort test over all 53 shipped default presets** — asserts each file parses, carries `_format: "scaffold_preset"`, and validates against its tool's schema.
+- **Static-scan regression guards for the 4-path preset-load policy** — pins that every `apply_values` call site is preceded by a `validate_preset` call, preventing future regressions where a new load path forgets the validation step.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,039/3,039 assertions, 0 failures**
+  - Functional: 2,606/2,606
+  - Security: 202/202 (was 170; +32 from validator guards and round-trip coverage)
+  - Preset validation: 40/40 (was 23; +17 from shipped-preset cohort and policy scans)
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
+
+
 ## [v2.9.9] — 2026-04-20
 
 Defense-in-depth hardening of `get_elevation_command` raised by an external reviewer: pkexec invocations now include the documented `--` options-terminator between the tool binary and the target command. The `--` is pkexec(1)'s documented convention; it matters here because Scaffold's `binary` field validation (`_SHELL_METACHAR` at scaffold.py:51) does not reject a leading `-`, so a schema with `"binary": "--user"` would otherwise be parsed as a pkexec option rather than as the target program. Impact under the pre-fix shape was at most DoS / misrouted command — pkexec defaults to root regardless — but the terminator costs nothing and closes the parser-confusion surface. gsudo on win32 is intentionally excluded because older gsudo versions reject `--` and the convention does not apply the same way.

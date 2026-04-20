@@ -1,5 +1,6 @@
 """Tests for validate_preset() — Phase 1 of Import Validation."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -144,25 +145,316 @@ tool_data = {
 }
 
 # 21. Valid keys matching schema pass
+# Global flags are stored flat (no "__global__:" prefix) — this matches
+# what serialize_values writes and what apply_values reads.
 result = scaffold.validate_preset(
-    {"__global__:--verbose": True, "__global__:--output": "/tmp"},
+    {"--verbose": True, "--output": "/tmp"},
     tool_data=tool_data,
 )
 check(result == [], f"21: matching keys pass with tool_data (got {result})")
 
 # 22. Unknown keys produce warning
 result = scaffold.validate_preset(
-    {"__global__:--verbose": True, "__global__:--nonexistent": "x"},
+    {"--verbose": True, "--nonexistent": "x"},
     tool_data=tool_data,
 )
 check(any("unknown" in e.lower() for e in result), f"22: unknown key warned (got {result})")
 
 # 23. Meta keys are not flagged as unknown
 result = scaffold.validate_preset(
-    {"_schema_hash": "abc12345", "__global__:--verbose": True},
+    {"_schema_hash": "abc12345", "--verbose": True},
     tool_data=tool_data,
 )
 check(result == [], f"23: meta keys not flagged as unknown (got {result})")
+
+
+# =====================================================================
+print("\n=== Preset Validation: F6 key-format round-trip ===")
+# =====================================================================
+
+# Schema with BOTH a global flag and a subcommand flag. Round-tripping
+# through serialize_values -> validate_preset(tool_data=) must produce
+# zero errors. Before F6 was fixed, global flags came back flat but
+# known_flags was built with "__global__:" prefix, so every global-flag
+# preset failed the cross-check.
+_f6_schema = {
+    "tool": "roundtrip_tool",
+    "binary": "roundtrip",
+    "description": "F6 round-trip schema",
+    "arguments": [
+        {"name": "Verbose", "flag": "--verbose", "type": "boolean"},
+        {"name": "Output", "flag": "--output", "type": "string"},
+    ],
+    "subcommands": [
+        {
+            "name": "scan",
+            "description": "scan subcommand",
+            "arguments": [
+                {"name": "Timeout", "flag": "--timeout", "type": "integer", "min": 0, "max": 600},
+            ],
+        },
+    ],
+}
+_f6_errors = scaffold.validate_tool(_f6_schema)
+assert not _f6_errors, f"test schema invalid: {_f6_errors}"
+_f6_data = scaffold.normalize_tool(_f6_schema)
+_f6_form = scaffold.ToolForm(_f6_data)
+
+# Pick the scan subcommand so the scan:--timeout field is live.
+_f6_form.sub_combo.setCurrentIndex(_f6_form.sub_combo.findData("scan"))
+
+# Set a global-scope value and a subcommand-scope value.
+_f6_form._set_field_value((scaffold.ToolForm.GLOBAL, "--verbose"), True)
+_f6_form._set_field_value((scaffold.ToolForm.GLOBAL, "--output"), "/tmp/out")
+_f6_form._set_field_value(("scan", "--timeout"), 30)
+
+_f6_preset = _f6_form.serialize_values()
+
+# 24. Round-trip — the core regression guard
+result = scaffold.validate_preset(_f6_preset, tool_data=_f6_data)
+check(result == [], f"24: serialize_values -> validate_preset(tool_data=) round-trips cleanly (got {result})")
+
+# 25. Serialized global keys are flat (no "__global__:" prefix) — this
+# documents the wire format that validate_preset must accept.
+check(
+    "--verbose" in _f6_preset and "__global__:--verbose" not in _f6_preset,
+    f"25: global flag is stored flat in the preset (keys: {sorted(k for k in _f6_preset if not k.startswith('_'))})",
+)
+
+# 26. Serialized subcommand keys are "scope:flag"-prefixed
+check(
+    "scan:--timeout" in _f6_preset,
+    f"26: subcommand flag is stored scope-prefixed (keys: {sorted(k for k in _f6_preset if not k.startswith('_'))})",
+)
+
+# 27. Unknown-key machinery still fires for truly stale flags — the fix
+# only changed the format, not the presence of the check.
+result = scaffold.validate_preset(
+    {"--this-flag-does-not-exist": True},
+    tool_data=_f6_data,
+)
+check(
+    any("unknown preset key" in e.lower() for e in result),
+    f"27: stale flag still flagged as Unknown preset key (got {result})",
+)
+
+# 28. Subcommand scope unchanged — a valid scope:flag key still validates
+# cleanly. Guards against an accidental regression on line 659.
+result = scaffold.validate_preset({"scan:--timeout": 30}, tool_data=_f6_data)
+check(result == [], f"28: subcommand scope:flag key validates cleanly (got {result})")
+
+# 29. Meta keys still skipped — _format, _tool, _subcommand, _schema_hash
+# must not trigger unknown-key errors. Guards the meta-key bypass.
+result = scaffold.validate_preset(
+    {
+        "_format": "scaffold_preset",
+        "_tool": "roundtrip_tool",
+        "_subcommand": "scan",
+        "_schema_hash": "abc12345",
+        "--verbose": True,
+    },
+    tool_data=_f6_data,
+)
+check(result == [], f"29: meta keys not treated as unknown (got {result})")
+
+
+# =====================================================================
+print("\n=== Preset Validation: F6 shipped-preset cohort ===")
+# =====================================================================
+
+# Walk every default preset under default_presets/<toolname>/, pair with
+# tools/<toolname>.json, and assert validate_preset(tool_data=) yields
+# zero errors. Pass 2 Check 4 recorded 53/53 failing before F6 landed.
+_presets_root = Path(__file__).parent / "default_presets"
+_tools_root = Path(__file__).parent / "tools"
+
+_cohort_total = 0
+_cohort_failures = []
+_cohort_skipped = []
+_cohort_schema_cache = {}
+
+for _preset_path in sorted(_presets_root.glob("*/*.json")):
+    _cohort_total += 1
+    _toolname = _preset_path.parent.name
+    _rel = _preset_path.relative_to(_presets_root).as_posix()
+
+    if _toolname not in _cohort_schema_cache:
+        _schema_path = _tools_root / f"{_toolname}.json"
+        if not _schema_path.exists():
+            _cohort_schema_cache[_toolname] = (None, f"no schema at tools/{_toolname}.json")
+        else:
+            try:
+                _raw = scaffold.load_tool(_schema_path)
+                _tool_errors = scaffold.validate_tool(_raw)
+                if _tool_errors:
+                    _cohort_schema_cache[_toolname] = (None, f"validate_tool failed: {_tool_errors[0]}")
+                else:
+                    _cohort_schema_cache[_toolname] = (scaffold.normalize_tool(_raw), None)
+            except Exception as e:
+                _cohort_schema_cache[_toolname] = (None, f"load_tool raised: {e}")
+
+    _schema, _skip_reason = _cohort_schema_cache[_toolname]
+    if _schema is None:
+        _cohort_skipped.append((_rel, _skip_reason))
+        continue
+
+    try:
+        _preset_data = json.loads(_preset_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        _cohort_skipped.append((_rel, f"json parse: {e}"))
+        continue
+
+    _errs = scaffold.validate_preset(_preset_data, tool_data=_schema)
+    if _errs:
+        _cohort_failures.append((_rel, _errs))
+
+# 30. All shipped presets validate cleanly against their tool schema
+check(
+    _cohort_failures == [],
+    f"30: all {_cohort_total} shipped default presets validate cleanly (failures: {_cohort_failures[:3]})",
+)
+
+# 31. We actually walked the expected cohort — if this count drifts, the
+# test is no longer exercising what the prompt claimed (53 shipped pairs).
+check(
+    _cohort_total >= 50,
+    f"31: shipped-preset cohort size sanity (walked {_cohort_total}, skipped {len(_cohort_skipped)})",
+)
+
+if _cohort_skipped:
+    print(f"  note: {len(_cohort_skipped)} preset(s) skipped:")
+    for _name, _reason in _cohort_skipped:
+        print(f"    - {_name}: {_reason}")
+
+
+# =====================================================================
+print("\n=== Preset Validation: F12 — UI paths have parallel _format handling ===")
+# =====================================================================
+# Static-scan regression guard. F12 unified the missing-_format policy so
+# both interactive UI paths now PROMPT on missing marker and REJECT on
+# wrong marker. A future refactor that silently drops either branch on
+# _on_load_preset (the path that used to silently accept missing _format)
+# would reintroduce the hole. The prompts themselves go through
+# QMessageBox so unit-testing behavior directly is brittle; asserting the
+# source text contains the prompt + critical calls is a cheap guard that
+# fires on any accidental removal.
+import re as _re12
+
+_scaffold_src = Path(__file__).parent / "scaffold.py"
+_scaffold_text = _scaffold_src.read_text(encoding="utf-8")
+
+
+def _f12_extract_method(src, name):
+    """Return the textual body of ``def NAME(`` through the next sibling def."""
+    lines = src.splitlines(keepends=True)
+    pat = _re12.compile(rf"^(\s*)def\s+{_re12.escape(name)}\s*\(")
+    start = None
+    indent = ""
+    for i, line in enumerate(lines):
+        m = pat.match(line)
+        if m:
+            start = i
+            indent = m.group(1)
+            break
+    if start is None:
+        return ""
+    sibling = _re12.compile(rf"^{_re12.escape(indent)}(def|class)\s")
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "":
+            continue
+        if sibling.match(line):
+            end = j
+            break
+        stripped_indent = len(line) - len(line.lstrip())
+        if line.strip() and stripped_indent < len(indent):
+            end = j
+            break
+    return "".join(lines[start:end])
+
+
+_load_body = _f12_extract_method(_scaffold_text, "_on_load_preset")
+_import_body = _f12_extract_method(_scaffold_text, "_on_import_preset")
+
+# 32. _on_load_preset prompts on missing _format (not silent anymore)
+check(
+    "Missing Format Marker" in _load_body and "Load anyway" in _load_body,
+    "32: _on_load_preset contains Missing Format Marker prompt with 'Load anyway'",
+)
+
+# 33. _on_load_preset still rejects wrong _format via QMessageBox.critical
+check(
+    "Wrong File Format" in _load_body and "QMessageBox.critical" in _load_body,
+    "33: _on_load_preset contains Wrong File Format critical dialog",
+)
+
+# 34. Consistency — _on_import_preset's parallel behavior is still present
+check(
+    "Missing Format Marker" in _import_body and "Import anyway" in _import_body,
+    "34: _on_import_preset contains Missing Format Marker prompt with 'Import anyway'",
+)
+
+# 35. _on_import_preset still rejects wrong _format
+check(
+    "Wrong File Format" in _import_body and "QMessageBox.critical" in _import_body,
+    "35: _on_import_preset contains Wrong File Format critical dialog",
+)
+
+
+# =====================================================================
+print("\n=== Preset Validation: F16 — cascade paths call validate_preset ===")
+# =====================================================================
+# Static-scan regression guard. F16 added validate_preset(preset_data) to
+# both cascade paths so malformed presets can't silently feed apply_values
+# during unattended runs. A future refactor that drops the call would
+# reopen the hole the audit flagged.
+
+_slot_body = _f12_extract_method(_scaffold_text, "_on_slot_clicked")
+_chain_body = _f12_extract_method(_scaffold_text, "_chain_advance")
+
+# 36. _on_slot_clicked calls validate_preset(preset_data)
+check(
+    "validate_preset(preset_data)" in _slot_body,
+    "36: _on_slot_clicked contains validate_preset(preset_data) call",
+)
+
+# 37. _chain_advance calls validate_preset(preset_data)
+check(
+    "validate_preset(preset_data)" in _chain_body,
+    "37: _chain_advance contains validate_preset(preset_data) call",
+)
+
+
+# =====================================================================
+print("\n=== Preset Validation: F16 — structural-error detection still catches malformed presets ===")
+# =====================================================================
+# Behavior regression guard for the structural checks the new cascade
+# calls rely on. If validate_preset stops flagging any of these cases,
+# the new cascade gate silently degrades — the gate still runs but no
+# longer rejects the thing it was added to catch.
+
+# 38. Nested dict value is rejected (unsupported value type)
+_f16_err_nested = scaffold.validate_preset({"--flag": {"nested": "dict"}})
+check(
+    len(_f16_err_nested) > 0 and any("unsupported type" in e.lower() for e in _f16_err_nested),
+    f"38: validate_preset flags nested dict value (got {_f16_err_nested})",
+)
+
+# 39. Schema-as-preset mistake is rejected
+_f16_err_schema = scaffold.validate_preset({"binary": "nmap", "arguments": [{"name": "x"}]})
+check(
+    len(_f16_err_schema) > 0 and any("tool schema" in e.lower() for e in _f16_err_schema),
+    f"39: validate_preset flags schema-as-preset (got {_f16_err_schema})",
+)
+
+# 40. Oversized key is rejected
+_f16_long_key = "x" * 10_001
+_f16_err_longkey = scaffold.validate_preset({_f16_long_key: "val"})
+check(
+    len(_f16_err_longkey) > 0 and any("too long" in e.lower() for e in _f16_err_longkey),
+    f"40: validate_preset flags oversized key (got {_f16_err_longkey})",
+)
 
 
 # =====================================================================

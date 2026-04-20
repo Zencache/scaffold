@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.9.9"
+__version__ = "2.10.0"
 
 import atexit
 import datetime
@@ -227,6 +227,24 @@ def validate_tool(data: dict) -> list[str]:
         if key not in data:
             errors.append(f"Missing required top-level key: \"{key}\"")
 
+    # Validate "tool" field shape — security-sensitive (used as a directory
+    # name under presets/ and default_presets/; must not enable path traversal).
+    # Allows letters, digits, spaces, and "_.()-" so shipped human-friendly
+    # names like "Ansible (Ad-Hoc)" and "Docker Compose" remain valid.
+    if "tool" in data:
+        tool_name = data["tool"]
+        if not isinstance(tool_name, str) or not tool_name:
+            errors.append("\"tool\" must be a non-empty string")
+        elif not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.() -]{0,63}$", tool_name):
+            errors.append(
+                "Invalid \"tool\": must be 1-64 chars of letters/digits/spaces and "
+                "\"_.()-\", starting with alphanumeric"
+            )
+        elif ".." in tool_name:
+            errors.append("Invalid \"tool\": must not contain \"..\"")
+        elif tool_name != tool_name.strip():
+            errors.append("Invalid \"tool\": must not have leading or trailing whitespace")
+
     # Validate binary field — security-sensitive (passed to QProcess.setProgram)
     if "binary" in data:
         binary = data["binary"]
@@ -238,6 +256,15 @@ def validate_tool(data: dict) -> list[str]:
             # Check for null bytes first (dedicated message)
             if "\x00" in binary:
                 errors.append("\"binary\" contains null bytes")
+            # Reject leading-dash binary names. On Windows, get_elevation_command
+            # does not insert a "--" options-terminator before the binary, so a
+            # binary like "--copyns" or "-i" would be swallowed by gsudo as its
+            # own option. Rejecting here is defense-in-depth on all platforms.
+            if binary and binary[0] == "-":
+                errors.append(
+                    "\"binary\" cannot start with \"-\" "
+                    "(would be interpreted as an option flag by elevation helpers)"
+                )
             # Check for shell metacharacters (never valid in a binary name)
             # '\\' is excluded here because Windows absolute paths (e.g.
             # C:\\Windows\\System32\\ping.exe) use it as a separator. The subcommand-
@@ -302,6 +329,14 @@ def validate_tool(data: dict) -> list[str]:
                         errors.append(f"subcommand \"{name}\": \"name\" contains double spaces")
                     elif any(c in name for c in "\n\r\t"):
                         errors.append(f"subcommand name {name!r}: contains illegal whitespace characters")
+                    elif name == "__global__":
+                        # Reserved sentinel used by ToolForm to scope global-arg
+                        # field keys; a subcommand with this name would collide
+                        # with global-arg field registration. Hardcoded here
+                        # rather than referencing ToolForm.GLOBAL because
+                        # validate_tool runs at schema-load time, before any
+                        # ToolForm exists.
+                        errors.append("Invalid subcommand name \"__global__\": reserved identifier")
                     else:
                         _bad_token = None
                         for _tok in name.split():
@@ -363,6 +398,16 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
                 choices = arg.get("choices")
                 if not isinstance(choices, list) or len(choices) == 0:
                     errors.append(f"{prefix}: type \"{t}\" requires a non-empty \"choices\" list")
+                # Required enum/multi_enum must declare an explicit default —
+                # otherwise the widget silently selects the first choice and
+                # the user never sees a "no value chosen" state. Empty list []
+                # is a valid multi_enum default; only None / missing is rejected.
+                if arg.get("required") is True:
+                    if "default" not in arg or arg.get("default") is None:
+                        flag_label = arg.get("flag", arg.get("name", "?"))
+                        errors.append(
+                            f"Argument \"{flag_label}\": required {t} must specify a non-null \"default\""
+                        )
 
         if "separator" in arg and arg["separator"] not in VALID_SEPARATORS:
             errors.append(f"{prefix}: invalid separator \"{arg['separator']}\" (must be one of: {', '.join(sorted(VALID_SEPARATORS))})")
@@ -607,7 +652,7 @@ def validate_preset(data, tool_data=None) -> list[str]:
         known_flags = set()
         for arg in tool_data.get("arguments", []):
             if isinstance(arg, dict) and "flag" in arg:
-                known_flags.add(f"__global__:{arg['flag']}")
+                known_flags.add(arg['flag'])
         for sub in tool_data.get("subcommands", None) or []:
             for arg in sub.get("arguments", []):
                 if isinstance(arg, dict) and "flag" in arg:
@@ -6855,6 +6900,22 @@ class CascadeSidebar(QDockWidget):
                         f"{marker_problem}"
                     )
                     return
+                # Structural validation \u2014 cascade runs unattended, so malformed
+                # preset data (bad types, oversize strings, schema-as-preset) must
+                # reject instead of feeding apply_values. Mirrors UI paths.
+                verrors = validate_preset(preset_data)
+                if verrors:
+                    preset_name = Path(preset_path).name
+                    first_err = verrors[0] if verrors else "unknown"
+                    print(
+                        f"[cascade] slot load rejected: {preset_path} \u2014 "
+                        f"validation failed: {first_err}",
+                        file=sys.stderr,
+                    )
+                    self._main_window.statusBar().showMessage(
+                        f"Preset not loaded: {preset_name} \u2014 {first_err}"
+                    )
+                    return
                 had_pw = self._main_window.form.apply_values(preset_data)
                 msg = f"Loaded cascade step: {Path(preset_path).stem}"
                 if had_pw:
@@ -7309,6 +7370,24 @@ class CascadeSidebar(QDockWidget):
                         f"Cascade stopped: preset {preset_name} "
                         f"{marker_problem} for step "
                         f"{self._chain_current + 1}"
+                    )
+                    return
+                # Structural validation \u2014 same rationale as _on_slot_clicked. Runs
+                # before the schema-hash check so structural errors name themselves
+                # specifically rather than being masked by a hash mismatch.
+                verrors = validate_preset(preset_data)
+                if verrors:
+                    preset_name = Path(preset_path).name
+                    first_err = verrors[0] if verrors else "unknown"
+                    print(
+                        f"[cascade] preset rejected: {preset_path} \u2014 "
+                        f"validation failed: {first_err}",
+                        file=sys.stderr,
+                    )
+                    self._cascade_finish_status = "error_halted"
+                    self._chain_cleanup(
+                        f"Cascade stopped: preset {preset_name} failed validation "
+                        f"for step {self._chain_current + 1} \u2014 {first_err}"
                     )
                     return
                 # Schema-hash gate: cascades run unattended, so a stale preset
@@ -9229,7 +9308,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error loading preset: {e}")
             return
 
-        # Three-tier _format check: correct/missing -> silent, wrong -> reject
+        # Three-tier _format check: correct -> silent, missing -> prompt, wrong -> reject
         fmt = preset.get("_format")
         if fmt is not None and fmt != "scaffold_preset":
             QMessageBox.critical(
@@ -9241,6 +9320,16 @@ class MainWindow(QMainWindow):
                 f"it is not a Scaffold preset.",
             )
             return
+        if fmt is None:
+            btn = QMessageBox.warning(
+                self, "Missing Format Marker",
+                "This preset doesn't contain a format marker. "
+                "It may not be a Scaffold preset.\n\nLoad anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if btn != QMessageBox.StandardButton.Yes:
+                return
 
         # Validate preset structure
         verrors = validate_preset(preset)

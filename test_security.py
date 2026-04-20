@@ -353,6 +353,236 @@ errs = _binary_errors("C:\\Windows\\System32\\ping.exe")
 check(not any("path separator" in e.lower() for e in errs),
       "3o: absolute Windows path accepted")
 
+# 3p–3t: Leading-dash binary names are rejected on all platforms.
+# On Windows, get_elevation_command does NOT insert a "--" options-terminator
+# before the binary, so a schema with "binary": "--copyns" would be swallowed
+# by gsudo as its own flag. Defense-in-depth: reject everywhere.
+
+# 3p: "--copyns" → rejected with message mentioning leading dash
+errs = _binary_errors("--copyns")
+check(any("-" in e and ("start" in e.lower() or "option" in e.lower()) for e in errs),
+      f"3p: '--copyns' rejected with leading-dash message ({errs})")
+
+# 3q: "-i" → rejected
+errs = _binary_errors("-i")
+check(any("-" in e and ("start" in e.lower() or "option" in e.lower()) for e in errs),
+      f"3q: '-i' rejected with leading-dash message ({errs})")
+
+# 3r: "-x" → rejected
+errs = _binary_errors("-x")
+check(any("-" in e and ("start" in e.lower() or "option" in e.lower()) for e in errs),
+      f"3r: '-x' rejected with leading-dash message ({errs})")
+
+# 3s: "nmap" → still accepted (regression guard)
+errs = _binary_errors("nmap")
+check(not any("binary" in e.lower() for e in errs),
+      f"3s: 'nmap' still accepted — no leading-dash false positive ({errs})")
+
+# 3t: "-" alone → rejected
+errs = _binary_errors("-")
+check(any("-" in e and ("start" in e.lower() or "option" in e.lower()) for e in errs),
+      f"3t: bare '-' rejected with leading-dash message ({errs})")
+
+# 3u: "" → still handled by existing empty-string check; no double-reject
+# (should emit the non-empty message, NOT the leading-dash message)
+errs = _binary_errors("")
+check(any("non-empty" in e.lower() for e in errs),
+      f"3u: empty string still caught by empty-string check ({errs})")
+check(not any("start" in e.lower() and "-" in e for e in errs),
+      f"3u: empty string does not trip leading-dash check ({errs})")
+
+# 3v–3ad: "tool" field shape (F3). Rejects path-traversal-shaped values that
+# would feed into _presets_dir's directory-name join. The regex allows letters,
+# digits, spaces, and "_.()-" so shipped human-friendly names like
+# "Ansible (Ad-Hoc)" remain valid.
+
+def _tool_errors(tool_name):
+    """Return validation errors for a tool with the given tool name."""
+    data = {"tool": tool_name, "binary": "echo",
+            "description": "test", "arguments": []}
+    return scaffold.validate_tool(data)
+
+
+# 3v: relative traversal
+errs = _tool_errors("../../../tmp/evil")
+check(any("tool" in e.lower() for e in errs),
+      f"3v: '../../../tmp/evil' rejected, message mentions tool ({errs})")
+
+# 3w: absolute Unix path
+errs = _tool_errors("/etc/passwd")
+check(any("tool" in e.lower() for e in errs),
+      f"3w: '/etc/passwd' rejected ({errs})")
+
+# 3x: Windows traversal
+errs = _tool_errors("..\\..\\windows")
+check(any("tool" in e.lower() for e in errs),
+      f"3x: '..\\\\..\\\\windows' rejected ({errs})")
+
+# 3y: forward slashes (path separator)
+errs = _tool_errors("tool/with/slashes")
+check(any("tool" in e.lower() for e in errs),
+      f"3y: 'tool/with/slashes' rejected ({errs})")
+
+# 3z: null byte
+errs = _tool_errors("a\x00b")
+check(any("tool" in e.lower() for e in errs),
+      f"3z: null byte rejected ({errs})")
+
+# 3aa: empty string — caught by existing presence/non-empty check
+errs = _tool_errors("")
+check(any("tool" in e.lower() for e in errs),
+      f"3aa: empty string still rejected ({errs})")
+
+# 3ab: 65 chars — exceeds 64-char cap
+errs = _tool_errors("x" * 65)
+check(any("tool" in e.lower() for e in errs),
+      f"3ab: 65-char tool rejected (length cap) ({errs})")
+
+# 3ac: leading dash — fails alphanumeric-start anchor
+errs = _tool_errors("-nmap")
+check(any("tool" in e.lower() for e in errs),
+      f"3ac: '-nmap' rejected (no leading dash) ({errs})")
+
+# 3ad: double-dot defense-in-depth (matches the regex shape but contains "..")
+errs = _tool_errors("foo..bar")
+check(any("tool" in e.lower() and ".." in e for e in errs),
+      f"3ad: 'foo..bar' rejected with message mentioning '..' ({errs})")
+
+# 3ae: trailing whitespace — rejected by surrounding-whitespace check
+errs = _tool_errors("nmap ")
+check(any("tool" in e.lower() and "whitespace" in e.lower() for e in errs),
+      f"3ae: 'nmap ' rejected with message mentioning whitespace ({errs})")
+
+# 3af: leading whitespace — rejected by alphanumeric-start anchor
+errs = _tool_errors(" nmap")
+check(any("tool" in e.lower() for e in errs),
+      f"3af: ' nmap' rejected ({errs})")
+
+# 3ag: regression guards — bare tool names still accepted
+for _tn in ("nmap", "ansible-galaxy", "airodump-ng"):
+    errs = _tool_errors(_tn)
+    check(not any("tool" in e.lower() for e in errs),
+          f"3ag: '{_tn}' still accepted ({errs})")
+
+# 3ah: regression guards — shipped human-friendly names still accepted
+for _tn in ("Ansible (Ad-Hoc)", "Docker Compose"):
+    errs = _tool_errors(_tn)
+    check(not any("tool" in e.lower() for e in errs),
+          f"3ah: '{_tn}' still accepted (shipped schema) ({errs})")
+
+
+# 3ai–3aj: "__global__" reserved subcommand name (F5). The literal "__global__"
+# is the scope sentinel ToolForm uses for global-arg field keys; a subcommand
+# with this name silently clobbers global-arg field registration.
+
+def _sub_errors(sub_name):
+    """Return validation errors for a tool with one subcommand of this name."""
+    data = {
+        "tool": "test",
+        "binary": "echo",
+        "description": "test",
+        "arguments": [],
+        "subcommands": [{"name": sub_name, "arguments": []}],
+    }
+    return scaffold.validate_tool(data)
+
+
+# 3ai: reserved name rejected
+errs = _sub_errors("__global__")
+check(any("reserved" in e.lower() for e in errs),
+      f"3ai: subcommand named '__global__' rejected with 'reserved' ({errs})")
+
+# 3aj: regression — ordinary subcommand name still accepted
+errs = _sub_errors("scan")
+check(not any("reserved" in e.lower() for e in errs),
+      f"3aj: subcommand named 'scan' still accepted ({errs})")
+
+
+# 3ak–3aq: required enum/multi_enum must declare a non-null default (F10).
+# Without one, the widget silently selects choices[0] and the user never sees
+# a "no value chosen" state.
+
+def _enum_arg_errors(*, type_, required, default_present, default_value=None,
+                     in_subcommand=False):
+    """Return validation errors for a schema with a single enum/multi_enum arg.
+
+    If default_present is False the "default" key is omitted entirely; otherwise
+    it is set to default_value (which may be None).
+    """
+    arg = {
+        "name": "mode",
+        "flag": "--mode",
+        "type": type_,
+        "choices": ["alpha", "bravo", "charlie"],
+        "required": required,
+    }
+    if default_present:
+        arg["default"] = default_value
+    if in_subcommand:
+        data = {
+            "tool": "test",
+            "binary": "echo",
+            "description": "test",
+            "arguments": [],
+            "subcommands": [{"name": "scan", "arguments": [arg]}],
+        }
+    else:
+        data = {"tool": "test", "binary": "echo",
+                "description": "test", "arguments": [arg]}
+    return scaffold.validate_tool(data)
+
+
+def _has_required_default_msg(errs):
+    return any(
+        "required" in e.lower() and "default" in e.lower() and "--mode" in e
+        for e in errs
+    )
+
+
+# 3ak: required enum + default: null → rejected
+errs = _enum_arg_errors(type_="enum", required=True,
+                        default_present=True, default_value=None)
+check(_has_required_default_msg(errs),
+      f"3ak: required enum with default=null rejected ({errs})")
+
+# 3al: required enum + no default key → rejected
+errs = _enum_arg_errors(type_="enum", required=True, default_present=False)
+check(_has_required_default_msg(errs),
+      f"3al: required enum with no 'default' key rejected ({errs})")
+
+# 3am: required enum + valid default → accepted
+errs = _enum_arg_errors(type_="enum", required=True,
+                        default_present=True, default_value="alpha")
+check(not _has_required_default_msg(errs),
+      f"3am: required enum with default='alpha' accepted ({errs})")
+
+# 3an: optional enum + default: null → accepted (only required enums are checked)
+errs = _enum_arg_errors(type_="enum", required=False,
+                        default_present=True, default_value=None)
+check(not _has_required_default_msg(errs),
+      f"3an: optional enum with default=null accepted ({errs})")
+
+# 3ao: required multi_enum + default: [] → accepted (empty list is a valid
+# "no choices selected" multi_enum default)
+errs = _enum_arg_errors(type_="multi_enum", required=True,
+                        default_present=True, default_value=[])
+check(not _has_required_default_msg(errs),
+      f"3ao: required multi_enum with default=[] accepted ({errs})")
+
+# 3ap: required multi_enum + default: null → rejected
+errs = _enum_arg_errors(type_="multi_enum", required=True,
+                        default_present=True, default_value=None)
+check(_has_required_default_msg(errs),
+      f"3ap: required multi_enum with default=null rejected ({errs})")
+
+# 3aq: same required+null shape inside a subcommand → also rejected
+# (proves _validate_args coverage extends to subcommand args)
+errs = _enum_arg_errors(type_="enum", required=True,
+                        default_present=True, default_value=None,
+                        in_subcommand=True)
+check(_has_required_default_msg(errs),
+      f"3aq: required enum with default=null inside a subcommand rejected ({errs})")
+
 # =====================================================================
 print("\n=== SECTION 4: Preset Injection Resistance ===")
 # =====================================================================
