@@ -667,7 +667,12 @@ def get_elevation_command(cmd_list: list[str]) -> tuple[list[str], str | None]:
     """
     tool = _find_elevation_tool()
     if tool:
-        return [tool] + cmd_list, None
+        # pkexec(1) documents `--` as the options terminator between itself
+        # and the target command. Binary-name validation does not reject a
+        # leading `-`, so a hostile schema with e.g. "binary": "--user" could
+        # otherwise be parsed as a pkexec option. gsudo (win32) is excluded —
+        # older gsudo versions reject `--` and the convention does not apply.
+        return ([tool] if sys.platform == "win32" else [tool, "--"]) + cmd_list, None
 
     if sys.platform == "win32":
         return cmd_list, (
