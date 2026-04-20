@@ -458,6 +458,68 @@ check(
 
 
 # =====================================================================
+print("\n=== Preset Validation: F13 — UI preset size-gate uses MAX_PRESET_SIZE ===")
+# =====================================================================
+# Static-scan regression guard. F13 switched both UI preset-load paths
+# from the schema-specific MAX_SCHEMA_SIZE to the preset-specific
+# MAX_PRESET_SIZE constant. A future refactor that swaps either one
+# back would reintroduce the 1 MB vs 2 MB asymmetry the audit caught
+# (cascade accepts a preset the UI rejects, same file).
+
+# 41. _on_load_preset body no longer references MAX_SCHEMA_SIZE
+check(
+    "MAX_SCHEMA_SIZE" not in _load_body,
+    "41: _on_load_preset body does not reference MAX_SCHEMA_SIZE",
+)
+
+# 42. _on_import_preset body no longer references MAX_SCHEMA_SIZE
+check(
+    "MAX_SCHEMA_SIZE" not in _import_body,
+    "42: _on_import_preset body does not reference MAX_SCHEMA_SIZE",
+)
+
+# 43. _on_load_preset body uses MAX_PRESET_SIZE
+check(
+    "MAX_PRESET_SIZE" in _load_body,
+    "43: _on_load_preset body references MAX_PRESET_SIZE",
+)
+
+# 44. _on_import_preset body uses MAX_PRESET_SIZE
+check(
+    "MAX_PRESET_SIZE" in _import_body,
+    "44: _on_import_preset body references MAX_PRESET_SIZE",
+)
+
+
+# =====================================================================
+print("\n=== Preset Validation: F13 — preset/schema size-cap constants ===")
+# =====================================================================
+# Constant-existence + ordering regression guard. The F13 fix assumes
+# MAX_PRESET_SIZE >= MAX_SCHEMA_SIZE (otherwise migrating UI paths to
+# the preset constant would tighten limits, which wasn't the intent).
+# Inverting the ordering later would silently reintroduce an asymmetry.
+
+# 45. MAX_SCHEMA_SIZE exists and is an int
+check(
+    hasattr(scaffold, "MAX_SCHEMA_SIZE") and isinstance(scaffold.MAX_SCHEMA_SIZE, int),
+    "45: scaffold.MAX_SCHEMA_SIZE exists and is an int",
+)
+
+# 46. MAX_PRESET_SIZE exists and is an int
+check(
+    hasattr(scaffold, "MAX_PRESET_SIZE") and isinstance(scaffold.MAX_PRESET_SIZE, int),
+    "46: scaffold.MAX_PRESET_SIZE exists and is an int",
+)
+
+# 47. MAX_PRESET_SIZE >= MAX_SCHEMA_SIZE (preset cap never tighter than schema cap)
+check(
+    scaffold.MAX_PRESET_SIZE >= scaffold.MAX_SCHEMA_SIZE,
+    f"47: MAX_PRESET_SIZE ({scaffold.MAX_PRESET_SIZE}) >= "
+    f"MAX_SCHEMA_SIZE ({scaffold.MAX_SCHEMA_SIZE})",
+)
+
+
+# =====================================================================
 # Final results
 # =====================================================================
 print(f"\n{'='*60}")
