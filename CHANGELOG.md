@@ -5,25 +5,27 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.10.2] — 2026-04-20
 
-Continued audit-response hardening. Two crash surfaces closed at the preset/recovery boundary: wrong-type meta-key values no longer reach `apply_values`, and non-numeric `_recovery_timestamp` values no longer raise `TypeError` in the recovery-file cleanup path. No schema changes, no breaking changes, no user-facing behavior changes for valid presets.
+Continued audit-response hardening. Two crash surfaces closed at the preset/recovery boundary: wrong-type meta-key values no longer reach `apply_values`, and non-numeric `_recovery_timestamp` values no longer raise `TypeError` in the recovery-file cleanup path. A third finding closes the stale-preset warning gap in the interactive cascade slot-click load path. No schema changes, no breaking changes, no user-facing behavior changes for valid presets.
 
 ### Fixed
 
 - **`apply_values` crash on wrong-type preset meta-keys** — a preset with a meta-key of the wrong JSON type (e.g., `"_extra_flags": 123`, `"_subcommand": [1,2,3]`) was accepted by `validate_preset` and reached `apply_values`, where downstream Qt calls such as `setPlainText(123)` or `findData(list)` would raise `TypeError` mid-apply, leaving the form in a partial state. `validate_preset` now type-checks every registered meta-key against the new `PRESET_META_KEY_TYPES` registry before `apply_values` runs. `None` is treated as missing (preserves the UI-layer missing-marker rejection paths); unknown `_foo` keys pass with a one-line stderr debug log for forward-compat with future scaffold versions adding new meta-keys.
 - **`_check_for_recovery` / `_cleanup_stale_recovery_files` arithmetic crash on non-numeric `_recovery_timestamp`** — a recovery file with `"_recovery_timestamp": "not-a-number"` or `[1,2,3]` (hand-edited, corrupted, or written by a future version with a different schema) would reach `(time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600` and raise `TypeError`, aborting cleanup and blocking further recovery-prompt logic for the session. Both call sites now treat any non-numeric value (and `bool`, since `isinstance(True, int)` is `True`) as a corrupt file, delete it silently, and continue — matching the existing `json.JSONDecodeError` handling.
+- **`CascadeDock._on_slot_clicked` skipped the `_schema_hash` check entirely** — the interactive cascade slot-click preset-load path had no schema-hash warning before this fix. `_on_load_preset` (UI, non-blocking status-bar warning) and `_chain_advance` (unattended, halt-cascade) both guarded against stale presets; slot click fell through silently, so a user clicking a cascade slot after editing the underlying tool schema saw the old preset values applied with no indication the preset was stale. Fix mirrors the `_on_load_preset` UI pattern since slot click is human-initiated: `apply_values` still runs, the user is warned non-blockingly via the status bar (`"Cascade step loaded: <stem> — Note: this preset was saved with a different schema version. Some fields may not have loaded."`), and a forensic `[cascade] schema_hash mismatch: preset=… current=…` line is emitted to stderr matching `_chain_advance`'s format for symmetry across cascade paths. Mismatch message takes precedence over the had-password note, matching `_on_load_preset`'s if/elif ordering. Absent `_schema_hash` remains legacy-allowed with no warning, matching both `_on_load_preset` and `_chain_advance`.
 
 ### Added
 
 - **`PRESET_META_KEY_TYPES` module constant** — a single source of truth for the JSON type contract of each scaffold-emitted preset meta-key (`_format`, `_tool`, `_subcommand`, `_schema_hash`, `_elevated`, `_extra_flags`, `_description`). Cascade-file meta-keys (`_version`, non-`scaffold_preset` `_format` values) and recovery-file meta-keys (`_recovery_*`) are intentionally out of scope — they are separate file formats with their own load-site validation.
 
-**Tests (test_preset_validation.py, test_security.py):**
+**Tests (test_preset_validation.py, test_security.py, test_functional.py):**
 - **18 new assertions in test_preset_validation.py** — one wrong-type rejection per registered meta-key (7), one None-as-missing acceptance per registered meta-key (7), `_elevated: True`/`False` both pass (2), unknown `_mystery_key` passes for forward-compat (1), and a round-trip regression guard pinning that `serialize_values()` output still validates cleanly against the originating schema under the new registry (1).
 - **6 new assertions in test_security.py** — string `_recovery_timestamp`, list `_recovery_timestamp`, and valid-float baseline; each verifies no crash and the expected file-state outcome (corrupt branch deletes silently; valid branch reaches the recovery dialog before the file is cleaned up).
+- **§183 — 4 new assertions in test_functional.py** covering the F14 slot-click schema-hash branch: T1 matching-hash happy-path regression guard (pre-F14 `"Loaded cascade step: <stem>"` message unchanged), T2 stale-hash warning with `apply_values` still populating the form and stderr carrying the `[cascade] schema_hash mismatch: preset=… current=…` forensic line, T3 absent-hash legacy case (no warning, no stderr line), and T4 stale-hash-with-password-field precedence (mismatch message wins over the password-not-restored note, matching `_on_load_preset`'s if/elif ordering).
 
 #### Full suite results
 
-- **All 6 test suites pass: 3,081/3,081 assertions, 0 failures**
-  - Functional: 2,606/2,606
+- **All 6 test suites pass: 3,085/3,085 assertions, 0 failures**
+  - Functional: 2,610/2,610 (was 2,606; +4 from §183 F14 coverage)
   - Security: 219/219 (was 213; +6 from recovery-timestamp guards)
   - Preset validation: 65/65 (was 47; +18 from PRESET_META_KEY_TYPES coverage)
   - Smoke: 78/78
