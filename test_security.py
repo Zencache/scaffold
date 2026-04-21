@@ -931,9 +931,76 @@ if recovery_path:
     check(not recovery_path.exists(),
           "7f: expired recovery file deleted by _check_for_recovery")
 
+    # --- F8: Recovery timestamp guard ---
+    # _recovery_timestamp feeds directly into `time.time() - ts` arithmetic.
+    # Before F8, a non-numeric value crashed _check_for_recovery /
+    # _cleanup_stale_recovery_files with TypeError. The guard now treats
+    # non-numeric (and bool, since isinstance(True, int) is True) as
+    # corrupt and deletes the recovery file silently.
+
+    # 7g: _recovery_timestamp is a string → no crash, file deleted
+    bad_ts_str = {
+        "_recovery_tool_path": _schema_str,
+        "_recovery_timestamp": "not-a-number",
+    }
+    recovery_path.write_text(json.dumps(bad_ts_str), encoding="utf-8")
+    try:
+        _win7._check_for_recovery()
+        check(True, "7g: string timestamp — _check_for_recovery did not crash")
+    except Exception as e:
+        check(False, f"7g: string timestamp crashed: {e}")
+    check(not recovery_path.exists(),
+          "7g: string timestamp — corrupt recovery file deleted")
+
+    # 7h: _recovery_timestamp is a list → no crash, file deleted
+    bad_ts_list = {
+        "_recovery_tool_path": _schema_str,
+        "_recovery_timestamp": [1, 2, 3],
+    }
+    recovery_path.write_text(json.dumps(bad_ts_list), encoding="utf-8")
+    try:
+        _win7._check_for_recovery()
+        check(True, "7h: list timestamp — _check_for_recovery did not crash")
+    except Exception as e:
+        check(False, f"7h: list timestamp crashed: {e}")
+    check(not recovery_path.exists(),
+          "7h: list timestamp — corrupt recovery file deleted")
+
+    # 7i: Valid float timestamp → existing flow continues unchanged.
+    # Baseline regression guard: the guard must not accidentally reject
+    # valid timestamps. Count QMessageBox.question calls to verify the
+    # recovery dialog was reached (the corrupt-file branch returns
+    # before the dialog, so a dialog call means the normal path ran).
+    valid_ts = {
+        "_recovery_tool_path": _schema_str,
+        "_recovery_timestamp": time.time(),
+    }
+    recovery_path.write_text(json.dumps(valid_ts), encoding="utf-8")
+    _dialog_count = [0]
+    _orig_question = QMessageBox.question
+    def _counted_question(*a, **kw):
+        _dialog_count[0] += 1
+        return QMessageBox.StandardButton.No
+    QMessageBox.question = _counted_question
+    try:
+        _win7._check_for_recovery()
+        check(_dialog_count[0] == 1,
+              f"7i: valid timestamp — recovery dialog reached "
+              f"({_dialog_count[0]} calls)")
+    except Exception as e:
+        check(False, f"7i: valid timestamp crashed: {e}")
+    finally:
+        QMessageBox.question = _orig_question
+    check(not recovery_path.exists(),
+          "7i: valid timestamp — file deleted via normal flow")
+
 else:
-    # Recovery path is None — mark all as skipped
-    for label in ("7a", "7b", "7c", "7d", "7e", "7f"):
+    # Recovery path is None — mark all as skipped. One entry per check()
+    # call in the main branch (7a–7f: 1 each; 7g/7h: 2 each; 7i: 2).
+    for label in ("7a", "7b", "7c", "7d", "7e", "7f",
+                  "7g-nocrash", "7g-deleted",
+                  "7h-nocrash", "7h-deleted",
+                  "7i-dialog", "7i-deleted"):
         check(True, f"{label}: skipped (no recovery path)")
 
 # =====================================================================

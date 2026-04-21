@@ -520,6 +520,79 @@ check(
 
 
 # =====================================================================
+print("\n=== Preset Validation: F8 — PRESET_META_KEY_TYPES registry ===")
+# =====================================================================
+# Regression guard for F8: meta-key values are now type-checked against a
+# module-level registry. None is treated as missing (preserves the
+# missing-marker rejection paths at the UI layer). Unknown _foo keys pass
+# with a stderr debug line (forward-compat with future meta-keys).
+
+# 48–54. Each registered key must reject a wrong-type value with an error
+# containing "wrong type". One assertion per key.
+_wrong_type_cases = [
+    ("_format", 123),
+    ("_tool", 123),
+    ("_subcommand", 123),
+    ("_schema_hash", 123),
+    ("_elevated", 1),        # int, not bool — isinstance(1, (bool,)) is False
+    ("_extra_flags", 123),
+    ("_description", 123),
+]
+_wt_num = 48
+for _key, _bad_val in _wrong_type_cases:
+    _res = scaffold.validate_preset({_key: _bad_val})
+    check(
+        any("wrong type" in e for e in _res),
+        f"{_wt_num}: wrong-type {_key}={_bad_val!r} produces 'wrong type' error (got {_res})",
+    )
+    _wt_num += 1
+
+# 55–61. Each registered key must accept None with zero errors
+# (None-as-missing). One assertion per key.
+_none_num = 55
+for _key in ("_format", "_tool", "_subcommand",
+             "_schema_hash", "_elevated", "_extra_flags", "_description"):
+    _res = scaffold.validate_preset({_key: None})
+    check(
+        _res == [],
+        f"{_none_num}: {_key}=None is treated as missing (got {_res})",
+    )
+    _none_num += 1
+
+# 62. _elevated: True passes
+_res = scaffold.validate_preset({"_elevated": True})
+check(_res == [], f"62: _elevated=True passes (got {_res})")
+
+# 63. _elevated: False passes
+_res = scaffold.validate_preset({"_elevated": False})
+check(_res == [], f"63: _elevated=False passes (got {_res})")
+
+# 64. Unknown meta-key passes for forward-compat. Suppress stderr so the
+# debug line doesn't pollute test output — we only care about the return.
+import io
+import contextlib
+_buf = io.StringIO()
+with contextlib.redirect_stderr(_buf):
+    _res = scaffold.validate_preset({"_mystery_key": "x"})
+check(
+    _res == [],
+    f"64: unknown meta-key _mystery_key passes for forward-compat (got {_res})",
+)
+
+# 65. Baseline: a well-formed preset emitted by serialize_values() on a
+# real schema still passes validate_preset with zero errors. Guards
+# against the registry accidentally breaking the round-trip (e.g., if
+# serialize_values writes a meta-key type that doesn't match the
+# registry). Reuses the F6 schema + form built above.
+_f8_preset = _f6_form.serialize_values()
+_res = scaffold.validate_preset(_f8_preset, tool_data=_f6_data)
+check(
+    _res == [],
+    f"65: serialize_values() round-trip still clean with registry (got {_res})",
+)
+
+
+# =====================================================================
 # Final results
 # =====================================================================
 print(f"\n{'='*60}")
