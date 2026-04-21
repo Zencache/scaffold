@@ -24733,6 +24733,67 @@ check(
 
 
 # =====================================================================
+# Section 188 — v2.10.4 cleanup regression guards
+# =====================================================================
+print("\n=== SECTION 188: v2.10.4 cleanup regression guards ===")
+
+# 188a: CHAIN_FINISHED stays deleted
+check(not hasattr(scaffold, "CHAIN_FINISHED"),
+      "188a: CHAIN_FINISHED remains absent (v2.10.4 deletion)")
+
+# 188b: _field_key canonical shape — after _apply_dependencies now routes
+# through self._field_key(), verify the helper still returns the expected
+# (scope, flag) tuple so the routing substitution remains a no-op.
+_s188_win = scaffold.MainWindow()
+_s188_win._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+_s188_form = _s188_win.form
+check(_s188_form._field_key("__global__", "--flag") == ("__global__", "--flag"),
+      "188b: _field_key returns canonical (scope, flag) tuple")
+_s188_win.close()
+_s188_win.deleteLater()
+app.processEvents()
+
+# 188c: _new_slot helper exists on CascadeSidebar and returns canonical shape
+check(hasattr(scaffold.CascadeSidebar, "_new_slot"),
+      "188c: CascadeSidebar exposes _new_slot helper")
+_s188_win2 = scaffold.MainWindow()
+app.processEvents()
+_s188_dock = _s188_win2.cascade_dock
+_s188_slot = _s188_dock._new_slot()
+check(_s188_slot == {"tool_path": None, "preset_path": None, "delay": 0, "captures": []},
+      f"188c: _new_slot returns canonical empty slot shape (got {_s188_slot!r})")
+_s188_win2.close()
+_s188_win2.deleteLater()
+app.processEvents()
+
+# 188d: cascades/ directory contains at least the 4 originally-hardcoded
+# examples (regression guard against accidental wipe of example files)
+_s188_cascades_dir = Path(__file__).parent / "cascades"
+_s188_required = {"cascade_archive_playlist.json",
+                  "cascade_pandoc_dual_output.json",
+                  "ping_then_nmap.json",
+                  "recon_basic.json"}
+_s188_present = {p.name for p in _s188_cascades_dir.glob("*.json")}
+check(_s188_required.issubset(_s188_present),
+      f"188d: cascades/ contains the 4 baseline examples (missing: {_s188_required - _s188_present})")
+
+# 188e: §187 marker is unique (regression against re-introducing §30 duplication).
+# Split literals so this assertion block's own source doesn't self-match.
+_s188_tf_text = Path(__file__).read_text(encoding="utf-8")
+_s188_marker_needle = "# Section " + "187"
+_s188_print_needle = "=== SECTION " + "187:"
+_s188_marker_count = _s188_tf_text.count(_s188_marker_needle)
+_s188_print_count = _s188_tf_text.count(_s188_print_needle)
+check(_s188_marker_count == 1,
+      f"188e: §187 marker appears exactly once in test_functional.py "
+      f"(got {_s188_marker_count})")
+check(_s188_print_count <= 1,
+      f"188e: §187 print-marker is not duplicated "
+      f"(got {_s188_print_count})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
