@@ -1419,6 +1419,131 @@ for _s11_bad in (None, [], "not a dict", 42, 3.14, True):
 
 
 # =====================================================================
+print("\n=== SECTION 12: Cascade Path Traversal Guard (F1) ===")
+# =====================================================================
+# _cascade_path_is_safe() rejects '..' traversal in relative cascade step
+# paths while letting absolute paths through unchanged (matches
+# _load_tool_path policy — tool schemas/presets can live anywhere on disk).
+
+_s12_base = Path(scaffold.__file__).parent
+
+# 12a: obvious POSIX-style traversal rejected
+check(scaffold._cascade_path_is_safe(_s12_base, "../../../etc/passwd") is False,
+      "12a: '../../../etc/passwd' rejected as unsafe")
+
+# 12b: Windows-style traversal with backslashes rejected
+check(scaffold._cascade_path_is_safe(_s12_base, "..\\..\\..\\Windows\\win.ini") is False,
+      "12b: '..\\..\\..\\Windows\\win.ini' rejected as unsafe")
+
+# 12c: safe relative path inside base accepted
+check(scaffold._cascade_path_is_safe(_s12_base, "tests/foo.json") is True,
+      "12c: 'tests/foo.json' accepted as safe")
+
+# 12d: absolute paths pass through unchanged (platform-gated)
+if sys.platform != "win32":
+    check(scaffold._cascade_path_is_safe(_s12_base, "/tmp/foo") is True,
+          "12d: POSIX absolute '/tmp/foo' accepted")
+else:
+    check(scaffold._cascade_path_is_safe(_s12_base, "C:/Windows/win.ini") is True,
+          "12d: Windows absolute 'C:/Windows/win.ini' accepted")
+
+# 12e: empty string treated as safe
+check(scaffold._cascade_path_is_safe(_s12_base, "") is True,
+      "12e: empty string treated as safe")
+
+# 12f: None treated as safe
+check(scaffold._cascade_path_is_safe(_s12_base, None) is True,
+      "12f: None treated as safe")
+
+# --- _import_cascade_data rejection ---
+_s12_win = scaffold.MainWindow()
+_s12_win.show()
+app.processEvents()
+_s12_dock = _s12_win.cascade_dock
+
+# 12g: traversal in tool path raises ValueError naming "unsafe" and value
+_s12_bad_tool = {
+    "_format": "scaffold_cascade",
+    "name": "evil",
+    "steps": [{"tool": "../../../etc/passwd", "preset": None, "delay": 0}],
+}
+try:
+    _s12_dock._import_cascade_data(_s12_bad_tool)
+    check(False, "12g: should have raised ValueError for traversal tool path")
+except ValueError as _s12_e_tool:
+    _s12_msg_tool = str(_s12_e_tool)
+    check("unsafe" in _s12_msg_tool and "../../../etc/passwd" in _s12_msg_tool,
+          f"12g: ValueError names 'unsafe' and hostile value (got: {_s12_msg_tool!r})")
+
+# 12h: traversal in preset path raises ValueError naming the preset field
+_s12_bad_preset = {
+    "_format": "scaffold_cascade",
+    "name": "evil",
+    "steps": [{"tool": None, "preset": "../../../etc/passwd", "delay": 0}],
+}
+try:
+    _s12_dock._import_cascade_data(_s12_bad_preset)
+    check(False, "12h: should have raised ValueError for traversal preset path")
+except ValueError as _s12_e_preset:
+    _s12_msg_preset = str(_s12_e_preset)
+    check("unsafe" in _s12_msg_preset and "preset" in _s12_msg_preset
+          and "../../../etc/passwd" in _s12_msg_preset,
+          f"12h: ValueError names preset field + value (got: {_s12_msg_preset!r})")
+
+# 12i: ValueError mentions 1-based step index (step 2 for second entry)
+_s12_minimal = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s12_safe_rel = str(Path(_s12_minimal).relative_to(_s12_base))
+_s12_bad_step2 = {
+    "_format": "scaffold_cascade",
+    "name": "evil",
+    "steps": [
+        {"tool": _s12_safe_rel, "preset": None, "delay": 0},
+        {"tool": "../../../evil", "preset": None, "delay": 0},
+    ],
+}
+try:
+    _s12_dock._import_cascade_data(_s12_bad_step2)
+    check(False, "12i: should have raised ValueError for step 2 traversal")
+except ValueError as _s12_e_idx:
+    _s12_msg_idx = str(_s12_e_idx)
+    check("step 2" in _s12_msg_idx,
+          f"12i: ValueError contains 'step 2' (got: {_s12_msg_idx!r})")
+
+# --- _check_cascade_dependencies funneling ---
+
+# 12j: traversal tool path surfaces in missing_tools list, preset list empty
+_s12_dep_tool = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": "../../../etc/passwd", "preset": None, "delay": 0}],
+}
+_s12_mt, _s12_mp = scaffold._check_cascade_dependencies(_s12_dep_tool)
+check(_s12_mt == ["../../../etc/passwd"] and _s12_mp == [],
+      f"12j: traversal tool funneled to missing_tools (got tools={_s12_mt!r}, presets={_s12_mp!r})")
+
+# 12k: traversal preset path surfaces in missing_presets list
+_s12_dep_preset = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": None, "preset": "../../../etc/passwd", "delay": 0}],
+}
+_s12_mt2, _s12_mp2 = scaffold._check_cascade_dependencies(_s12_dep_preset)
+check(_s12_mt2 == [] and _s12_mp2 == ["../../../etc/passwd"],
+      f"12k: traversal preset funneled to missing_presets (got tools={_s12_mt2!r}, presets={_s12_mp2!r})")
+
+# 12l: valid relative path to real file inside base — existing behavior preserved
+_s12_dep_ok = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": _s12_safe_rel, "preset": None, "delay": 0}],
+}
+_s12_mt3, _s12_mp3 = scaffold._check_cascade_dependencies(_s12_dep_ok)
+check(_s12_mt3 == [] and _s12_mp3 == [],
+      f"12l: valid relative path not flagged missing (got tools={_s12_mt3!r}, presets={_s12_mp3!r})")
+
+_s12_win.close()
+_s12_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 _cleanup_recovery_files()
