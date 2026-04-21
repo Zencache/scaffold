@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.10.1"
+__version__ = "2.10.2"
 
 import atexit
 import datetime

@@ -3,103 +3,100 @@
 All notable changes to Scaffold are documented here.
 
 
-## [v2.10.2] — 2026-04-20
+## [v2.10.2] — 2026-04-21
 
-Continued audit-response hardening. Two crash surfaces closed at the preset/recovery boundary: wrong-type meta-key values no longer reach `apply_values`, and non-numeric `_recovery_timestamp` values no longer raise `TypeError` in the recovery-file cleanup path. A third finding closes the stale-preset warning gap in the interactive cascade slot-click load path. A fourth finding rejects cascade step paths that escape the scaffold directory via `..` traversal. No schema changes, no breaking changes, no user-facing behavior changes for valid presets.
+Four findings from the 2026-04-20 audit, closed as a batch. No schema changes, no breaking changes, no user-facing changes for valid presets.
 
 ### Fixed
 
-- **`apply_values` crash on wrong-type preset meta-keys** — a preset with a meta-key of the wrong JSON type (e.g., `"_extra_flags": 123`, `"_subcommand": [1,2,3]`) was accepted by `validate_preset` and reached `apply_values`, where downstream Qt calls such as `setPlainText(123)` or `findData(list)` would raise `TypeError` mid-apply, leaving the form in a partial state. `validate_preset` now type-checks every registered meta-key against the new `PRESET_META_KEY_TYPES` registry before `apply_values` runs. `None` is treated as missing (preserves the UI-layer missing-marker rejection paths); unknown `_foo` keys pass with a one-line stderr debug log for forward-compat with future scaffold versions adding new meta-keys.
-- **`_check_for_recovery` / `_cleanup_stale_recovery_files` arithmetic crash on non-numeric `_recovery_timestamp`** — a recovery file with `"_recovery_timestamp": "not-a-number"` or `[1,2,3]` (hand-edited, corrupted, or written by a future version with a different schema) would reach `(time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600` and raise `TypeError`, aborting cleanup and blocking further recovery-prompt logic for the session. Both call sites now treat any non-numeric value (and `bool`, since `isinstance(True, int)` is `True`) as a corrupt file, delete it silently, and continue — matching the existing `json.JSONDecodeError` handling.
-- **`CascadeDock._on_slot_clicked` skipped the `_schema_hash` check entirely** — the interactive cascade slot-click preset-load path had no schema-hash warning before this fix. `_on_load_preset` (UI, non-blocking status-bar warning) and `_chain_advance` (unattended, halt-cascade) both guarded against stale presets; slot click fell through silently, so a user clicking a cascade slot after editing the underlying tool schema saw the old preset values applied with no indication the preset was stale. Fix mirrors the `_on_load_preset` UI pattern since slot click is human-initiated: `apply_values` still runs, the user is warned non-blockingly via the status bar (`"Cascade step loaded: <stem> — Note: this preset was saved with a different schema version. Some fields may not have loaded."`), and a forensic `[cascade] schema_hash mismatch: preset=… current=…` line is emitted to stderr matching `_chain_advance`'s format for symmetry across cascade paths. Mismatch message takes precedence over the had-password note, matching `_on_load_preset`'s if/elif ordering. Absent `_schema_hash` remains legacy-allowed with no warning, matching both `_on_load_preset` and `_chain_advance`.
-- **Cascade step paths could escape the scaffold directory via `..` traversal** — `_import_cascade_data` (triggered by Import Cascade…) and `_check_cascade_dependencies` (triggered by the load-cascade dependency probe and the import pre-check) both joined the cascade's stored `step["tool"]` / `step["preset"]` strings onto `Path(__file__).parent` with no containment check, so a hostile cascade file carrying `"tool": "../../../etc/passwd"` would resolve outside the scaffold tree and feed that path straight into the tool/preset loader. Both sites now delegate to the new shared helper `_cascade_path_is_safe(base, value)`. Option B policy: **absolute paths pass through unchanged** (matches `_load_tool_path` — tool schemas and presets can live anywhere on disk); **only relative paths that escape `base` via `..` traversal are rejected.** `_import_cascade_data` raises `ValueError` naming the 1-based step index, the offending field (`tool` or `preset`), and the hostile value (caller at `_on_import_cascade` already catches `ValueError` and surfaces it in the status bar). `_check_cascade_dependencies` funnels unsafe values into its existing `missing_tools` / `missing_presets` return lists so the user sees the hostile path in the "missing dependencies" warning dialog and can cancel — this function has bare (non-`ValueError`-safe) call sites so it does not raise.
-- **`apply_values` left `sub_combo` selection stale on missing/empty/invalid `_subcommand`** — when `apply_values` received a preset whose `_subcommand` key was missing, `None`, empty string, or a name absent from the combo, the early-exit guard `if self.sub_combo is not None and sub:` skipped the combo update entirely. The combo kept whatever subcommand was selected before the call — but every other field on the form had been reset to its schema default by the same `apply_values` invocation, leaving the UI in a self-inconsistent state (e.g., the user selected `bravo`, loaded a preset without `_subcommand`, and saw `bravo` still selected with all `bravo`-scope fields cleared). `reset_to_defaults` already collapses these four "no valid subcommand" cases to `setCurrentIndex(0)`; F11 mirrors that pattern in `apply_values` so the two reset paths agree. Tools with no subcommands (`sub_combo is None`) remain a no-op, matching prior behavior. `serialize_values`'s policy of writing `_subcommand: None` for no-subcommand tools is unchanged — the new branch treats `None` as "reset to first entry", which for a no-subcommand form is unreachable.
+- **Preset load could crash mid-apply on corrupted meta-keys** — a preset with a wrong-type value for `_extra_flags`, `_subcommand`, or another scaffold-managed meta-key (from hand-editing, corruption, or a foreign version) was accepted by validation and then crashed inside `apply_values` when Qt tried to use it. Validation now type-checks meta-keys up front and rejects mismatches cleanly.
+
+- **Recovery cleanup could crash on corrupted recovery files** — a recovery file with a non-numeric `_recovery_timestamp` crashed startup cleanup with a `TypeError`, blocking further recovery prompts for that session. Corrupt recovery files are now deleted silently, matching how invalid JSON is already handled.
+
+- **Cascade slot-click didn't warn about stale presets** — clicking a cascade slot silently applied old preset values even when the tool's schema had changed since the preset was saved. The preset menu and the chain runner already warned in this case; slot-click now does too, with a non-blocking status-bar message.
+
+- **Cascade imports accepted paths escaping the scaffold directory** — a cascade file crafted to reference `../../../etc/passwd` or similar could cause scaffold to read files outside its own directory. Relative paths are now validated to stay inside the scaffold directory; absolute paths are still accepted (consistent with File > Open), but `..` traversals are rejected with a clear error.
+
+- **Preset load could leave a stale subcommand selection** — applying a preset that omitted or had an invalid `_subcommand` field kept whatever subcommand was previously selected instead of resetting. Now matches "Reset to Defaults" behavior and selects the first subcommand.
 
 ### Added
 
-- **`PRESET_META_KEY_TYPES` module constant** — a single source of truth for the JSON type contract of each scaffold-emitted preset meta-key (`_format`, `_tool`, `_subcommand`, `_schema_hash`, `_elevated`, `_extra_flags`, `_description`). Cascade-file meta-keys (`_version`, non-`scaffold_preset` `_format` values) and recovery-file meta-keys (`_recovery_*`) are intentionally out of scope — they are separate file formats with their own load-site validation.
-- **`_cascade_path_is_safe(base, value)` module-level helper** — shared containment check for cascade step paths used by both `_import_cascade_data` and `_check_cascade_dependencies`. Placed at module scope (not on `CascadeDock`) because `_check_cascade_dependencies` is also module-scope. Uses `Path.is_relative_to` (Python 3.9+) with a `relative_to`-based fallback; empty/`None` values are treated as safe so the caller's existing "no tool/preset in this slot" branches are preserved.
+- **`PRESET_META_KEY_TYPES` registry** — single authoritative list of preset meta-keys and their expected types; consumed by `validate_preset`.
+- **`_cascade_path_is_safe` helper** — shared traversal check used by both cascade-import paths.
 
-**Tests (test_preset_validation.py, test_security.py, test_functional.py):**
-- **18 new assertions in test_preset_validation.py** — one wrong-type rejection per registered meta-key (7), one None-as-missing acceptance per registered meta-key (7), `_elevated: True`/`False` both pass (2), unknown `_mystery_key` passes for forward-compat (1), and a round-trip regression guard pinning that `serialize_values()` output still validates cleanly against the originating schema under the new registry (1).
-- **6 new assertions in test_security.py** — string `_recovery_timestamp`, list `_recovery_timestamp`, and valid-float baseline; each verifies no crash and the expected file-state outcome (corrupt branch deletes silently; valid branch reaches the recovery dialog before the file is cleaned up).
-- **§183 — 4 new assertions in test_functional.py** covering the F14 slot-click schema-hash branch: T1 matching-hash happy-path regression guard (pre-F14 `"Loaded cascade step: <stem>"` message unchanged), T2 stale-hash warning with `apply_values` still populating the form and stderr carrying the `[cascade] schema_hash mismatch: preset=… current=…` forensic line, T3 absent-hash legacy case (no warning, no stderr line), and T4 stale-hash-with-password-field precedence (mismatch message wins over the password-not-restored note, matching `_on_load_preset`'s if/elif ordering).
-- **§12 — 12 new assertions in test_security.py** covering the F1 cascade path-traversal guard: 12a–12f exercise `_cascade_path_is_safe` directly (POSIX-style traversal rejected, Windows-style backslash traversal rejected, safe relative path accepted, platform-gated absolute-path pass-through, empty string safe, `None` safe); 12g–12i exercise `_import_cascade_data` rejection (traversal tool path raises `ValueError` naming "unsafe" and the value, traversal preset path names the preset field, and a step-2 traversal surfaces "step 2" in the message confirming 1-based user-visible indexing); 12j–12l exercise `_check_cascade_dependencies` funneling (traversal tool lands in `missing_tools`, traversal preset lands in `missing_presets`, and a valid relative path to a real file inside `base` is not flagged — existing-behavior regression guard).
-- **§184 — 6 new assertions in test_functional.py** covering the F11 `apply_values` sub_combo reset on missing/empty/invalid `_subcommand`: T1 valid `_subcommand` selects the named subcommand (regression guard against the early-exit path), T2 missing `_subcommand` key resets to index 0, T3 explicit `_subcommand: None` resets to index 0, T4 empty-string `_subcommand` resets to index 0, T5 unknown subcommand name (not in combo) resets to index 0, T6 no-subcommand tool (`sub_combo is None`) is a safe no-op and `get_current_subcommand()` returns `None` (regression guard).
+**Tests (+46 assertions):** 18 in `test_preset_validation.py` (meta-key types); 12 in `test_security.py §12` (path-traversal guard); 6 in `test_security.py` (recovery timestamp guard); 4 in `test_functional.py §183` (slot-click schema-hash); 6 in `test_functional.py §184` (subcommand reset).
 
 #### Full suite results
 
 - **All 6 test suites pass: 3,103/3,103 assertions, 0 failures**
-  - Functional: 2,616/2,616 (was 2,606; +4 from §183 F14 coverage, +6 from §184 F11 coverage)
-  - Security: 231/231 (was 213; +6 from recovery-timestamp guards, +12 from F1 cascade path-traversal guard)
-  - Preset validation: 65/65 (was 47; +18 from PRESET_META_KEY_TYPES coverage)
+  - Functional: 2,616/2,616 (+10)
+  - Security: 231/231 (+18)
+  - Preset validation: 65/65 (+18)
   - Smoke: 78/78
   - Manual verification: 61/61
   - Examples: 52/52
-
 
 
 
 ## [v2.10.1] — 2026-04-20
 
-Continued audit-response hardening. Two HIGH-severity findings closed. No schema changes, no breaking changes, no user-facing behavior changes.
+Two findings from the 2026-04-20 audit. No schema changes, no breaking changes.
 
 ### Fixed
 
-- **Preset size-gate mismatch across the four preset-load paths** — `_on_load_preset` and `_on_import_preset` previously gated on `MAX_SCHEMA_SIZE` (1 MB) instead of the preset-specific `MAX_PRESET_SIZE` (2 MB). The cascade paths (via `_read_user_json`) already used the correct constant, producing a functional asymmetry where a 1.5 MB preset was accepted by cascade slot-click but rejected by the UI preset picker. All four preset-load paths now gate on `MAX_PRESET_SIZE`. Constant values unchanged.
-- **`validate_tool` accepted argument `validation` patterns prone to catastrophic backtracking** — a malicious or buggy schema could ship a pattern like `(a+)+$` that would hang the form's real-time validator on certain inputs. `validate_tool` now rejects ReDoS-prone patterns via the existing `_pattern_is_redos_prone` helper (prior consumer: capture-variable validation). Zero shipped-schema collateral — all 10 validation regexes across the 7 shipped tools that use the field are simple and safe.
+- **Large presets were accepted from cascade but rejected from the UI picker** — the preset picker and importer gated on a 1 MB limit while cascade slot-click used a 2 MB limit, so a 1.5 MB preset would load via cascade but not via File > Open. All four preset-load paths now use the same 2 MB limit.
+
+- **Schema validation could hang on malicious validation patterns** — a tool schema could ship a regex like `(a+)+$` that would freeze the form's real-time field validator on certain inputs. Validation patterns are now screened for catastrophic backtracking at schema-load time. All 10 patterns across shipped tools are simple and unaffected.
 
 ### Added
 
-**Tests (test_security.py, test_preset_validation.py):**
-- **Static-scan regression guards for the preset size-gate constants** — pin that `_on_load_preset` and `_on_import_preset` bodies reference `MAX_PRESET_SIZE` (not `MAX_SCHEMA_SIZE`), and that `MAX_PRESET_SIZE >= MAX_SCHEMA_SIZE`.
-- **ReDoS-rejection coverage in `validate_tool`** — four canonical catastrophic-backtracking patterns rejected (e.g., `(a+)+$`), four shipped-schema-style simple patterns accepted, plus subcommand-scope coverage. Cohort test confirms every shipped `tools/*.json` still validates cleanly.
+**Tests (+18 assertions):** 11 in `test_security.py` (ReDoS rejection + shipped-schema regression guard); 7 in `test_preset_validation.py` (preset size-gate constants).
 
 #### Full suite results
 
 - **All 6 test suites pass: 3,057/3,057 assertions, 0 failures**
   - Functional: 2,606/2,606
-  - Security: 213/213 (was 202; +11 from ReDoS rejection guards)
-  - Preset validation: 47/47 (was 40; +7 from preset size-gate guards)
+  - Security: 213/213 (+11)
+  - Preset validation: 47/47 (+7)
   - Smoke: 78/78
   - Manual verification: 61/61
   - Examples: 52/52
 
 
-
-
 ## [v2.10.0] — 2026-04-20
 
-Code was submitted to an external code auditor (Sent a well crafted prompt to PaperclipAI to spawn 7x Opus 4.7 agents and 7x MiniMax M2.7 agents, each focused on different sections of the codebase) for another deep code audit, surfacing the findings in this changelog as well as the next couple updates. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
+First batch of audit-response fixes. An external audit (7× Opus 4.7 + 7× MiniMax M2.7 agents via PaperclipAI, each focused on a different section of the codebase) surfaced the findings driving this release and the next several. Eight findings closed across schema validation, preset handling, and shipped data. No breaking changes for valid schemas or presets. One new prompt appears for legacy presets missing a format marker — every preset Scaffold has ever saved itself carries the marker and loads silently.
 
 ### Fixed
 
-- **`validate_tool` accepted `binary` fields starting with `-`** — a schema with `"binary": "--user"` would be parsed as an option to the elevation helper (gsudo/pkexec) rather than as the target program. `validate_tool` now rejects any `binary` whose first character is `-` on all platforms, preventing option-injection into elevation helpers. Belt-and-braces alongside the v2.9.9 `--` terminator fix.
-- **`validate_tool` accepted `tool` field values that silently created arbitrary directories under `presets/`** — path-traversal values such as `"../../etc"` or `" .. "` passed schema scan and produced unexpected filesystem state on preset save. `validate_tool` now requires `tool` to be 1–64 chars of letters, digits, spaces, or `_.()-`, to start with alphanumeric, and to contain no `..` or leading/trailing whitespace.
-- **`validate_tool` accepted a subcommand named `__global__`** — the reserved name silently clobbered global field registrations in `ToolForm.fields` (keyed by `(scope, flag)` tuples with `GLOBAL = "__global__"`). `validate_tool` now rejects any subcommand whose name equals the reserved global scope constant.
-- **`validate_tool` accepted required `enum` and `multi_enum` arguments with a null or missing `default`** — at form-build time the widget silently selected the first choice, producing a concrete argv value the user never entered. `validate_tool` now rejects required enum-family arguments without an explicit default, forcing the schema author to either provide a default or mark the argument optional.
-- **`validate_preset(preset, tool_data=schema)` produced spurious "Unknown preset key" warnings for 100% of valid global flags** — the validator's `known_flags` set did not match the flat `scope:flag` format that `serialize_values` emits and `apply_values` consumes. Rebuilt the set to match the round-trip shape; validated presets now cleanly pass when `tool_data` is supplied.
-- **Cascade slot click and cascade chain advance skipped `validate_preset` entirely** — malformed preset data (type mismatches, oversized values, schema-as-preset shape) reached `apply_values` and silently produced wrong commands during unattended cascade runs. All 4 preset-load paths now call `validate_preset` before `apply_values`. Interactive load and import continue to prompt "Load/Import anyway?" on missing `_format`; cascade slot click and cascade chain advance reject on missing `_format` and halt with a specific error naming the file.
-- **Three shipped nmap default presets missing the `_format` field** — `full_port_scan.json`, `quick_ping_sweep.json`, and `stealth_recon.json` now carry `"_format": "scaffold_preset"` consistent with the other 50 shipped defaults. Previously these triggered the new legacy-preset prompt on every load.
+- **Tool schemas could specify a `binary` starting with `-`** — a value like `"binary": "--user"` would be interpreted as an option to the elevation helper (gsudo/pkexec) instead of as the program to run. Leading-dash binaries are now rejected at schema-load time. Complements the v2.9.9 `--` terminator fix.
+
+- **Tool names containing path separators silently created directories outside `presets/`** — a schema with `"tool": "../../etc"` passed validation and produced unexpected folders on first preset save. Tool names are now restricted to 1–64 characters of letters, digits, spaces, or `_.()-`, with no `..` and no leading/trailing whitespace.
+
+- **A subcommand named `__global__` silently clobbered global fields** — the name is reserved internally to tag global-scope arguments; a schema using it as a subcommand name would overwrite the global field registry. Now rejected at schema-load time.
+
+- **Required enum fields without a default silently picked the first choice** — a required `enum` or `multi_enum` argument with no `default` caused the form to auto-select the first item, producing a command-line value the user never chose. Schemas must now declare an explicit default for required enum fields, or mark the field optional.
+
+- **Preset validation flagged every valid global flag as "unknown"** — when validating a preset against its tool schema, the validator's internal key format didn't match the format presets are actually saved in, so every global-scope flag looked foreign. Key formats now match; valid presets validate cleanly.
+
+- **Cascade paths skipped preset validation entirely** — clicking a cascade slot or advancing the chain runner loaded the preset directly into the form without the structural checks the UI picker already ran. Malformed preset data could silently produce wrong commands during unattended cascade runs. All four preset-load paths now validate before applying. Interactive paths still prompt "Load anyway?" on a missing format marker; cascade paths reject outright since they run unattended.
+
+- **Three shipped nmap presets were missing the format marker** — `full_port_scan.json`, `quick_ping_sweep.json`, and `stealth_recon.json` now carry `"_format": "scaffold_preset"` like the other 50 shipped defaults. Previously they triggered the new legacy-preset prompt on every load.
 
 ### Changed
 
-- **Loading a preset that lacks a `_format` marker now prompts "Load anyway?" (default: Cancel)** — previously silent. Affects hand-edited preset files and presets saved by pre-`_format` versions of Scaffold. All presets saved by Scaffold itself carry the marker and load silently. Cascade paths reject outright rather than prompting, since cascade runs are unattended.
+- **Legacy presets without a format marker now prompt before loading** — previously silent. Affects hand-edited files and presets saved by pre-`_format` versions of Scaffold. Every preset Scaffold has saved itself carries the marker and loads without prompting. Cascade paths reject rather than prompt, since cascade runs are unattended.
 
 ### Added
 
-**Tests (test_security.py, test_preset_validation.py):**
-- **Validator rejection coverage for the four new `validate_tool` guards** — leading-`-` binary, `tool` field shape (path-traversal, oversize, whitespace, leading punctuation), reserved `__global__` subcommand name, required enum/multi_enum with null or missing default.
-- **Round-trip serialize→validate with `tool_data`** — pins that `serialize_values(form)` output validates cleanly against the originating schema under `validate_preset(preset, tool_data=schema)`. Regression guard for the flag-set mismatch that caused the spurious-warning bug.
-- **Cohort test over all 53 shipped default presets** — asserts each file parses, carries `_format: "scaffold_preset"`, and validates against its tool's schema.
-- **Static-scan regression guards for the 4-path preset-load policy** — pins that every `apply_values` call site is preceded by a `validate_preset` call, preventing future regressions where a new load path forgets the validation step.
+**Tests (+49 assertions):** new coverage for the four schema-validator guards (leading-dash binary, tool-name shape, reserved subcommand name, required-enum default); a serialize → validate round-trip pinning that presets Scaffold writes itself always validate against their own schema; a cohort test walking all 53 shipped default presets; and static-scan guards ensuring every `apply_values` call site is preceded by `validate_preset`.
 
 #### Full suite results
 
 - **All 6 test suites pass: 3,039/3,039 assertions, 0 failures**
   - Functional: 2,606/2,606
-  - Security: 202/202 (was 170; +32 from validator guards and round-trip coverage)
-  - Preset validation: 40/40 (was 23; +17 from shipped-preset cohort and policy scans)
+  - Security: 202/202 (+32)
+  - Preset validation: 40/40 (+17)
   - Smoke: 78/78
   - Manual verification: 61/61
   - Examples: 52/52
@@ -109,21 +106,20 @@ Code was submitted to an external code auditor (Sent a well crafted prompt to Pa
 
 ## [v2.9.9] — 2026-04-20
 
-Defense-in-depth hardening of `get_elevation_command` raised by an external reviewer: pkexec invocations now include the documented `--` options-terminator between the tool binary and the target command. The `--` is pkexec(1)'s documented convention; it matters here because Scaffold's `binary` field validation (`_SHELL_METACHAR` at scaffold.py:51) does not reject a leading `-`, so a schema with `"binary": "--user"` would otherwise be parsed as a pkexec option rather than as the target program. Impact under the pre-fix shape was at most DoS / misrouted command — pkexec defaults to root regardless — but the terminator costs nothing and closes the parser-confusion surface. gsudo on win32 is intentionally excluded because older gsudo versions reject `--` and the convention does not apply the same way.
+Defense-in-depth for elevated commands: pkexec invocations now include the `--` options terminator between the elevation helper and the target command. Prevents a schema with `"binary": "--user"` from being parsed as a pkexec option instead of as the program to run. Pre-fix impact was at worst a misrouted command — pkexec defaults to root regardless — but closing the parser-confusion surface is cheap. Linux and macOS only; gsudo on Windows is unaffected (older gsudo versions reject `--`).
 
 ### Fixed
 
-- **`get_elevation_command` omitted the pkexec `--` options terminator** — `[tool] + cmd_list` is now `[tool, "--"] + cmd_list` on non-win32 (pkexec and darwin branches), unchanged on win32 (gsudo). Single-line change at scaffold.py:670 using `sys.platform == "win32"` to match the existing branching style in the same function (no new `IS_WINDOWS` constant). Binary validation remains unchanged — this is belt-and-braces, not a replacement for input validation. test_functional.py §102f.
+- **pkexec invocations now include the `--` options terminator** — `[tool] + cmd_list` is now `[tool, "--"] + cmd_list` on Linux/macOS. Belt-and-braces alongside input validation, not a replacement for it.
 
 ### Added
 
-**Tests (test_functional.py):**
-- **§102f amended in place + 2 new assertions (102f3, 102f4).** 102f previously used the real host platform and asserted `[tool] + cmd` unconditionally; it is now split into 102f1 (linux/pkexec: asserts `[tool, '--'] + cmd` and error `None`) and 102f2 (win32/gsudo: asserts `[tool] + cmd` and error `None`) with explicit `sys.platform` patching. Two new assertions guard the separator shape: 102f3 asserts `argv.count("--") == 1` (no double separator if `--` appears in cmd_list already), 102f4 asserts `argv.index("--") == 1` (separator is immediately after the tool, not buried elsewhere). Net assertion count: +2 (2 original checks → 4 new checks).
+**Tests (+2 assertions):** §102f split into platform-gated cases (pkexec with `--`, gsudo without) plus two new guards pinning the terminator position (exactly one `--`, immediately after the tool).
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,990/2,990 assertions, 0 failures**
-  - Functional: 2,606/2,606 (was 2,604; +2 from §102f amendment)
+  - Functional: 2,606/2,606 (+2)
   - Security: 170/170
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -133,22 +129,21 @@ Defense-in-depth hardening of `get_elevation_command` raised by an external revi
 
 ## [v2.9.8] — 2026-04-19
 
-Defensive hardening of `normalize_tool` against malformed input, plus a seeded schema-fuzzing section in the security suite. `normalize_tool` previously assumed every `arguments` value was a list and every element within it was a dict; 300-iteration fuzzing revealed crashes on non-list `arguments` and non-dict entries. The function now guards each level with `isinstance` checks and raises `TypeError` only at the top level, where a non-dict is unambiguously a programmer error.
+Defensive hardening of `normalize_tool` against malformed input, plus a seeded schema-fuzzing section in the security suite. 300-iteration fuzzing found crashes on malformed inputs that production code paths never actually produced (`validate_tool` catches them first), but the independent guard closes the gap for any future caller.
 
 ### Fixed
 
-- **`normalize_tool` crashed on non-list `arguments` and non-dict subcommand/argument entries** — the inner `_normalize_args` iterated `args` directly and called `arg.setdefault`, raising `AttributeError` / `TypeError` if the input was a string, int, or contained non-dict elements. Same problem on `subcommands` and each `sub` within it. `validate_tool` catches most of these up front in the real call path, but `normalize_tool` had no independent guard and would crash if called on unvalidated data. Fixed by adding `isinstance(args, list)` / `isinstance(arg, dict)` / `isinstance(data["subcommands"], list)` / `isinstance(sub, dict)` guards that skip malformed shapes rather than raising. The top-level `data` parameter is treated differently: a non-dict at this level is a programmer error (the contract is `dict -> dict`), so it now raises `TypeError` with the observed type rather than silently coercing. test_security.py §11 d–f.
+- **`normalize_tool` crashed on malformed schemas** — feeding it a schema with non-list `arguments` or non-dict entries raised `AttributeError` or `TypeError` instead of returning a normalized dict. Now skips malformed shapes rather than crashing. A non-dict passed as the top-level argument still raises `TypeError` explicitly, since that's a programmer error.
 
 ### Added
 
-**Tests (test_security.py):**
-- **Section 11 — Schema fuzzing (`validate_tool` + `normalize_tool`), 11 assertions across 6 checks.** 300 seeded mutations (`random.seed(0)` for reproducibility across runs) across 9 mutation categories: `swap_types`, `corrupt_keys`, `big_strings`, `replace_lists`, `deep_nest`, `random_kv`, `empty`, `weird_flags`, `bad_types`. 11a–11c pin `validate_tool`'s contract — never raises, always returns `list[str]`. 11d–11e pin `normalize_tool`'s contract on dict input — never raises, always returns a `dict`. 11f asserts `normalize_tool` raises `TypeError` (not any other exception) on six non-dict inputs: `None`, `[]`, `"not a dict"`, `42`, `3.14`, `True`. `copy`, `random`, and `string` added to the top import block.
+**Tests (+11 assertions):** new `test_security.py §11` — 300 seeded schema mutations across 9 categories (type swaps, key corruption, deep nesting, etc.) pinning that `validate_tool` never raises and `normalize_tool` either returns a dict or raises `TypeError`.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,988/2,988 assertions, 0 failures**
   - Functional: 2,604/2,604
-  - Security: 170/170 (was 159/159; +11 from §11)
+  - Security: 170/170 (+11)
   - Smoke: 78/78
   - Manual verification: 61/61
   - Examples: 52/52
@@ -157,21 +152,22 @@ Defensive hardening of `normalize_tool` against malformed input, plus a seeded s
 
 ## [v2.9.7] — 2026-04-18
 
-Hardens cascade-side preset loading against silent acceptance of malformed format markers. `CascadeDock._on_slot_clicked` and `_chain_advance` now validate `_format` and `_tool` before calling `apply_values`, which is tolerant of missing meta keys. Previously a preset file missing `_format`, carrying `_format: "scaffold_cascade"`, or bound to a different tool was parsed, loaded into the form, and either populated silently (Site 4) or consumed by the next cascade step (Site 5) — the `_format`/`_tool` equivalent of the `_schema_hash` gap closed in v2.9.3.
+Cascade-side preset loading now validates format markers before applying, closing the `_format` / `_tool` equivalent of the schema-hash gap closed in v2.9.3.
 
 ### Fixed
 
-- **Cascade slot click silently accepted malformed preset markers** — `CascadeDock._on_slot_clicked` now checks `_format` and `_tool` before `apply_values`. A slot file with missing `_format`, `_format: "scaffold_cascade"`, an unexpected `_format` value, or a `_tool` that does not match the current tool is now rejected with a status-bar message naming the problem and a stderr forensic line citing the file path. Previously `apply_values` tolerated the missing/mismatched meta keys and populated the form from whatever scalar keys happened to collide with current-tool flags. §182 T2, T3.
-- **Cascade-step preset resolution silently accepted malformed format markers** — `_chain_advance` now checks `_format` and `_tool` before the existing `_schema_hash` gate. A step whose preset file is missing `_format`, carries `_format: "scaffold_cascade"`, or binds to a different tool is halted via `_chain_cleanup` with `_cascade_finish_status = "error_halted"` and a status-bar message of the form `"Cascade stopped: preset {name} {problem} for step {N}"`. Stderr forensic line cites the file path and current tool. §182 T4, T5.
+- **Cascade slot click silently accepted malformed presets** — clicking a cascade slot whose preset was missing `_format`, was actually a cascade file, or belonged to a different tool would populate the form from whatever keys happened to match current-tool flags. The slot-click path now rejects these with a status-bar message naming the specific problem.
+
+- **Cascade chain runner silently accepted malformed presets** — same failure mode during unattended chain runs: a malformed preset at step N would proceed anyway. The chain now halts with a clear error naming the file and step number.
 
 ### Added
 
-- **§182 — cascade-side format-marker validation regression guard (12 assertions across 5 tests)** — T1 positive (valid markers → form populated, status confirms load), T2/T3 Site 4 (missing `_format`, `_tool` mismatch), T4/T5 Site 5 (missing `_format` halts mid-cascade, `_format: "scaffold_cascade"` halts with "is a cascade file, not a preset"). Each negative test asserts the status-bar message text, the stderr forensic line, and — for Site 5 — that the chain reached `error_halted` rather than silently continuing. §179 T17 continues to cover the Site 5 happy-path mid-token `{capture}` cascade case and is not duplicated here.
+**Tests (+12 assertions):** new `§182` covers all five paths — valid markers (regression guard), missing `_format` / tool mismatch on slot click, and missing `_format` / cascade-file-as-preset on chain advance. Each negative case pins the status-bar text, the stderr forensic line, and for chain-advance cases, that the chain actually halted.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,977/2,977 assertions, 0 failures**
-  - Functional: 2,604/2,604 (was 2,592; +12 from §182)
+  - Functional: 2,604/2,604 (+12)
   - Security: 159/159
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -181,21 +177,20 @@ Hardens cascade-side preset loading against silent acceptance of malformed forma
 
 ## [v2.9.6] — 2026-04-18
 
-Docs-plus-tests release — no behavior changes to `scaffold.py` beyond the version bump. Mid-token `{capture}` substitution pinned as supported behavior with positive-case tests at four canonical patterns. Two v2.9.4 CHANGELOG bullets corrected in place to accurately describe the implemented enforcement semantics.
+Docs-and-tests release — no code changes. Mid-token `{capture}` substitution (e.g. `--output={capture}.log`) pinned as supported behavior, and two v2.9.4 changelog bullets clarified in place.
 
 ### Added
 
-- **§179 T17 — mid-token `{capture}` substitution positive-case tests (8 assertions across 4 patterns)** — `prefix-{capture}-suffix`, `{capture}.log`, `--output={capture}`, `{host}:{port}`. The `_substitute_in_extra_flags` enforcement is value-level (captured value must be a single shlex token), not buffer-position, so mid-token references are legitimate. T17 guards these patterns from silent breakage during future refactors. T10 remains the sole halt-path coverage for the multi-token injection case.
+**Tests (+8 assertions):** `§179 T17` covers four canonical mid-token patterns — `prefix-{capture}-suffix`, `{capture}.log`, `--output={capture}`, `{host}:{port}` — guarding them from silent breakage during future refactors.
 
 ### Changed
 
-- **v2.9.4 CHANGELOG entry amended in place** — the `_read_user_json` "five sites" bullet now accurately distinguishes the three cascade/slot sites covered by the new helper (cascade import, cascade list load, cascade-step preset resolution, 2 MB cap via `MAX_PRESET_SIZE`) from the two preset sites covered by the pre-existing `_read_json_file` path (preset load, preset import, 1 MB cap via `MAX_SCHEMA_SIZE`).
-- **v2.9.4 CHANGELOG entry amended in place** — the `extra_flags {capture}` bullet now describes value-level single-token enforcement (each `{capture}` must resolve to a single shlex token; multi-token values halt the chain) rather than buffer-position enforcement. Explicitly notes that mid-token references such as `prefix-{capture}-suffix` and `--output={capture}` are supported.
+- **v2.9.4 changelog clarified in place** — the `_read_user_json` and `extra_flags {capture}` bullets now more accurately describe the enforcement semantics.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,965/2,965 assertions, 0 failures**
-  - Functional: 2,592/2,592 (was 2,584; +8 from §179 T17)
+  - Functional: 2,592/2,592 (+8)
   - Security: 159/159
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -205,18 +200,19 @@ Docs-plus-tests release — no behavior changes to `scaffold.py` beyond the vers
 
 ## [v2.9.5] — 2026-04-18
 
-Test-infrastructure release — no behavior changes to `scaffold.py` beyond the version bump. Adds `_patch_qmb` / `_patch_stderr` context-manager helpers for common patches, a multi-subcommand same-tool cascade overlay regression guard, and `_read_user_json` size-cap coverage at three previously-uncovered call sites.
+Test-infrastructure release — no code changes. Adds shared context-manager helpers for common test patches, a regression guard for the multi-subcommand cascade corner flagged in v2.9.4, and size-cap coverage at three previously-uncovered JSON-load sites.
 
 ### Added
 
-- **`_patch_qmb(level)` and `_patch_stderr()` context-manager helpers in `test_functional.py`** — reduce restore-surface-area for test patches against `QMessageBox.critical` / `QMessageBox.warning` and `sys.stderr`. §179 T4–T6, T8 refactored to use them. Net-zero assertion-count change.
-- **§180 — multi-subcommand same-tool cascade snapshot overlay guard (8 assertions)** — pins subcommand and elevation behavior on consecutive same-tool cascade steps, the corner v2.9.4's CHANGELOG flagged as "file an issue if it surfaces." Asserts step 2's `_subcommand` and `_elevated` survive the overlay and step 1's values do not leak into step 2's argv.
-- **§181 — `_read_user_json` size-cap regression guard at three uncovered sites (11 assertions)** — `CascadeDock._on_load_cascade_list`, `PresetPicker._on_edit_description`, and `CascadeDock._on_slot_clicked`. Each test exercises its site's native error-surfacing path (status bar for two, `QMessageBox.warning` for one).
+**Tests (+19 assertions):**
+- New `_patch_qmb` / `_patch_stderr` context managers to reduce restore-surface-area in cascade tests.
+- `§180` pins subcommand and elevation behavior on consecutive same-tool cascade steps — the corner v2.9.4 flagged as untested.
+- `§181` covers preset file-size rejection at three additional sites (cascade list load, preset description edit, cascade slot click).
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,957/2,957 assertions, 0 failures**
-  - Functional: 2,584/2,584 (was 2,565; +19 from §180 and §181; §179 Phase 1 refactor was net-zero)
+  - Functional: 2,584/2,584 (+19)
   - Security: 159/159
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -226,46 +222,44 @@ Test-infrastructure release — no behavior changes to `scaffold.py` beyond the 
 
 ## [v2.9.4] — 2026-04-18
 
-Cascade resilience and data-layer hardening. Closes three silent-failure modes in the cascade pipeline (wrapper exceptions, uncaught pool-creation failures, literal `{capture}` tokens in `extra_flags`), adds size caps at every user-JSON load site, surfaces QSettings corruption instead of resetting silently, and repairs a snapshot-overlay bug where consecutive same-tool cascade steps clobbered each other's presets.
+Cascade resilience pass. Closes three silent-failure modes in the cascade pipeline (wrapper exceptions, subprocess-pool creation failures, literal `{capture}` tokens in the Additional Flags buffer), adds size caps on every JSON-load path, surfaces QSettings corruption instead of silently resetting, and fixes a snapshot-overlay bug where consecutive same-tool cascade steps clobbered each other's presets.
 
 ### Fixed
 
-- **Cascade wrapper exception no longer silently locks the UI** — `_chain_on_finished` now catches every `Exception`, logs to stderr, forces the chain back to `IDLE`, restores the original `_on_finished`, and surfaces a status-bar message naming the failing step. Previously an uncaught exception from a Qt signal slot left the chain mid-step with inconsistent button state and no recovery short of restart. §179 T1.
-- **`multiprocessing.Pool` creation failure now halts the cascade cleanly** — `_bounded_regex_search` wraps `Pool()` construction in a try/except and converts failures (resource exhaustion, fork/spawn denial) into a `pool_error` capture-error entry. §179 T2, T15.
-- **Autosave failures now notify the user on first occurrence** — new `_autosave_warned` session flag drives a one-shot status-bar warning; subsequent failures stay silent to avoid noise. Previously failures logged to stderr only and users discovered the loss on next launch. §179 T3.
-- **Corrupted `cascade/slots` and `cascade/variables` QSettings surface a warning** — `_load_cascade` no longer swallows `json.JSONDecodeError` and silently resets. Stderr warning + status-bar notice name the corrupted key so the user can restore before re-saving clobbers recoverable state. §179 T4, T5.
-- **`CustomPathsDialog` surfaces corrupted `custom_paths` instead of dropping them** — `QMessageBox.warning` names the QSettings key on parse failure. §179 T6.
-- **Oversized preset and cascade files rejected at every load site** — three cascade/slot JSON load sites (cascade import, cascade list load, cascade-step preset resolution) now route through the new `_read_user_json` helper enforcing a 2 MB cap (`MAX_PRESET_SIZE`). Preset load and preset import continue to use `_read_json_file` with the pre-existing `MAX_SCHEMA_SIZE` (1 MB) cap. §179 T7, T8.
-- **Snapshot overlay no longer clobbers step N's preset with step N-1's form state** — when consecutive cascade steps used the same tool, the overlay path replaced step N's preset wholesale with the step N-1 form snapshot. Now merges over the preset: snapshot wins only for keys present in the snapshot; other keys keep their step N preset value. Brought forward from deferred v2.9.5 scope as a prerequisite for T16. §179 T16.
-- **`extra_flags` buffer now substitutes `{capture}` tokens during cascade runs** — the buffer was copied into argv verbatim, so `{name}` reached the subprocess as literal braces. Cascade runs now route the buffer through `_substitute_in_extra_flags` with value-level single-token enforcement (each `{capture}` must resolve to a single shlex token; injection via multi-token values halts the chain). Mid-token references such as `prefix-{capture}-suffix` or `--output={capture}` are supported. §179 T9–T12.
+- **Cascade wrapper exceptions no longer lock up the UI** — an uncaught exception from a cascade signal handler used to leave the chain mid-step with inconsistent buttons and no way to recover short of restart. The chain now returns to idle cleanly and names the failing step in the status bar.
+
+- **Subprocess pool creation failures now halt the cascade cleanly** — on resource exhaustion or fork/spawn denial, the cascade used to crash silently. It now halts with a `pool_error` capture-error entry.
+
+- **Autosave failures now notify you on first occurrence** — previously they logged only to stderr and you discovered the loss on next launch. One-shot status-bar warning per session; further failures stay silent to avoid noise.
+
+- **Corrupted cascade/variables settings now surface a warning instead of silently resetting** — if the QSettings JSON for cascade slots, cascade variables, or custom paths is corrupt, the affected key is named in the warning so you can restore from backup before re-saving overwrites recoverable state.
+
+- **Oversized preset and cascade files are now rejected at every load site** — three cascade-side JSON-load paths (cascade import, cascade list, cascade-step preset resolution) now enforce the 2 MB preset cap via a new `_read_user_json` helper. The two preset-side paths continue to enforce the 1 MB schema cap.
+
+- **Consecutive same-tool cascade steps no longer clobber each other's presets** — the snapshot overlay used to replace step N's preset wholesale with step N-1's form state. Now merges: the snapshot only wins for keys it actually contains.
+
+- **Additional Flags buffer now substitutes `{capture}` tokens in cascade runs** — the buffer was being copied to argv verbatim, so `{name}` reached the subprocess as literal braces. Now routed through the normal capture-substitution pipeline. Each `{capture}` must resolve to a single shell token; multi-token values halt the chain. Mid-token references like `prefix-{capture}-suffix` or `--output={capture}` are supported.
 
 ### Changed
 
-- **Capture-error halt semantics tightened** — `pool_error` halts unconditionally; `re_error`, `timeout`, and `worker_error` halt only when `stop_on_error` is True. Previously all four silently logged a warning and continued. Mirrors the `_substitute_captures` pattern at ~line 6914. §179 T13–T15.
-- **`extract_captures` return shape** — error-list element changed from `tuple[str, str]` to `tuple[str, str, str]` (name, message, err_type). Internal; no public API. Err-type values: `"re_error"`, `"timeout"`, `"worker_error"`, `"pool_error"`.
-- **Snapshot overlay: subcommand and elevation now follow the step N preset** — consequence of the overlay-merge fix. No existing test exercises multi-subcommand cascades so this corner is untested; file an issue if it surfaces.
+- **Capture-error halt semantics tightened** — pool-creation errors now halt unconditionally; regex errors, timeouts, and worker crashes halt only when `stop_on_error` is on. Previously all four silently logged a warning and kept going.
+
+- **`extract_captures` return shape changed** — error tuples now carry an explicit error-type field. Internal only; no public API change.
+
+- **Multi-subcommand same-tool cascades: subcommand and elevation now follow the step N preset** — consequence of the overlay-merge fix. No existing test exercises this corner, so it's untested for now — file an issue if you hit a problem.
 
 ### Added
 
-- **`_read_user_json` helper and `MAX_PRESET_SIZE` constant** — single entry point for user-supplied JSON with a 2 MB cap.
-- **`_autosave_warned` session flag on `MainWindow`** — drives one-shot autosave-failure notification.
-- **`CascadeSidebar._substitute_in_extra_flags`** — applies the capture-substitution pipeline to the `extra_flags` buffer with single-token enforcement.
-- **`_on_finished` bound-method cached in `MainWindow.__init__`** — init now caches the original bound method once so the wrapper's install/restore dance is idempotent.
+**Code:**
+- `_read_user_json` helper and `MAX_PRESET_SIZE` constant for the 2 MB preset cap.
+- `_substitute_in_extra_flags` for capture substitution in the Additional Flags buffer.
 
-**Tests (test_functional.py):**
-- **Section 179** — cascade resilience and data-layer hardening coverage (T1–T16, 61 assertions).
-  - T1–T2: wrapper and pool-failure recovery.
-  - T3: autosave notification dedup.
-  - T4–T6: QSettings corruption surfaces a warning.
-  - T7–T8: size-cap rejection at preset and cascade load sites.
-  - T9–T12: `extra_flags` `{capture}` substitution (single-token, multi-token, unset, literal-brace passthrough).
-  - T13–T15: capture-error halt asymmetry (timeout gated on `stop_on_error`; `pool_error` unconditional).
-  - T16: snapshot overlay merge behavior.
+**Tests (+61 assertions):** new `§179` T1–T16 covers every fix above — wrapper recovery, pool failure, autosave notification, QSettings corruption surfaces, size-cap rejection, capture substitution (single-token, multi-token, unset, literal-brace passthrough), capture-error halt asymmetry, and snapshot overlay merge behavior.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,938/2,938 assertions, 0 failures**
-  - Functional: 2,565/2,565 (was 2,504; +61 from §179 T1–T16)
+  - Functional: 2,565/2,565 (+61)
   - Security: 159/159
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -275,24 +269,20 @@ Cascade resilience and data-layer hardening. Closes three silent-failure modes i
 
 ## [v2.9.3] — 2026-04-17
 
-Completes the cascade TOC/TOU hardening arc that was deferred from a previous release. Cascade preset loading now halts on `_schema_hash` mismatch instead of silently applying a stale preset and running the wrong command.
+Completes the cascade stale-preset hardening arc deferred from an earlier release.
 
 ### Fixed
 
-- **Cascade halts when a preset's `_schema_hash` doesn't match the current tool** — `_chain_advance` now gates `apply_values` on a hash check. Previously, if a tool schema had changed since a preset was saved (e.g. a flag renamed), the cascade silently dropped the renamed key, `build_command` produced an incomplete/wrong command, and the chain executed it against the live binary with no warning. The UI-mode load path (`_on_load_preset`, line ~8931) already detected this and surfaced a status-bar note — correct for interactive use, wrong for unattended cascades. The new check halts with `error_halted` status and a status-bar message of the form `Cascade stopped: preset schema changed for step N — {preset} (re-save against current {tool} schema)`. Both hashes are also written to stderr for forensic debugging. Absent `_schema_hash` is treated as a legacy preset and loads silently, mirroring the UI-mode guard. Closes the gap left by the v2.8.7.3 audit, which fixed the missing-tool and missing-preset TOCTOU cases but didn't catch the stale-preset case.
+- **Cascade runs halt on preset / schema mismatch instead of running the wrong command** — if a tool schema changed after a preset was saved (e.g. a flag renamed), the cascade used to silently drop the renamed key, build an incomplete command, and run it against the live binary with no warning. The cascade now halts with a status-bar message naming the preset and the affected step, telling you to re-save against the current schema. The interactive preset picker already warned in this case — the fix brings the cascade runner up to parity. Legacy presets without a schema hash load silently, matching the interactive path.
 
 ### Added
 
-**Tests (test_functional.py):**
-- **Section 178** — cascade `_schema_hash` mismatch coverage (14 assertions).
-  - 178a (positive halt): builds V1 schema, computes its hash, writes a V1 preset, then writes a V2 schema with one flag renamed; asserts the cascade halts before reaching `_on_run_stop`, `_cascade_finish_status` is `"error_halted"`, status message contains the distinctive substring `"schema changed"`, and names both the preset and the step number.
-  - 178b (matching hash): identical setup but tool stays at V1; asserts execution is reached and no halt fires.
-  - 178c (legacy preset, no `_schema_hash`): asserts backward compatibility — chain runs normally, mirrors the UI-mode `if saved_hash is not None` guard.
+**Tests (+14 assertions):** new `§178` covers all three cases — schema changed after save (halts), schema unchanged (runs normally), legacy preset without hash (backward compat).
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,877/2,877 assertions, 0 failures**
-  - Functional: 2,504/2,504 (was 2,490; +14 from §178)
+  - Functional: 2,504/2,504 (+14)
   - Security: 159/159
   - Smoke: 78/78
   - Manual verification: 61/61
@@ -302,39 +292,42 @@ Completes the cascade TOC/TOU hardening arc that was deferred from a previous re
 
 ## [v2.9.2] — 2026-04-17
 
-Cascade sidebar button-clipping fix on Linux, a new `_tool` preset meta key, a cascade dependency pre-flight check, six new bundled tool schemas (`find`, `ncat`, `wget`, `ssh`, `scp`, `tar`) with default preset packs, and two new example cascades.
+Cascade sidebar button fix on Linux, a new `_tool` tag on saved presets, a pre-flight dependency check before a cascade runs, six new bundled tool schemas with default preset packs, and two new example cascades.
 
 ### Added
 
-- **`_tool` preset meta key** — `ToolForm.serialize_values` now emits `"_tool"` alongside the existing meta keys. On load and import, `_on_load_preset` and `_on_import_preset` compare it against the current tool; on mismatch, a warning dialog names both tools and offers "Load Anyway" / "Cancel" before values apply or the file is copied. Fires ahead of the `_schema_hash` mismatch warning so the more specific message wins. Absent `_tool` is treated as legacy and loads silently. `validate_preset`, `PRESET_PROMPT.txt`, and `schema.md` updated.
-- **Cascade dependency pre-flight check** — new `_check_cascade_dependencies` and `_prompt_cascade_missing_deps` helpers scan a cascade's steps for tool schemas and presets that don't exist on disk. `CascadeSidebar._on_import_cascade` and `_on_load_cascade_list` call them after format validation and before mutating state. Missing paths are listed in a warning dialog with "Continue" / "Cancel"; Cancel aborts (no file copied, sidebar untouched), Continue proceeds as before. Path resolution reuses the existing `Path(__file__).parent` resolver. `schema.md` gained a Cascade Files section.
-- **Six new bundled tool schemas** — `find`, `ncat`, `wget`, `ssh` (37 args), `scp` (21 args), `tar` (57 args). `ncat` covers Nmap's netcat; `find` and `wget` are partial coverage with niche flags omitted, documented in each file's `_coverage` field. Bundled count now 28.
-- **Default preset packs for the new tools** — 25 presets total: `find/` (6), `ncat/` (5), `wget/` (5), `ssh/` (5), `scp/` (4), `tar/` (5). Seeded into `presets/{tool}/` on first open via the existing `_presets_dir()` copy-on-first-access path.
-- **Two new example cascades** — `cascade_nmap_ncat` (nmap discovers open ports, ncat connects using the `port_check` preset, single shared `HOST` variable) and `cascade_ssh_scp` (ssh verifies a remote file exists, scp downloads it with `stop_on_error: true`).
+- **Presets now remember which tool they belong to** — saved presets carry a `_tool` tag. Loading a preset that belongs to a different tool than the one currently open shows a warning dialog naming both tools, with "Load Anyway" and "Cancel" options. Presets saved by older versions of Scaffold have no tag and load silently (backward compat).
+
+- **Cascade dependency pre-flight check** — before importing or loading a cascade, Scaffold now checks that every tool schema and preset it references actually exists on disk. Missing files are listed in a dialog with "Continue" / "Cancel" — Cancel aborts cleanly without touching the sidebar.
+
+- **Six new bundled tool schemas** — `find`, `ncat`, `wget`, `ssh` (37 args), `scp` (21 args), `tar` (57 args). `ncat` covers Nmap's netcat. `find` and `wget` are partial coverage with niche flags omitted, documented per file. Bundled tool count now 28.
+
+- **25 new default presets** across the new tools: `find` (6), `ncat` (5), `wget` (5), `ssh` (5), `scp` (4), `tar` (5).
+
+- **Two new example cascades** — `cascade_nmap_ncat` (nmap discovers open ports, ncat connects on each one via a shared `HOST` variable) and `cascade_ssh_scp` (ssh verifies a remote file exists, scp downloads it with halt-on-error).
 
 ### Fixed
 
-- **Cascade chain button text no longer clips on Linux** — `CascadeSidebar.__init__` previously applied the compact `padding: 2px 8px` QSS to only three of the seven chain-row buttons (`run`/`pause`/`stop`). `loop_btn`, `stop_on_error_btn`, `clear_all_btn`, and `add_step_btn` kept native button chrome, which overflowed the fixed width budget on Linux light mode. The init loop now applies the compact QSS to all seven.
-- **Toggle OFF no longer wipes compact padding** — `_style_loop_btn` and `_style_stop_on_error_btn` OFF branches previously called `setStyleSheet("")`, erasing the compact QSS on every `_load_cascade` and toggle-off. Both now apply `self._chain_qss`.
+- **Cascade sidebar button text no longer clips on Linux** — four of the seven chain-row buttons weren't picking up the compact padding that the other three used, so they overflowed the fixed width budget on Linux light mode. All seven buttons now share one source of truth for their styling.
+
+- **Toggling a cascade button off no longer wipes its padding** — the "off" state for Loop and Stop-on-Error used to clear the stylesheet entirely, erasing the compact padding on every cascade load.
 
 ### Changed
 
-- **Single source of truth for `padding: 2px 8px`** — new `self._chain_btn_body` fragment and `self._chain_qss` composed from it replace four literal copies (init, both `_style_*_btn` ON branches, `update_theme`).
-- **`update_theme` refreshes `self._chain_qss` first** — hoisted above `_style_loop_btn` so the OFF branch picks up the current theme's border color on mode switch. Loop now also covers `clear_all_btn` and `add_step_btn`.
+- **Cascade button styling consolidated** — four duplicated style fragments replaced with a single variable; theme changes now refresh every chain-row button instead of only a subset.
 
-### Tests (test_functional.py)
-
-- **Section 174** — Cascade chain-button compact-QSS regression guard (32 assertions). Iterates all 7 chain-row button names and asserts `padding: 2px 8px` at init, after toggle ON/OFF, and after theme flip. Asserts the `_chain_btn_body ⊂ _chain_qss` single-source invariant.
-- **Section 175** — Bundled-cascades intact guard (4 assertions). Catches any future section that forgets to redirect `_cascades_dir()`.
-- **Section 176** — `_tool` identity coverage (12 assertions). Serialization, meta-key validation, matching/mismatched load, Cancel vs Load Anyway, backward compat for missing `_tool`, parallel coverage for the import path.
-- **Section 177** — Cascade dependency pre-flight coverage (24 assertions). All-present, missing-tool-only, missing-preset-only, mixed, and empty cases; drives import and load paths through monkey-patched `_prompt_cascade_missing_deps` to verify Continue/Cancel behavior.
+**Tests (+72 assertions):**
+- `§174` — cascade chain-button padding regression guard across init, toggles, and theme flips (32 assertions).
+- `§175` — bundled cascades intact guard, catches any future test that forgets to redirect the cascades directory (4 assertions).
+- `§176` — `_tool` tag coverage: serialization, matching/mismatched load, Cancel vs Load Anyway, backward compat for untagged presets (12 assertions).
+- `§177` — cascade dependency pre-flight: all-present, missing-tool, missing-preset, mixed, and empty cases through both import and load paths (24 assertions).
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,863/2,863 assertions, 0 failures**
-  - Functional: 2,490/2,490 (was 2,408; +82 net after §174–§177 adds and v2.9.2 cycle work)
+  - Functional: 2,490/2,490 (+82)
   - Security: 159/159
-  - Smoke: 78/78 (was 70; +8 from v2.9.2 cycle work)
+  - Smoke: 78/78 (+8)
   - Manual verification: 61/61
   - Examples: 52/52
   - Preset validation: 23/23
@@ -342,31 +335,20 @@ Cascade sidebar button-clipping fix on Linux, a new `_tool` preset meta key, a c
 
 ## [v2.9.1] — 2026-04-16
 
-POSIX shell-quoting correctness fix for the generic
-command-preview copy format.
+POSIX shell-quoting fix for the command-preview copy format.
 
 ### Fixed
 
-- **`_quote_token` now uses POSIX close-escape-reopen quoting** —
-  tokens containing both whitespace and a single quote previously fell
-  to a Windows CMD-style `""` double-quote escape, which is invalid
-  syntax in any POSIX shell. The new implementation emits standard
-  POSIX single-quote escaping (`'it'\''s a test'`), which round-trips
-  cleanly through `shlex.split`. Only affected the "generic" copy
-  format; `_format_bash` (via `shlex.join`) was already correct.
+- **Command preview copy now produces valid POSIX shell syntax** — tokens containing both whitespace and a single quote (e.g. `it's a test`) were being escaped with Windows CMD-style `""` syntax, which is invalid in any POSIX shell. Now uses standard POSIX single-quote escaping that round-trips cleanly. Only affected the "generic" copy format; the Bash-specific format was already correct.
 
 ### Added
 
-**Tests (test_functional.py):**
-- **Section 173** — `_quote_token` POSIX correctness and round-trip
-  verification (12 assertions).
-- **Section 92** — updated 2 assertions to encode POSIX-correct
-  behavior (previously asserted the now-fixed Windows-CMD output).
+**Tests (+11 assertions):** new `§173` pins POSIX correctness and round-trip behavior. `§92` updated to reflect correct POSIX output.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,773/2,773 assertions, 0 failures**
-  - Functional: 2,408/2,408 (was 2,397; +11 net after §173 add and §92 consolidation)
+  - Functional: 2,408/2,408 (+11)
   - Security: 159/159
   - Smoke: 70/70
   - Manual verification: 61/61
@@ -376,111 +358,72 @@ command-preview copy format.
 
 ## [v2.9] — 2026-04-16
 
-Major release: Scaffold now includes the ability to add a custom PATH, so you are not limited to just the system path. Every time Scaffold is ran it scans the system PATH + whatever other paths you configure for any binaries that you also have a tool schema for. This release also includes a full cascade capture regex safety pipeline, and closes three bugs identified during a Claude Opus 4.7 code review.
-
-### Fixed
-
-- **Invalid regex patterns rejected at save/import** —
-  `_validate_capture_entry` now calls `re.compile()` on patterns for
-  `stdout`/`stderr` sources. Previously, syntactically invalid patterns
-  (e.g. `[unclosed`, `(?P<`) were accepted at validation and silently
-  discarded at runtime, leaving users no feedback.
-- **Runtime `re.error` now surfaces distinct warnings** —
-  `extract_captures` collects per-capture regex errors and emits them
-  through a separate `capture_errors` return channel, letting users
-  distinguish "my regex is broken" from "my regex didn't match."
-- **Catastrophic regex backtracking (ReDoS) hardened** — previously,
-  a pattern like `^(a+)+$` against 64 KB of input could freeze the UI
-  thread indefinitely during cascade execution. Measured ~20s hang at
-  N=30 (7-char pattern), ~83s at N=32, astronomical at 64 KB. Two-layer
-  defense now in place:
-    - **Layer 1 (validation-time):** heuristic rejects nested-quantifier
-      and alternation-under-quantifier patterns via
-      `_pattern_is_redos_prone()`. 100% true-positive rate on four
-      classic ReDoS forms, zero false positives on fourteen realistic
-      capture patterns from existing tool schemas.
-    - **Layer 2 (runtime):** `_bounded_regex_search` runs `re.search`
-      in a long-lived `multiprocessing.Pool` worker with a 2-second
-      wall-clock timeout. On timeout, the worker is terminated and
-      replaced, and a `(name, "timeout: regex exceeded 2.0s")` entry
-      is added to the capture_errors list. Chosen over QThread/
-      ThreadPoolExecutor because Python threads cannot be forcibly
-      killed and the C regex engine holds the GIL.
-
-### Changed
-
-- **`extract_captures` signature** — return type changed from
-  `dict[str, str]` to `tuple[dict[str, str], list[tuple[str, str]]]`.
-  Second element is a list of `(capture_name, error_message)` for
-  captures that errored (invalid regex, timeout, or worker crash).
-  All internal callers updated. External callers must unpack the tuple.
-- **`scaffold.py` now imports `multiprocessing` and `threading`** from
-  stdlib. No new third-party dependencies. `multiprocessing.freeze_support()`
-  is called at the top of `main()` for PyInstaller compatibility on
-  Windows.
+Major release. **Custom PATH support** — Scaffold can now find tool binaries in locations beyond your system PATH. Every launch scans your system PATH plus any extra directories you've configured, and matches installed binaries to the tool schemas Scaffold knows about. Also ships a full regex-safety pipeline for cascade captures (invalid patterns caught at save, runtime timeouts on catastrophic backtracking) and closes three bugs from a Claude Opus 4.7 code review.
 
 ### Added
 
-**Code:**
-- **`MAX_REGEX_SECONDS`** module constant (default: 2.0).
-- **`_pattern_is_redos_prone(pattern) -> tuple[bool, str]`** helper
-  for programmatic ReDoS-prone shape detection.
-- **`_regex_worker_entry`, `_get_regex_pool`, `_reset_regex_pool`,
-  `_bounded_regex_search`** — multiprocessing worker infrastructure
-  for bounded regex execution.
+- **Custom PATH configuration** — if your binaries live outside the system PATH (Homebrew Cellar, custom install directories, unpacked release tarballs), you can now add those directories to Scaffold's search path. The tool picker will find them on next launch.
 
-**Tests (test_functional.py):**
-- **Section 167** — `_validate_capture_entry` rejects invalid regex
-  (24 assertions).
-- **Section 168** — `extract_captures` signals `re.error` distinctly
-  via the returned errors list (10 assertions).
-- **Section 170** — validation-time heuristic rejects ReDoS-prone
-  patterns; accepts realistic patterns (22 assertions).
-- **Section 171** — `extract_captures` times out on ReDoS patterns,
-  measured within budget (3 assertions).
-- **Section 172** — `_pattern_is_redos_prone` unit tests with
-  ReDoS-prone and realistic patterns (22 assertions).
+- **Invalid regex patterns are now caught when you save** — previously, a broken regex in a cascade capture (e.g. `[unclosed`, `(?P<`) passed validation and was silently discarded at runtime, leaving you with no feedback about why the capture never fired. Save and import now compile the pattern and reject it with a clear error.
+
+- **Runtime regex errors now report distinctly** — a capture that errors at runtime is now reported through a separate channel from captures that simply didn't match, so you can tell "my regex is broken" from "my regex didn't match anything."
+
+- **Regex timeout protection (ReDoS hardening)** — a pathological pattern like `^(a+)+$` against 64 KB of input used to be able to freeze the UI thread indefinitely during cascade execution (measured ~20 seconds at 30 input chars, astronomical at 64 KB). Two-layer defense now:
+  - **At save time** — a heuristic rejects the classic catastrophic-backtracking shapes (nested quantifiers, alternation under a quantifier). 100% catch rate on the four classic ReDoS patterns, zero false positives across fourteen realistic patterns from existing tool schemas.
+  - **At runtime** — regex matching runs in a subprocess worker with a 2-second wall-clock timeout. On timeout the worker is killed and replaced, and the capture reports as errored. Uses a subprocess rather than a thread because the Python regex engine doesn't release the GIL, so a thread can't be interrupted.
+
+### Fixed
+
+(Three bugs identified in a Claude Opus 4.7 code review — see Added above for the full list; every Added item was driven by a review finding.)
+
+### Changed
+
+- **Capture-extraction return shape changed** — now returns `(captures, errors)` instead of just `captures`. Internal callers updated; external callers need to unpack the tuple.
+
+- **New stdlib imports** — scaffold now imports `multiprocessing` and `threading` from the standard library. No new third-party dependencies.
 
 ### Docs
 
-- **README: "Using tools that aren't on your PATH" subsection** added
-  under "How It Works". Explains that `binary` accepts a bare name
-  (PATH-resolved) or an absolute path, that shell-relative paths like
-  `./installer` do not work because Scaffold doesn't invoke a shell,
-  and walks through the two fixes (put the binary on PATH, or set an
-  absolute path in the schema) with a rayhunter installer example.
-- **SCHEMA_PROMPT.txt: rule 17 (RELEASE BINARIES)** — one-sentence
-  nudge telling the LLM to flag downloaded-release-binary tools in
-  its reply so users know they may need to adjust PATH or `binary`.
+- **README: "Using tools that aren't on your PATH"** — new subsection explaining that `binary` accepts a bare name (PATH-resolved) or an absolute path, why shell-relative paths like `./installer` don't work (Scaffold doesn't invoke a shell), and the two ways to fix it. Walkthrough uses a rayhunter installer as the example.
+
+- **SCHEMA_PROMPT.txt rule 17** — nudges the LLM to flag tools that ship as downloaded release binaries, since those users may need to configure a custom PATH or set an absolute `binary`.
+
+**Tests (+70 assertions):**
+- `§167` — invalid regex rejection at save (24 assertions).
+- `§168` — runtime regex errors surface through the errors channel (10 assertions).
+- `§170` — save-time heuristic rejects ReDoS-prone patterns, accepts realistic ones (22 assertions).
+- `§171` — cascade runs time out on ReDoS patterns within budget (3 assertions).
+- `§172` — heuristic unit tests, prone and safe patterns (22 assertions — split across the new section and supporting coverage).
 
 #### Full suite results
 
-- **Functional: 2,397/2,397 assertions, 0 failures**
-  - (previously 2,327; +70 new assertions across Sections 167, 168,
-    170, 171, 172)
+- **Functional: 2,397/2,397 assertions, 0 failures** (+70 across §167, §168, §170, §171, §172)
 - Other suites unchanged.
-
 
 
 ## [v2.8.7.3] — 2026-04-16
 
-Error-path audit. Two real bugs fixed (cascade executes wrong tool after load failure; cascade silently skips missing preset), three defensive hardening items.
+Error-path audit. Two real bugs fixed, three defensive tightenings.
 
 ### Fixed
 
-- **Cascade TOCTOU: missing tool file no longer runs the wrong binary** — `_chain_advance` now verifies `tool_path` matches after `_load_tool_path` returns. Previously, `_load_tool_path` swallowed load errors internally (showing a modal dialog, then returning), so the `except Exception` wrapper in `_chain_advance` never fired. The cascade proceeded to execute the *previous* step's binary with stale form data. The user would see a "Load Error" dialog, click OK, and then watch the wrong tool run. Now the chain halts with `error_halted` status if the loaded tool path doesn't match.
-- **Cascade halts on missing preset file** — `_chain_advance` now has an `elif preset_path:` branch that halts the chain when a configured preset file no longer exists on disk. Previously the condition at the preset-load site had no else branch — a missing preset silently fell through, and the tool executed with default values instead of the expected configuration. This is treated as a configuration error (unconditional halt) rather than a runtime error (not gated by `stop_on_error`).
-- **Export preset catches `json.JSONDecodeError`** — `_on_export_preset`'s except clause now catches `(OSError, json.JSONDecodeError)` instead of just `OSError`. Previously, exporting a preset whose source file contained malformed JSON raised an unhandled exception with no user feedback.
+- **Cascade no longer runs the wrong tool when a step's tool file is missing** — if the tool file for step N had been deleted or moved, the cascade would show a "Load Error" dialog and then silently execute the *previous* step's binary with stale form data. The chain now halts cleanly with a clear status message instead.
+
+- **Cascade halts when a step's preset file is missing** — if a configured preset file no longer existed on disk, the step used to silently run with default values instead of the expected configuration. This is treated as a configuration error (unconditional halt) rather than a runtime error, so it halts regardless of the stop-on-error setting.
+
+- **Exporting a preset with malformed JSON no longer crashes silently** — if the source preset file contained invalid JSON, export used to raise an unhandled exception with no user feedback. Now surfaces a clear error.
 
 ### Changed
 
-- **Recovery file discarded notification** — when a recovery file is found but its stored tool path doesn't match the currently loaded tool (e.g. the schema file was moved), the file is still discarded, but the status bar now shows "Recovery file discarded — tool location has changed" instead of deleting silently.
-- **History entry validation filters non-dict elements** — `_load_history` now returns `[e for e in entries if isinstance(e, dict)]` instead of the raw list. Previously, corrupt QSettings data containing non-dict elements (ints, strings, None) would crash `HistoryDialog._populate` with an unhandled `AttributeError` when calling `.get()` on the element.
+- **Recovery file discard now surfaces a message** — when a recovery file is found but the referenced tool has been moved, the file is still discarded (same behavior as before) but the status bar now tells you why: "Recovery file discarded — tool location has changed."
+
+- **Corrupt cascade history entries no longer crash the history dialog** — corrupt QSettings data containing non-dict elements used to crash the History dialog on open. Non-dict entries are now filtered out during load.
 
 ### Added
 
-- **Section 162 — cascade TOCTOU regression test** — configures a 2-slot cascade, deletes the second tool file from disk, runs the chain, and asserts: chain halted with `error_halted`, exactly 1 step recorded, wrong tool was never loaded.
-- **Section 163 — missing preset halts chain test** — configures a 1-slot cascade with a preset, deletes the preset file, runs the chain, and asserts: chain halted with `error_halted`, 0 steps executed, status bar message contains "preset not found".
+**Tests (+regression guards):**
+- `§162` — cascade tool-deleted-mid-run regression test: 2-slot cascade, delete the second tool file, run the chain. Asserts halt, exactly 1 step recorded, wrong tool never loaded.
+- `§163` — cascade missing-preset halt test: 1-slot cascade, delete the preset file, run the chain. Asserts halt, 0 steps executed, status bar message names the missing file.
 
 #### Full suite results
 
@@ -495,34 +438,34 @@ Error-path audit. Two real bugs fixed (cascade executes wrong tool after load fa
 
 ## [v2.8.7.2] — 2026-04-16
 
+Test coverage catch-up for v2.8.7.
 
 ### Added
 
-- **Sections 159–161 + 9d — test coverage for v2.8.7 changes.** Section 159 asserts cascade save/import route through `_atomic_write_json` (AW-1 regression guard). Section 160 pins `CAPTURE_RESERVED_NAMES` membership (prevents accidental re-introduction of legacy entries dropped in CRN-1). Section 161 verifies `CascadeHistoryDialog._on_delete` and `_on_clear` pass `StandardButton.No` as default (DC-1 regression guard, also documents the pattern for future destructive-action dialogs). Section 9d in `test_security.py` documents the `\` carve-out asymmetry — accepted in binary paths (section 3o), rejected in subcommand names.
-
+**Tests (+4 sections):** regression guards pinning the atomic-write cascade path, capture reserved-name membership, default-No destructive confirmations, and the documented backslash carve-out (accepted in binary paths, rejected in subcommand names).
 
 
 ## [v2.8.7.1] — 2026-04-16
 
-Post-v2.8.7 polish pass. Crash-safety gap closed in cascade save/import, clarifying comments added to two decisions future readers could easily undo, one confirmation-dialog default tightened, and dead defense dropped from the capture reserved-name set.
+Post-v2.8.7 polish. Crash-safety gap closed in cascade save/import, a confirmation-dialog default tightened, and some dead defensive code dropped.
 
 ### Fixed
 
-- **Cascade save and import are now crash-safe** — `_on_save_cascade` and `_on_import_cascade` previously wrote JSON via `Path.write_text(json.dumps(...))`, which could leave the target file truncated or empty if the process was killed or the disk filled mid-write. Both sites now use `_atomic_write_json()`, matching every other JSON writer in the file. The cascade save path is the higher-value fix — a user actively naming a cascade expects it to survive a crash.
+- **Cascade save and import are now crash-safe** — both used to write JSON with a plain overwrite, which could leave the file truncated or empty if the process was killed or the disk filled mid-write. Now atomic, matching every other JSON writer in the app. Cascade save is the higher-value fix — a user actively naming a cascade expects it to survive a crash.
 
 ### Changed
 
-- **`CAPTURE_RESERVED_NAMES` no longer lists legacy source names** — `stdout_full` and `stderr_full` removed from the reserved-name set. The on-load migration in `_load_cascade`, `_import_cascade_data`, and `_restore_cascade_config` rewrites those source strings before validation runs, so keeping them as reserved capture-variable names was dead defense. The migration dicts themselves still reference both old and new names (those are the rewrite source and target).
-- **Clear Cascade History confirmation defaults to No** — `CascadeHistoryDialog._on_clear` now passes `QMessageBox.StandardButton.No` as the default button, matching the sibling `_on_delete` pattern added in v2.8.7. Other confirmation dialogs in the file pre-date this pattern and are intentionally out of scope.
+- **Clear Cascade History confirmation now defaults to No** — matches the Delete confirmation added in v2.8.7. Other confirmation dialogs pre-date this pattern and are intentionally left alone.
+
+- **Dropped legacy entries from the capture reserved-name list** — `stdout_full` and `stderr_full` are rewritten to their new names during cascade load (see v2.8.7 rename), so keeping them as reserved names served no purpose. The migration code itself still handles both.
 
 ### Added
 
-- **Section 158 — stop-during-delay cascade test** — locks in the CHAIN_LOADING-state guard in `_on_stop_chain`. Sets up a 2-step cascade with a 2-second delay between steps, lets step 1 complete, stops during the delay, and asserts exactly 1 step was recorded (no phantom "stopped" step synthesized for step 2, which never started). A future change that broadens the synthesis guard to include `CHAIN_LOADING` would fail 158c/158e.
+**Tests (+regression guard):** `§158` locks in the stop-during-delay guard — a stop during a cascade's between-step delay should record exactly the steps that actually ran, with no phantom "stopped" entry for the step that never started.
 
 ### Docs
 
-- **`\` carve-out in binary-path validation now commented** — `validate_schema`'s shell-metachar check subtracts `\\` from the set when validating `binary` (Windows absolute paths like `C:\Windows\System32\ping.exe` need it as a separator) but not when validating subcommand names (which are tokens, not paths). A defensive comment now explains the asymmetry so a future reader doesn't "simplify" it and break Windows users.
-- **`CASCADE_HISTORY_VERSION` silent-drop contract now commented** — a comment at the constant definition notes that a version bump will silently drop all existing history unless an explicit migration is added to `_load_cascade_history`. No code change; the trap is for future-you when the constant eventually changes.
+- **Two silent traps commented in place** — the backslash carve-out in binary-path validation (Windows paths need it; subcommand names don't) and the cascade history version-bump contract (bumping the version silently drops all existing history unless a migration is added). No code changes, just breadcrumbs for future edits.
 
 #### Full suite results
 
@@ -537,33 +480,35 @@ Post-v2.8.7 polish pass. Crash-safety gap closed in cascade save/import, clarify
 
 ## [v2.8.7] — 2026-04-15
 
-Cascade history hardening, capture-source rename with on-load migration, stop-mid-step recovery, and UI polish — closes the v2.8.6 code review.
+Cascade history hardening, capture-source rename with silent migration, stop-mid-step recovery, and UI polish — closes the v2.8.6 code review.
 
 ### Added
 
-- **Delete confirmation in cascade history dialog** — `CascadeHistoryDialog._on_delete` now prompts before removing an entry. The confirmation message distinguishes parent-row selection ("Delete this cascade history entry?") from child-row selection, where the message makes the parent-scoped deletion explicit ("Deleting this step will remove the entire parent cascade entry from history. Continue?"). Default button is No.
-- **ToolPicker theme refresh** — folder-header rows now update their backgrounds automatically when the theme changes. Implemented as `_update_header_colors()` triggered by `changeEvent(QEvent.PaletteChange)`, which walks the existing row map and re-applies colors without touching selection, scroll, or active filter state.
-- **`_build_chain_step_record` helper** — centralizes the cascade step-record dict shape. Called from `_chain_on_finished` (normal completion), the failed-to-start path, and the new stop-mid-step path. Prevents the three sites from drifting on key names.
-- **CAPTURE_RESERVED_NAMES extended** — `stdout_tail` and `stderr_tail` added to the reserved set alongside the legacy `stdout_full` / `stderr_full` entries (kept for defense against shadowing in pre-migration cascade JSONs).
-- **New test coverage** — sections 152 (`_load_cascade_history` corrupt version key), 153 (`_update_cascade_run` no-op for missing run_id), 154 (stop-mid-step preserves in-progress step record), 155 (ToolPicker theme refresh), 156 (`stdout_full` → `stdout_tail` migration on cascade load), 157 (delete confirmation respects user choice). Plus 116j documenting that `source: "file"` requires the `path` key as of this release.
+- **Delete confirmation in cascade history** — deleting a cascade history entry now prompts first. If you select a step within a cascade rather than the cascade itself, the message makes the scope explicit ("Deleting this step will remove the entire parent cascade entry from history. Continue?"). Default button is No.
+
+- **Tool picker theme refresh** — folder-header rows now update their backgrounds when you switch themes, without touching your selection, scroll position, or active filter.
 
 ### Changed
 
-- **Cascade capture sources renamed: `stdout_full` → `stdout_tail`, `stderr_full` → `stderr_tail`** — the previous names implied the entire stream was captured, but the implementation has always sliced to the last 64 KB (`CAPTURE_STREAM_TAIL_BYTES`). The new names match the actual behavior. A silent on-load migration in `_load_cascade`, `_import_cascade_data`, and `_restore_cascade_config` rewrites the legacy source names to the new ones, so existing cascade JSONs and history-restored configurations continue to work without user action. The capture definition dialog, validation, tooltips, and `CASCADE_LLM_GENERATION_GUIDE.md` all use the new names.
-- **`CASCADE_HISTORY_VERSION` constant used in exports** — `_on_export` and `_on_export_all` now reference the constant instead of writing `"_version": 1` as a literal.
-- **Empty-state label color** — `HistoryDialog` and `CascadeHistoryDialog` empty-state labels now use `DARK_COLORS["disabled"]` instead of a hardcoded `#888`.
+- **Cascade captures renamed: `stdout_full` → `stdout_tail`, `stderr_full` → `stderr_tail`** — the old names implied the entire stream was captured, but the implementation has always sliced to the last 64 KB. The new names match reality. Existing cascade files and history entries are migrated silently on load — no user action needed.
 
 ### Fixed
 
-- **Cascade history load survives a corrupt `_version` key** — `_load_cascade_history` now wraps the `int(ver)` parse in try/except `(ValueError, TypeError)` and returns `[]` on failure, matching the defensive style of the adjacent JSON parsing. Previously a non-numeric string in `cascade_history/_version` (from a corrupted registry or manual edit) would propagate `ValueError` up the load path.
-- **Stop-mid-step preserves the in-progress step in cascade history** — `_on_stop_chain` now synthesizes a step record (with `error: "stopped"` and `exit_code: None`) and appends it to `_cascade_steps` before calling `_on_run_stop()`. The append happens before the kill so that when `_chain_on_finished` fires asynchronously and short-circuits on `CHAIN_IDLE`, the step is already recorded. Previously stopping during step N produced a history entry showing N-1 steps. Wrapped in try/except so any failure in the synthesis path cannot break Stop.
-- **`_update_cascade_run` no longer writes when run_id is missing** — tracks a `found` flag during the entry walk and only calls `_save_cascade_history` if a match was updated. Previously every non-matching update path issued a needless QSettings write.
-- **`source: "file"` requires the `path` key** — `extract_captures` no longer falls back to `entry.get("pattern")` when `path` is absent for `file`-source captures. The runtime now matches `validate_capture_entry`, which has always required `path`. This eliminates a divergence where a misconfigured cascade could pass validation conceptually but fail it formally (or vice versa). Captures using `pattern` for a `file` source will now be silently dropped at extract time — the dialog and validator both reject them on save. Test 116g (which used the wrong key) updated.
-- **Test 123b assertion** — previously asserted `after == before + 1` after prefilling history to the cap, which is impossible under FIFO eviction. Now clears history first and prefills to 5 entries.
+- **Cascade history loads cleanly if the version key is corrupt** — a non-numeric version value (from a corrupted registry or manual edit) used to propagate an exception up the load path. Now returns an empty history, matching how corrupt JSON is already handled.
 
-### Security Hardening
+- **Stopping mid-step now preserves the in-progress step in history** — stopping during step N used to produce a history entry showing only N−1 steps. The stopped step is now recorded with `error: "stopped"` before the cascade terminates.
 
-- **`_SHELL_METACHAR` extended** — `#` (shell comment), `'` (single quote), and `"` (double quote) added to the global metachar frozenset. `\` is added to the subcommand-name validation path but excluded from the binary-path validation path (where it's needed for Windows absolute paths like `C:\Windows\System32\ping.exe`). Defense-in-depth only — none of these characters were exploitable previously because Scaffold never invokes a shell, but they should never appear in executable or subcommand identifiers.
+- **No more spurious writes when updating a missing cascade run** — calling the update helper with an unknown run ID used to issue a QSettings write regardless. Now only writes if a matching entry was actually found.
+
+- **File-source captures require an explicit `path` key** — the validator has always required it, but the runtime used to fall back to the `pattern` key if `path` was missing. Both paths now require `path`, eliminating a subtle divergence where a capture could seem valid in one context and invalid in another.
+
+### Security
+
+- **Shell metacharacter screen extended** — `#`, `'`, and `"` are now rejected across the board; `\` is rejected in subcommand names but still allowed in binary paths (needed for Windows absolute paths like `C:\Windows\System32\ping.exe`). Defense-in-depth — none of these were exploitable since Scaffold never invokes a shell, but they shouldn't appear in executable identifiers either.
+
+### Added
+
+**Tests (+6 sections):** corrupt history version key, no-op update, stop-mid-step step recording, tool picker theme refresh, legacy capture-name migration, delete-confirmation respects user choice.
 
 #### Full suite results
 
@@ -575,31 +520,31 @@ Cascade history hardening, capture-source rename with on-load migration, stop-mi
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.6] — 2026-04-15
 
-New Cascade history menu, LLM powered cascade generation guide.  Output panel resize fixes — drag handle height measurement, scrollbar coherence, and dynamic height cap.
-
+New Cascade History menu, an experimental LLM-powered cascade generation guide, and output panel resize fixes.
 
 ### Added
 
-- **Cascade History** — record and browse past cascade runs, restore individual steps or full cascades, export history to JSON. Documented in README, CHANGELOG, and in-app Cascade Guide.
+- **Cascade History** — record and browse past cascade runs, restore individual steps or full cascades, export history to JSON. Documented in the README, this changelog, and the in-app Cascade Guide.
 
-- **Cascade generation guide (experimental)** — new `CASCADE_GENERATION_GUIDE.md` at repo root documenting a workflow for generating cascade files via an LLM with persistent access to your `tools/` and `presets/` directories (e.g. a Claude Project). The guide is split into a setup half for humans and an instructions half intended for pasting into the LLM's custom instructions. Preset-first generation with schema fallback. No code changes — this is a documentation-only feature pending real-world validation. Feedback and edge-case reports welcome.
-
+- **Cascade generation guide (experimental)** — new `CASCADE_GENERATION_GUIDE.md` at the repo root documenting a workflow for generating cascade files via an LLM with persistent access to your `tools/` and `presets/` directories (e.g. a Claude Project). Split into a setup half for humans and an instructions half to paste into the LLM's custom instructions. Preset-first generation with schema fallback. Docs only — no code changes. Feedback and edge-case reports welcome.
 
 ### Fixed
 
-- **Drag handle now measures siblings by size hint** — `_effective_max_height()` previously used each sibling's current `height()`, which was inflated when the output panel was small (the form scroll area would expand to fill freed space, creating a circular dependency that capped the output at ~140 px). Now uses `min(height(), sizeHint().height())` so the calculation reflects intrinsic widget sizes, not inflated ones. Also switched from `window().height()` to `parent.height()` so the available-space calculation excludes menu/status bar chrome.
-- **Scrollbar stays coherent during drag resize** — `DragHandle.mouseMoveEvent` now preserves the scrollbar position across `setFixedHeight` calls: if the user was scrolled to the bottom the view stays at the bottom, otherwise the scroll offset is preserved.
+- **Output panel drag handle no longer caps at ~140 pixels** — the measurement logic had a circular dependency with the form scroll area, which would inflate to fill any space the output panel gave up. The calculation now uses intrinsic widget sizes, so the output panel can grow to its actual available space.
+
+- **Output panel scrollbar no longer jumps during drag resize** — if you were scrolled to the bottom, the view now stays at the bottom as you drag. Otherwise the scroll offset is preserved.
 
 ### Changed
 
-- **Output panel height cap is now dynamic** — removed the static `OUTPUT_MAX_HEIGHT = 800` pixel ceiling. The panel height is now bounded solely by `_effective_max_height()`, which computes available space from actual parent geometry minus sibling size hints. On large windows the output panel can grow to its full available space.
+- **Output panel height is now dynamic** — removed the static 800-pixel ceiling. On large windows the output panel can grow to fill its full available space.
 
 #### Full suite results
 
 - **All 6 test suites pass: 2,553/2,553 assertions, 0 failures from changes**
-  - Functional: 2,188/2,189 (1 pre-existing flake in §123b — history cap, unrelated)
+  - Functional: 2,188/2,189 (1 pre-existing flake in §123b, unrelated)
   - Security: 158/158
   - Smoke: 70/70
   - Manual verification: 61/61
@@ -607,18 +552,17 @@ New Cascade history menu, LLM powered cascade generation guide.  Output panel re
   - Preset validation: 23/23
 
 
-
 ## [v2.8.5.11] — 2026-04-14
 
-History crash/error reporting, test stabilization, README corrections.
+History crash/error reporting, test stabilization.
 
 ### Added
 
-- **History entries now distinguish crashes from normal exits** — the Exit Code column shows descriptive labels ("crashed", "not found", "timed out", "I/O error") with a tooltip for the specific error type, instead of a raw numeric code. Backed by two new fields (`crashed`, `error`) written when QProcess reports a crash or emits an error signal.
+- **History now distinguishes crashes from normal exits** — the Exit Code column shows descriptive labels ("crashed", "not found", "timed out", "I/O error") with a tooltip for the specific error type, instead of a raw numeric code.
 
 ### Fixed
 
-- **Test 26h geometry assertion stabilized** — added `qWaitForWindowExposed` before geometry measurement and widened the pixel slack from 4 to 8, eliminating an intermittent window-manager timing flake (~1-in-8 failure rate).
+- **Flaky §26h geometry assertion stabilized** — was failing intermittently (~1 in 8) due to a window-manager timing race. Added a wait step and widened the pixel slack.
 
 #### Full suite results
 
@@ -630,67 +574,72 @@ History crash/error reporting, test stabilization, README corrections.
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.10] — 2026-04-13
 
-Bugfix — cascade button label and missing tooltips. Cascade variable dialog column clamping, history entry guard, and history empty-state UX.
+Cascade button polish, variable-dialog column clamping, history empty-state.
 
 ### Fixed
 
-- **Cascade Run button label corrected** — the button displayed "Run..." instead of "Running..." during execution.
-- **Cascade buttons now have tooltips** — Run, Stop, and Clear were missing tooltips entirely. All six cascade buttons now use consistent rich-text tooltips.
-- **Cascade variable definition dialog columns no longer draggable off-viewport** — `CascadeVariableDefinitionDialog` used `Stretch` on the last column with no viewport clamping. Columns could be resized past the viewport edge, becoming unreachable. Now uses the same `_fit_last_column` / `_clamp_for_last_column` pattern as HistoryDialog, PresetPicker, ToolPicker, and CascadeListDialog.
-- **`_record_history_entry` guards all three capture vars** — previously only checked for `_history_display`; missing `_history_preset` or `_history_timestamp` would `AttributeError`. Now checks all three before proceeding.
-- **History capture vars set before QProcess signal connections** — `_on_run_stop` previously connected `errorOccurred` before setting the history capture vars. If `QProcess.start()` failed synchronously, `_on_error` could fire before the vars existed. The capture block now runs before signal connections.
+- **Cascade Run button now says "Running..." during execution** — used to display "Run..." mid-run.
+
+- **Cascade buttons have tooltips** — Run, Stop, and Clear were missing tooltips entirely. All six cascade buttons now have them.
+
+- **Cascade variable dialog columns no longer draggable off-screen** — matches the clamping pattern used everywhere else in the app.
+
+- **History entry guard catches missing capture variables** — the recorder used to check for only one of three required variables, risking an attribute error if the other two were missing.
+
+- **History capture variables set before signal connections** — in the rare case where a QProcess failed to start synchronously, the error handler could fire before the capture variables were created.
 
 ### Improved
 
-- **History dialog empty-state UX** — when history is empty, the dialog now shows a centered message instead of an empty table with headers only. The Clear History button is disabled when empty.
+- **History empty-state now shows a message** — used to display empty table headers when history was empty. Now shows a centered message and disables the Clear History button until there are entries.
 
 ### Added
 
-- **Section 145** — `CascadeVariableDefinitionDialog` column clamping tests.
-- **49ak–49al** — `_record_history_entry` with missing capture vars: no `AttributeError`, no spurious entry written.
-- **49am–49ao** — history dialog empty-state: label visible with tool name, Clear button disabled when empty, enabled when entries exist.
+**Tests:** cascade variable dialog column clamping (`§145`), history entry guard with missing capture vars, empty-state UX.
 
 #### Full suite results
 
 - **Functional: 1,896/1,896**
 
+
 ## [v2.8.5.9] — 2026-04-13
 
-Audit backlog cleanup — closes out the v2.7.4-era audit cycle. Two low-severity findings fixed, one dead-code removal.
+Audit backlog cleanup — closes the v2.7.4-era audit cycle. Two small fixes, one dead-code removal.
 
 ### Fixed
 
-- **`_substitute_in_form_fields` no longer partially mutates the form on halt** — the method now collects pending field writes into a local list and commits them only after the full loop completes without a halt. Previously, fields processed before an unset-capture halt (under `stop_on_error`) were already written while later fields were not, leaving the form in an inconsistent partial-substitution state (Finding 3).
-- **Unset-capture warnings are now deduplicated per slot** — `_substitute_captures` now uses a `_unset_warned_captures` set (cleared per slot in `_chain_advance`) to emit at most one warning per capture name per slot. Previously, if three fields referenced the same unset capture, three identical warning lines were emitted (Finding 5).
-- **Removed dead `_autosave_form()` call in `_check_for_recovery`** — after accepting recovery, `_default_form_snapshot` was set to match the restored state, so the subsequent `_autosave_form()` call always hit the early-out and never wrote a file. The call has been removed.
+- **Cascade field substitution no longer leaves the form in a half-written state on halt** — if stop-on-error fired partway through substituting capture values into form fields, the fields processed before the halt had already been written while later fields hadn't. The substitution pass now collects all writes first and commits them atomically.
+
+- **Unset-capture warnings are now deduplicated per cascade step** — if three fields in the same step referenced the same missing capture, the log used to show three identical warnings. Now shows one per capture name per step.
+
+- **Removed a dead autosave call in the recovery flow** — after accepting a recovery prompt, a subsequent autosave call was always a no-op because the baseline had just been refreshed. Removed.
 
 ### Added
 
-- **Section 141** — partial form mutation regression test: sets up a cascade with `stop_on_error=True`, one field with a known capture and one with a missing capture. Asserts neither field is mutated after halt.
-- **Section 142** — unset-capture warning dedup test: calls `_substitute_captures` three times for the same missing capture under `stop_on_error=False`. Asserts exactly one warning, then verifies dedup resets per slot.
-- **Section 143** — recovery flow dead-call test: walks through `_check_for_recovery` with a mocked recovery file, asserts form restores correctly and no recovery file is recreated.
+**Tests:** partial-mutation regression guard, warning dedup, recovery-flow dead-call verification.
 
 #### Full suite results
 
-- **Functional: 1,836/1,836** (up from 1,828)
+- **Functional: 1,836/1,836** (+8)
+
 
 ## [v2.8.5.8] — 2026-04-13
 
-Bugfix — atomic preset writes, cascade wrapper stacking, dock visibility persistence.
+Atomic preset writes, cascade signal handler stacking, dock visibility persistence.
 
 ### Fixed
 
-- **Preset import/export now use atomic writes** — `_on_import_preset` and `_on_export_preset` were still using raw `Path.write_text`, bypassing the `_atomic_write_json` helper introduced in v2.8.5.3. A disk-full or mid-write crash could corrupt the destination file. Both now write to a `.tmp` file and `os.replace`, matching all other save paths.
-- **Cascade wrapper stacking eliminated** — `_chain_execute_current` now restores the real `_on_finished` handler before wrapping, so each step's wrapper captures the original handler (not the previous wrapper). Previously, N steps produced N nested wrappers, causing `extract_captures` and `run_btn.setEnabled(False)` to execute N times per process finish instead of once.
-- **Cascade dock visibility persisted on native-X close** — `_on_cascade_visibility_changed` now writes `cascade/visible` to QSettings. Previously only the menu/Ctrl+G path (`_toggle_cascade`) persisted the state, so closing the dock via its native X button was forgotten on next launch.
+- **Preset import and export are now crash-safe** — both still used a plain overwrite, bypassing the atomic-write helper introduced in v2.8.5.3. A disk-full or mid-write crash could corrupt the destination file. Both now write atomically.
+
+- **Cascade signal handlers no longer stack across steps** — each cascade step used to install a wrapper around the process-finished handler without restoring it first, so after N steps there were N nested wrappers. The Run button could get re-disabled multiple times per process exit. Each step now installs against the real handler.
+
+- **Cascade dock visibility persists when closed via the X button** — previously only the Ctrl+G / menu toggle saved the state, so closing the dock via its native X was forgotten on next launch.
 
 ### Added
 
-- **Section 138** — atomic preset import regression test: patches `Path.write_text` to simulate mid-write failure, asserts destination file retains original content.
-- **Section 139** — cascade wrapper stacking test: installs wrappers for 3 simulated steps, invokes `_on_finished` once, asserts `run_btn.setEnabled(False)` is called exactly 1 time (not 3).
-- **Section 140** — cascade visibility persistence test: calls `_on_cascade_visibility_changed` with both values, asserts QSettings is updated each time.
+**Tests:** atomic preset import regression guard, wrapper-stacking fix, visibility persistence.
 
 #### Full suite results
 
@@ -702,22 +651,22 @@ Bugfix — atomic preset writes, cascade wrapper stacking, dock visibility persi
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.7] — 2026-04-13
 
-Housekeeping — drag-enter cursor fix, preset prompt docs update.
+Drag-enter cursor fix, preset prompt docs update.
 
 ### Fixed
 
-- **`dragEnterEvent` now calls `event.ignore()` on no-match** — when no dragged URL ends in `.json` (or no URLs are present), the method now explicitly rejects the event. Previously it returned silently, which on some Qt versions/platforms left the drop-cursor in "accept" state for files Scaffold won't actually load.
+- **Drag-enter cursor no longer gets stuck in "accept" state for non-JSON files** — the handler used to return silently for non-`.json` drags, which on some Qt versions/platforms left the cursor in accept mode for files Scaffold wouldn't actually load. Now explicitly rejects.
 
 ### Changed
 
-- **PRESET_PROMPT multi-preset convention updated** — the `=== MULTIPLE PRESETS ===` section now instructs the LLM to return each preset as a separate JSON object with `=== PRESET: <filename>.json ===` delimiters, instead of a JSON array. This matches `validate_preset`'s requirement that each file be a single top-level JSON object.
+- **Preset prompt updated for multi-preset generation** — the multi-preset section now instructs the LLM to return each preset as a separate JSON object with named delimiters, instead of a JSON array. Matches the validator's one-file-one-object requirement.
 
 ### Added
 
-- **Section 136** — dragEnterEvent rejection tests: non-.json URL, no URLs, mixed URLs, case variations.
-- **Section 137** — PRESET_PROMPT smoke test: verifies new separator pattern, no JSON array example, and array warning text.
+**Tests:** drag-enter rejection cases (non-.json, no URLs, mixed, case variations), preset prompt smoke test.
 
 #### Full suite results
 
@@ -729,18 +678,20 @@ Housekeeping — drag-enter cursor fix, preset prompt docs update.
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.6] — 2026-04-13
 
-Import/load hardening — format-check on preset import, malformed cascade steps handling.
+Import hardening — format check on preset import, malformed cascade handling.
 
 ### Fixed
 
-- **Import Preset rejects non-preset files** — `_on_import_preset` now has a three-tier `_format` check mirroring `_load_tool_path`: cascade files are rejected with a clear message pointing to Cascade → Import Cascade; other non-preset formats (e.g. `scaffold_schema`) are rejected; files with no `_format` marker show a "Missing Format Marker" warning with Yes/Cancel (default Cancel). Previously a cascade file would pass `validate_preset` and silently import, then fail on next load.
-- **CascadeListDialog handles malformed `steps` field** — `_populate` now validates that `steps` is a list before calling `len()`. If `steps` is a dict, string, or any non-list value, the Steps column shows `"0 (malformed)"` instead of a misleading count (dict length or string length). Malformed rows remain visible so users can find and delete them.
+- **Import Preset rejects cascade and non-preset files** — used to pass validation and silently import, then fail on next load. Now mirrors the tool-load import check: cascade files are rejected with a message pointing to the correct menu; unmarked files prompt before loading; other formats are rejected outright.
+
+- **Cascade list dialog handles malformed `steps` field** — if `steps` was a dict or string instead of a list, the Steps column used to show a misleading count (dict length, string length, etc.). Malformed rows now show `"0 (malformed)"` so you can find and delete them, but stay visible.
 
 ### Added
 
-- **Regression test for duplicate-flag single-reporting** (Section 133) — confirms `_check_duplicate_flag_values` reports each flag collision exactly once per scope (global, subcommand), including positional flags and `short_flag` collisions.
+**Tests:** duplicate-flag single-reporting regression guard (`§133`) — each flag collision should be reported exactly once per scope.
 
 #### Full suite results
 
@@ -752,18 +703,20 @@ Import/load hardening — format-check on preset import, malformed cascade steps
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.5] — 2026-04-13
 
-Cascade dialog hardening — combined error messages, duplicate flag rejection, flag format validation.
+Cascade dialog hardening — combined error messages, duplicate flag rejection, flag-format validation.
 
 ### Fixed
 
-- **CascadeCaptureDefinitionDialog shows one combined warning** — previously, N invalid capture rows produced N separate modal QMessageBox.warning dialogs. Now all errors are collected during the validation loop and shown in a single message listing every invalid row with its error (e.g. `Row 2 (name="badname"): pattern required for source 'stdout'`). Red cell highlighting is preserved per-row.
-- **CascadeVariableDefinitionDialog rejects duplicate flags** — two or more variables targeting the same flag value are now caught at edit time with a combined error message listing all duplicate rows. Previously the second definition was silently ignored at runtime (first-match-wins in `_chain_advance`).
+- **Cascade capture dialog now shows one combined error message** — used to pop up one warning dialog per invalid row, so ten bad rows meant ten dialogs. Now collects everything into a single list. Red cell highlighting per row is preserved.
+
+- **Cascade variable dialog rejects duplicate flags** — two variables targeting the same flag used to pass edit-time validation and silently have the second one ignored at runtime. Now rejected at edit time with a combined error.
 
 ### Changed
 
-- **CascadeVariableDefinitionDialog validates flag format** — flag values must now match a strict pattern: short/long flags (`-f`, `--output-file`), positionals (`TARGET`, `HOST`), or subcommand-scoped variants (`clone:--depth`, `compose up:--env`). Garbage strings, bare dashes, mixed-case words, and malformed subcommand prefixes are rejected with a combined error message. Added `_CASCADE_VAR_FLAG_RE` module-level compiled regex.
+- **Cascade variable dialog validates flag format** — flags must now match a strict pattern (short flags like `-f`, long flags like `--output-file`, positional names like `TARGET`, or subcommand-scoped variants like `clone:--depth`). Garbage strings, bare dashes, and malformed subcommand prefixes are rejected with a combined error.
 
 #### Full suite results
 
@@ -775,17 +728,18 @@ Cascade dialog hardening — combined error messages, duplicate flag rejection, 
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.4] — 2026-04-13
 
-Cascade dock min-width fix and password clipboard safety prompt.
+Cascade dock min-width fix and password clipboard safety.
 
 ### Fixed
 
-- **Cascade dock min-width restored on native close** — closing the cascade sidebar via its native X button now correctly resets the window minimum width to `MIN_WINDOW_WIDTH`. Previously the inflated min-width (`MIN_WINDOW_WIDTH + 320`) persisted, preventing the window from shrinking back. Extracted `_apply_cascade_minwidth` helper and wired `visibilityChanged` to `_on_cascade_visibility_changed` which syncs both the min-width and the menu checkmark regardless of how the dock is closed.
+- **Cascade dock min-width restored on native close** — closing the cascade sidebar via its X button used to leave the window minimum width inflated (set while the dock was open), preventing the window from shrinking back. Now syncs the min-width whichever way the dock is closed.
 
-### Security Hardening
+### Security
 
-- **Copy Command prompts before exposing passwords** — all four clipboard copy paths (`_copy_command`, `_copy_as_bash`, `_copy_as_powershell`, `_copy_as_cmd`) now route through `_prepare_copy_cmd`, which detects filled password fields and shows a one-time confirmation dialog (default: mask with `********`). The user's choice is remembered for the remainder of the tool session (in-memory only, never persisted to QSettings) and resets when a new tool is loaded. Defense-in-depth: display preview and history already masked passwords; this closes the last path where plaintext could leak to the system clipboard.
+- **Copy Command prompts before putting passwords on the clipboard** — all four copy paths (Copy, Copy as Bash, Copy as PowerShell, Copy as CMD) now detect filled password fields and ask whether to mask them with `********` first. The default is to mask. Your choice is remembered for the rest of the session (in-memory only, never persisted) and resets when you load a new tool. Defense-in-depth — the display preview and history already masked passwords; this closes the last path where plaintext could reach the system clipboard.
 
 #### Full suite results
 
@@ -797,15 +751,18 @@ Cascade dock min-width fix and password clipboard safety prompt.
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.3] — 2026-04-13
 
-Three bug fixes: capture substitution coverage, atomic preset writes, and PresetPicker init.
+Capture substitution coverage, atomic preset writes, preset picker init.
 
 ### Fixed
 
-- **Capture substitution covers all widget types** — extracted the substitution loop from `_chain_advance` into a `_substitute_in_form_fields` helper that routes reads and writes through `ToolForm._raw_field_value` / `_set_field_value`, so `{capture}` tokens in text, file, directory, and password fields are properly substituted. Multi-enum list values also have each string element checked. Previously only QLineEdit and QComboBox-backed fields were handled.
-- **Atomic JSON writes for presets and autosave** — added `_atomic_write_json` helper that writes to a `.tmp` sibling then `os.replace()`s into place, preventing file corruption on mid-write crashes. Applied to `_on_save_preset`, `_on_edit_description`, and `_autosave_form`.
-- **`PresetPicker._deleted_last` initialized in `__init__`** — attribute is now set to `False` alongside other instance attributes, removing reliance on `getattr` fallback for a class-owned field.
+- **Cascade captures now work for every field type** — `{capture}` substitution used to only cover text and dropdown fields. File, directory, password, and multi-select fields were silently skipped. All field types now substitute correctly, including each item in multi-select lists.
+
+- **Preset saves and the autosave recovery file are now crash-safe** — all three write paths now go through an atomic-write helper that writes to a temporary file and renames it into place, preventing corruption on mid-write crashes.
+
+- **Preset picker no longer relies on a fallback for an unset attribute** — cleanup item, no user-visible change.
 
 #### Full suite results
 
@@ -817,17 +774,22 @@ Three bug fixes: capture substitution coverage, atomic preset writes, and Preset
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.2] — 2026-04-13
 
-Five targeted bug fixes identified by audit.
+Five targeted fixes from an audit pass.
 
 ### Fixed
 
-- **apply_values honors enum defaults for missing keys** — when a preset omits a key, `apply_values` now passes the schema `arg["default"]` instead of `None`, so enum fields restore to their declared default rather than falling back to index 0.
-- **Duplicate flag validation no longer double-reports** — removed redundant `_check_duplicate_flags` call sites (and the now-unused function). Extended `_check_duplicate_flag_values` to also track positional (non-dash-prefixed) flag names, so all duplicates produce exactly one error.
-- **`_SHELL_METACHAR` no longer contains a literal space** — space was indistinguishable from the separator in error messages. Binary validation now emits a distinct `"binary" contains whitespace` error via a separate `isspace()` check.
-- **Crash no longer produces duplicate status and history** — added `_error_reported` flag so that when `_on_error` handles a crash, the subsequent `_on_finished` callback skips its status message and `_record_history_entry` call.
-- **Password values preserve trailing whitespace** — removed `.strip()` from the password branch in `_read_field_value`, so pasted hex tokens and secrets with trailing spaces are no longer silently mutated.
+- **Enum fields honor their schema default when a preset omits them** — used to fall back to the first item in the list. Now restores the declared default.
+
+- **Duplicate flag validation no longer double-reports** — removed a redundant second validation pass; each duplicate is now reported exactly once.
+
+- **Schema validator emits a distinct error for whitespace in `binary`** — previously the space was lumped into a generic shell-metacharacter error, which was confusing because the space was invisible in the message.
+
+- **Crashes no longer produce duplicate status messages and history entries** — the crash handler and the finished handler used to both fire on a crash. The finished handler now skips its reporting when the crash handler already ran.
+
+- **Password fields preserve trailing whitespace** — pasted hex tokens and secrets with trailing spaces used to be silently stripped. No longer.
 
 #### Full suite results
 
@@ -839,46 +801,54 @@ Five targeted bug fixes identified by audit.
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.5.1] — 2026-04-13
 
-Argv-flag injection guard for cascade capture substitution.
+Argv-flag injection guard for cascade captures.
 
-### Fixed/Security Hardening
+### Security
 
-- **Capture substitution argv-flag guard** — when a captured value resolves to a flag-like string (matches `^--?[A-Za-z]`) as the entire content of a form field, the output panel emits a warning and the chain halts under stop-on-error before the next step runs. Bare `-`, bare `--`, and negative numbers are exempt; captured values embedded in larger strings (e.g. `prefix-{name}-suffix`) are also exempt. One warning per capture name per slot; the dedup set resets between slots. The guard lives in the `CascadeSidebar._substitute_captures` wrapper — the pure `substitute_captures` function is unchanged. Defense-in-depth addition for the cascade capture system introduced in v2.8.5: Scaffold's QProcess list-based argv model already prevents shell injection, and this guard adds a visible signal for argv-flag confusion where a captured value could change downstream argument parsing.
+- **Cascade captures now warn when a captured value looks like a command-line flag** — if a captured value is something like `--output`, `-r`, or similar and it replaces a whole form field, the output panel emits a warning and the cascade halts under stop-on-error before running the next step. Bare `-`, bare `--`, negative numbers, and captured values embedded in larger strings (like `prefix-{name}-suffix`) are exempt. Defense-in-depth — Scaffold's argv-list execution already prevents shell injection, but this catches cases where a captured value could change how downstream arguments are parsed.
 
 ### Added
 
-- **Variable option tooltips** — options in the Edit Variables dialog now show hover-over descriptions.
+- **Cascade variable options show tooltips on hover** — descriptions now surface in the Edit Variables dialog.
+
 
 ## [v2.8.5] — 2026-04-13
 
-Cascade capture system, new capture definition dialog, and an updated example cascade.
+Cascade captures — extract values from one step's output and feed them into later steps.
 
 ### Added
 
-- **Cascade captures** — cascade slots can now declare named captures that extract values from a step's output and inject them into later steps via `{name}` substitution. Capture sources include regex on stdout/stderr, literal file paths, exit codes, and full stream contents. Captures are forward-only and share the cascade variable namespace; collisions silently override the earlier value. Unresolved captures emit warnings and trigger a halt when stop-on-error is enabled.
-- **Capture definition dialog** — new "Captures..." button on each slot row opens `CascadeCaptureDefinitionDialog`, a per-step editor for defining captures. Column headers include tooltips explaining each capture source type.
-- **Example cascade: `cascades/nmap_followup_chain.json`** — uses nmap host discovery to capture an open port number, then feeds it into a targeted service scan via capture substitution.
+- **Cascade captures** — cascade slots can now define named captures that pull values from a step's output and inject them into later steps as `{name}` substitutions. Capture sources include regex matches on stdout/stderr, file contents by path, exit codes, and full stream tails. Captures are forward-only and share the cascade variable namespace; collisions silently take the later value. Unresolved captures emit a warning and halt the chain under stop-on-error.
+
+- **Capture definition dialog** — new "Captures..." button on each cascade slot opens a per-step editor for defining what to extract. Source-type tooltips explain each option.
+
+- **Example cascade: `cascades/nmap_followup_chain.json`** — nmap host discovery captures an open port, then feeds it into a targeted service scan.
+
 
 ## [v2.8.4] — 2026-04-11
 
-History dialog filter bar, SHA-256 schema hashing, cascade crash recovery guard, and added new test sections.
+History dialog filter bar, stronger schema hashing, cascade crash recovery guard.
 
 ### Added
 
-- **History dialog filter bar** — `HistoryDialog` now includes a search bar (`_on_filter`) with case-insensitive substring filtering across command entries. Escape clears the filter text without closing the dialog (`eventFilter`).
-- **New test coverage (sections 105–114):** malicious cascade variable values (105), `apply_to: "none"` scope persistence and injection suppression (106), cascade process-failed-to-start cleanup (107), `_cleanup_stale_recovery_files` expiry and corrupt-JSON handling (108), binary validation relative-path rejection (109), empty subcommand name rejection (110), single-slot cascade execution (111), cascade crash recovery with monkey-patch restoration (112), `schema_hash` SHA-256 verification (113), history dialog search bar filtering and Escape behavior (114).
+- **History dialog search bar** — filter commands with case-insensitive substring matching. Escape clears the filter without closing the dialog.
+
+- **New test coverage (10 sections, `§105`–`§114`)** — malicious cascade variable values, `apply_to: "none"` scope, cascade process-failed-to-start cleanup, recovery-file expiry and corrupt-JSON handling, binary validation relative-path rejection, empty subcommand name rejection, single-slot cascade execution, cascade crash recovery, schema-hash verification, history filter bar.
 
 ### Changed
 
-- **`schema_hash` uses SHA-256** — `schema_hash()` switched from `hashlib.md5` to `hashlib.sha256` for preset version hashing.
+- **Schema fingerprint now uses SHA-256** — replaces MD5 for preset version hashing.
 
 ### Fixed
 
-- **Cascade monkey-patch crash recovery** — `_chain_execute_current` now wraps the `_on_finished` monkey-patch and `_on_run_stop()` call in try/except, restoring the original handler and calling `_chain_cleanup` on failure instead of leaving the app in an unrecoverable state.
-- **Section 3c stop-process test stabilized on Windows** — changed ping count from 0 (invalid on Windows) to 5, preventing a race where the process exited before the stop button was pressed.
-- **Section 26i drag-handle test stabilized** — added `processEvents` + `adjustSize` calls and a positive-height guard before `_effective_max_height` measurement, eliminating an intermittent layout-timing flake.
+- **Cascade no longer ends up unrecoverable after a crash in the step handler** — an exception in the cascade's process-finished handler used to leave the app in a state where the cascade couldn't be stopped or restarted. Now wrapped in try/except with proper cleanup.
+
+- **Stabilized §3c stop-process test on Windows** — was flaking due to a race where the process exited before the stop button was pressed. Test now uses a ping count that ensures the process is still running.
+
+- **Stabilized §26i drag-handle test** — was flaking on layout timing. Added synchronization before measurement.
 
 #### Full suite results
 
@@ -890,20 +860,24 @@ History dialog filter bar, SHA-256 schema hashing, cascade crash recovery guard,
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.3] — 2026-04-09
 
-Elevation helper tests, cascade example files, variable injection documentation, and a delete-confirmation UX tweak.
+Elevation helper test coverage, cascade examples, rsync tool schema, UX tweak.
 
 ### Added
 
-- **Elevation helper test coverage** — new test section verifying tool detection, caching, platform-dependent error messages, command wrapping, and label text for the elevation system.
-- **Cascade example files** — two educational cascades bundled in `cascades/`: a basic two-step nmap chain and a ping-then-nmap workflow demonstrating cascade variables with per-step flag injection.
-- **rsync tool schema and presets** — 129-argument schema with 6 bundled presets (local backup, remote SSH push, dry-run mirror, incremental snapshot, move files, selective copy with excludes). Most features should work but the schema is still mostly untested.
+- **Elevation helper test coverage** — new section pinning tool detection, caching, platform-dependent error messages, command wrapping, and label text for the elevation system.
+
+- **Two example cascades** — `cascades/nmap_basic_chain.json` (basic two-step nmap) and `cascades/ping_then_nmap.json` (ping discovery followed by nmap with per-step flag injection via cascade variables).
+
+- **rsync tool schema and 6 bundled presets** — 129-argument schema covering local backup, remote SSH push, dry-run mirror, incremental snapshot, move files, and selective copy with excludes. Mostly untested in the wild — bug reports welcome.
 
 ### Changed
 
-- **Delete tool confirmation defaults to No** — the confirmation dialog when deleting a tool schema without presets now defaults to No and uses a shorter, clearer message.
-- **Variable injection documented** — added an inline comment block explaining that cascade variables match by flag name and inject into only the first matching field.
+- **Delete Tool confirmation now defaults to No** — also uses a shorter, clearer message.
+
+- **Cascade variable injection now documented in-code** — comment block explains that cascade variables match by flag name and inject into only the first matching field.
 
 #### Full suite results
 
@@ -915,17 +889,22 @@ Elevation helper tests, cascade example files, variable injection documentation,
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.2] — 2026-04-08
 
-Bug fixes for cascade import overflow, BOM-prefixed JSON files, chain cleanup run-button state, and timer leak in error handler.
+Cascade import truncation, BOM-prefixed JSON handling, chain cleanup, timer leak, ghost widgets.
 
 ### Fixed
 
-- **Cascade import clamps to max slots** — `_import_cascade_data` now truncates oversized step lists to `CASCADE_MAX_SLOTS` (20) and shows a status bar message when truncated, matching the `_on_add_slot` UX pattern.
-- **BOM-prefixed preset and cascade files load correctly** — added `_read_json_file` helper that strips UTF-8 BOM before parsing; applied at 12 user-facing JSON file-load call sites. Windows tools (Notepad, PowerShell) that write BOM-prefixed UTF-8 no longer cause `JSONDecodeError`.
-- **Run button re-evaluated after cascade cleanup** — `_chain_cleanup` now calls `_update_preview()` (guarded) at the end, so the Run button is correctly disabled when the last cascade step left required fields unfilled.
-- **Timer leak in `_on_error` fixed** — `_flush_timer` and `_timeout_timer` are now stopped in `_on_error`, matching the cleanup in `_on_finished`. Previously, both timers could remain active after a `FailedToStart` error.
-- **Ghost widget prevention on tool switch and slot removal** — widget teardown in `_build_form_view` and `_on_remove_slot` now calls `hide()` → `setParent(None)` → `deleteLater()` instead of bare `deleteLater()`, preventing briefly-visible stale widgets on Linux where `deleteLater` timing differs.
+- **Cascade imports clamp to the max slot count** — importing a cascade with more than 20 steps used to crash or behave unpredictably. Now truncates to 20 and shows a status message saying so.
+
+- **BOM-prefixed JSON files now load correctly** — Windows tools like Notepad and PowerShell can write UTF-8 files with a byte-order mark prefix, which used to cause a JSON parse error. Twelve user-facing file loads now strip the BOM before parsing.
+
+- **Run button re-evaluates after a cascade finishes** — the button used to stay disabled if the last cascade step left required fields empty, even after cleanup. Now re-checks button state at the end of cleanup.
+
+- **Timer leak in error handler fixed** — two internal timers used to keep running after a process failed to start. Now stopped on error, matching the normal-exit path.
+
+- **Ghost widgets no longer briefly appear when switching tools on Linux** — widget teardown now explicitly hides and detaches widgets before deletion, avoiding a timing window where stale widgets would flash on screen.
 
 #### Full suite results
 
@@ -937,23 +916,28 @@ Bug fixes for cascade import overflow, BOM-prefixed JSON files, chain cleanup ru
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.1] — 2026-04-08
 
-Cascade variable editor rework, smarter output panel sizing, keyboard shortcuts, and a cascade guide.
+Cascade variable editor rework, smarter output panel sizing, keyboard shortcuts, Cascade Guide.
 
 ### Added
 
-- **Enter / Shift+Enter shortcuts** — press Enter to run the current command or Shift+Enter to start the cascade chain, both suppressed when focus is in a text input.
-- **Cascade Guide** — new Help menu entry with a plain-language walkthrough of cascade features (slots, variables, loop mode, pause/resume, stop-on-error).
-- **"None" scope for cascade variables** — variables can now be scoped to "none", disabling injection entirely while keeping the variable defined for later use.
+- **Enter / Shift+Enter run shortcuts** — Enter runs the current command, Shift+Enter starts the cascade. Both suppressed when focus is in a text input, so typing is never hijacked.
+
+- **Cascade Guide** — new Help menu entry with a plain-language walkthrough of cascade features: slots, variables, loop mode, pause/resume, stop-on-error.
+
+- **"None" scope for cascade variables** — disables injection while keeping the variable defined for later use.
 
 ### Fixed
 
-- **Cascade import rejects invalid apply_to values** — non-string, non-list values now fall back to "all" instead of crashing or being silently accepted.
-- **Cascade variable "Apply To" selector** — replaced the free-text combo box with a checkbox dropdown listing all cascade slots, preventing typos and invalid slot references.
-- **Variable editor column layout** — columns are now resizable with the Flag column bounded between 80–280 px; the Apply To column stretches to fill remaining space.
-- **Output panel drag limit** — the drag handle now calculates available height from actual sibling widget sizes instead of a fixed half-window cap, preventing the output panel from overlapping the form.
+- **Cascade imports reject invalid apply-to scope values** — non-string, non-list values used to crash or be silently accepted. Now fall back to "all" with a warning.
 
+- **Cascade variable "Apply To" selector is now a checkbox dropdown** — replaces the old free-text combo box. Prevents typos and invalid slot references.
+
+- **Cascade variable editor columns are resizable** — with a flag column bounded between 80–280 px and the apply-to column stretching to fill remaining space.
+
+- **Output panel drag limit no longer overlaps the form** — the drag handle used to use a fixed half-window cap that didn't account for actual sibling widget sizes. Now computes available height from actual geometry.
 
 #### Full suite results
 
@@ -965,56 +949,84 @@ Cascade variable editor rework, smarter output panel sizing, keyboard shortcuts,
   - Examples: 52/52
   - Preset validation: 23/23
 
+
 ## [v2.8.0] — 2026-04-07
 
-Cascade chaining, LLM-powered preset generation, license change, and a broad hardening pass across validation, security, output handling, and UI consistency.
+Major release. **Cascade chaining** — sequence multiple tool runs into automated workflows with shared state between steps. **LLM-powered preset generation** via a new CLI flag. Also ships a license change and a broad hardening pass across validation, security, and the UI.
 
 ### Added
 
-- **Cascade panel** — a new right-side dock panel (`Ctrl+G`) for chaining multiple tool runs into sequential workflows. Each cascade holds up to 20 numbered slots, each assignable to a tool and optional preset. Per-step delays (0–3600 s), loop mode (repeat the full chain indefinitely), and stop-on-error mode (halt on non-zero exit). Cascades use the same QProcess execution pipeline as regular runs — no shortcuts, same security model (`CascadeSidebar`).
-- **Cascade file management** — save, load, import, export, and delete named cascade files. Cascade state (slots, loop mode, stop-on-error, variables, name) persists across sessions via QSettings (`_on_save_cascade_file`, `CascadeListDialog`, `_on_import_cascade`, `_on_export_cascade`).
-- **Cascade variables** — define named variables with a type hint (`string`, `file`, `directory`, `integer`, `float`) and an apply-to scope (all steps or specific slot indices). Before each chain run, a dialog prompts for values; those values are injected into form fields across steps at run time (`CascadeVariableDialog`, `CascadeVariableDefinitionDialog`).
-- **Example cascade files** — `cascades/nmap_recon_chain.json` (ping sweep → full port scan → stealth recon), `cascades/curl_api_chain.json` (health check → GET → POST), `cascades/aircrack_capture_chain.json` (interface scan → capture → key analysis).
-- **LLM-powered preset generation** — new `--preset-prompt` CLI flag prints the contents of `PRESET_PROMPT.txt` to stdout. Workflow: paste the prompt alongside a tool schema into an LLM, describe the preset you want, paste the returned JSON into `presets/<tool>/` (`print_preset_prompt`).
-- **Password masking in command preview and output** — password-type field values are replaced with `********` in the command preview widget, the run line printed to the output panel, and in history entries (`_mask_passwords_for_display`).
-- **Preset save overwrite warning** — saving a preset whose filename already exists now asks for confirmation and pre-fills the description field from the existing preset (`_on_save_preset`).
-- **Preset picker filter bar** — a live text filter at the top of the preset picker dialog with Enter/Shift+Enter cycling through matches (`PresetPicker`).
-- **Tool picker keyboard navigation** — Enter in the tool picker filter bar now selects the next matching row; Shift+Enter goes to the previous (`ToolPicker`).
-- **Field search matches descriptions** — `Ctrl+F` field search now matches against the argument's `description` text in addition to name and flag (`ToolForm._on_search`).
-- **50 MB output buffer cap** — when buffered output exceeds 50 MB, oldest entries are dropped and a truncation notice is prepended to the buffer (`_append_to_buffer`, `OUTPUT_BUFFER_MAX_BYTES`).
-- **Extra flags validation** — unmatched quotes in the Extra Flags box now disable the Run button and show an error status, instead of silently falling back to `text.split()` (`extra_flags_valid`, `_update_preview`).
-- **Docker tool schemas** — `tools/docker_test/docker.json`, `tools/docker_test/docker-buildx.json`, `tools/docker_test/docker-compose.json`.
-- **Cascade file drag rejection** — dragging a `.json` file with `_format: scaffold_cascade` onto the app now shows a clear dialog instead of silently failing (`_load_tool_path_from_data`).
+- **Cascade chaining** — a new right-side dock panel (Ctrl+G) for chaining tool runs into sequential workflows. Each cascade holds up to 20 numbered slots, each assignable to a tool and optional preset. Per-step delays up to an hour, loop mode (repeat the full chain), and stop-on-error mode. Cascades use the same execution pipeline as individual runs — same security model, no shortcuts, no shell involvement.
+
+- **Cascade file management** — save, load, import, export, and delete named cascades. Cascade state persists across sessions.
+
+- **Cascade variables** — define named variables with a type hint (string, file, directory, integer, float) and an apply-to scope (all steps, specific slots, or none). Before each cascade run, a dialog prompts for values and injects them into form fields across steps.
+
+- **Three example cascades** — nmap reconnaissance chain (ping sweep → full port scan → stealth recon), curl API chain (health check → GET → POST), aircrack-ng capture chain (interface scan → capture → key analysis).
+
+- **LLM-powered preset generation** — new `--preset-prompt` CLI flag prints a prompt template to stdout. Paste it alongside a tool schema into an LLM, describe the preset you want, drop the returned JSON into `presets/<tool>/`.
+
+- **Password masking in command preview, output panel, and history** — password field values are displayed as `********` everywhere plaintext would otherwise appear.
+
+- **Preset overwrite confirmation** — saving a preset whose filename already exists now prompts and pre-fills the description from the existing preset.
+
+- **Preset picker filter bar** — live text filter with Enter / Shift+Enter to cycle through matches.
+
+- **Tool picker keyboard navigation** — Enter in the filter selects the next matching tool, Shift+Enter goes to the previous.
+
+- **Field search matches descriptions** — Ctrl+F now searches argument descriptions in addition to names and flags.
+
+- **Output buffer cap (50 MB)** — when buffered output exceeds the cap, oldest entries are dropped and a truncation notice is added.
+
+- **Extra flags unmatched-quote detection** — the Extra Flags box now highlights and blocks running if quotes are unbalanced, instead of silently falling back to naive whitespace splitting.
+
+- **Docker tool schemas** — bundled schemas for `docker`, `docker-buildx`, `docker-compose`.
+
+- **Cascade files dropped as tools show a clear rejection** — dragging a cascade JSON onto the app used to fail silently. Now shows a dialog pointing to the correct menu.
 
 ### Changed
 
 - **License changed from MIT to PolyForm Noncommercial 1.0.0** — free for personal and noncommercial use; commercial use requires a separate license.
-- **Ping schema elevation** — `tools/ping.json` now declares `elevated: "optional"` instead of `null`.
-- **Tooltip HTML escaping** — all user-supplied strings (flag, short_flag, description, validation, arg name, binary name, preset description) are now passed through `html.escape()` before injection into tooltip HTML, preventing rendering glitches from `<`, `>`, `&` in field content (`_build_tooltip`, `_add_form_row`).
-- **Light-theme tooltip colors forced** — switching to light mode now explicitly sets tooltip background/foreground colors, preventing unreadable tooltips on Linux mixed-theme desktops (`apply_theme`).
-- **Command preview: negative numbers** — tokens like `-1` or `-3.5` are now colored as values rather than flags in the preview (`_colored_preview_html`).
-- **PowerShell and CMD copy formatting hardened** — both formatters now use a safe-character whitelist and strip literal newlines before quoting. PS escaping uses `''` (correct PS syntax); CMD escaping uses `""` (`_format_powershell`, `_format_cmd`).
-- **Label decorations update on theme change** — `dangerous` (red warning prefix) and `deprecated` (strikethrough + amber suffix) labels now rebuild correctly when toggling themes (`ToolForm.update_theme`).
-- **Process teardown centralized** — a dedicated `_teardown_process` method disconnects all signals before killing the process, preventing orphaned QProcess callbacks into destroyed UI state (`_teardown_process`).
-- **Force kill uses `os.kill` instead of `os.killpg`** — avoids `ProcessLookupError` on macOS/Linux when the process group has already exited (`_on_force_kill`).
-- **Arrow icon temp directory cleaned up on exit** — `atexit.register` deletes the temp `scaffold_arrows_*` directory when the process exits (`_cleanup_arrow_dir`).
-- **Dependency changes emit `command_changed`** — toggling a parent field now updates the command preview for dependent child fields (`_on_dependency_changed`).
+
+- **Tooltips escape user-supplied text** — flag names, descriptions, validation patterns, and other schema content are now HTML-escaped before being injected into tooltips, preventing rendering glitches from `<`, `>`, `&`.
+
+- **Light-theme tooltips stay readable on mixed-theme Linux desktops** — tooltip colors are now set explicitly on theme switch.
+
+- **Command preview colors negative numbers correctly** — tokens like `-1` or `-3.5` are now rendered as values, not flags.
+
+- **PowerShell and CMD copy formats hardened** — both formatters now use a safe-character whitelist and strip literal newlines before quoting, using the shell-specific escape conventions (PowerShell `''`, CMD `""`).
+
+- **Label decorations update on theme change** — dangerous (red warning prefix) and deprecated (strikethrough + amber suffix) labels now rebuild correctly when switching themes.
+
+- **Arrow icon temp directory cleaned up on exit** — the temp folder Scaffold creates for UI icons is now deleted when the process exits.
+
+- **Parent-field changes refresh the command preview for dependent children** — previously the preview lagged behind.
 
 ### Fixed
 
-- **Duplicate flag values within a scope not detected** — `--validate` now catches two arguments sharing the same `--flag` or `-x` short flag value (`_check_duplicate_flag_values`).
-- **Non-string `flag` field crashes validator** — if `flag` is an integer or other non-string type in JSON, a clear error is now reported instead of a crash (`_validate_args`).
-- **Flag leading/trailing whitespace bypasses duplicate detection** — flags with whitespace are now rejected by the validator; `normalize_tool` strips them silently (`_validate_args`, `normalize_tool`).
-- **Subcommand names with control characters or shell metacharacters accepted** — subcommand names containing `\n`, `\r`, `\t`, or shell metacharacters now fail validation (`validate_tool`).
-- **`schema_hash` crashes on non-string flags or non-dict subcommands** — added `isinstance` guards (`schema_hash`).
-- **`validate_tool` crashes on non-dict input** — now returns a clear error if passed a JSON array or other non-dict type (`validate_tool`).
-- **Non-numeric preset values crash integer/float fields** — `_set_field_value` now wraps `int()`/`float()` in try/except, silently skipping invalid values instead of crashing (`_set_field_value`).
-- **Extra flags tooltip truncated on some platforms** — wrapped tooltip text in `<p>` tags for consistent rendering (`extra_flags_edit`).
-- **Clearing output did not flush pending buffer** — `_clear_output` now also clears `_output_buffer`, preventing buffered text from reappearing on the next flush cycle (`_clear_output`).
-- **Stdout/stderr handlers crash when process is None** — both handlers now guard against `self.process is None` during cascade step transitions (`_on_stdout_ready`, `_on_stderr_ready`).
-- **Recovery dialog shown during cascade chain loading** — suppressed when a cascade chain is loading the next step (`_check_for_recovery`).
-- **Spinbox button misalignment in dark mode** — up/down buttons now use explicit `subcontrol-origin: border` with correct positions (`apply_theme`).
-- **Warning bar missing rounded corners** — added `border-radius: 4px` to the warning bar in both themes (`_set_warning_bar_style`).
+- **Duplicate flags within a scope are now caught at validation time** — two arguments sharing the same flag or short flag used to pass validation silently.
+
+- **Non-string flag values no longer crash the validator** — a flag defined as an integer (from hand-edited or generated JSON) used to crash. Now reports a clear error.
+
+- **Flag whitespace no longer bypasses duplicate detection** — leading or trailing whitespace in flag values used to let duplicates slip through. Now caught; whitespace is stripped during normalization.
+
+- **Subcommand names with control characters or shell metacharacters now fail validation** — newlines, tabs, and shell characters are rejected.
+
+- **Validator no longer crashes on non-standard input shapes** — `schema_hash` and the validator both now handle non-string flags, non-dict subcommands, and non-dict top-level input gracefully.
+
+- **Non-numeric preset values no longer crash integer and float fields** — invalid values are silently skipped, leaving the field at its default.
+
+- **Extra flags tooltip no longer truncates on some platforms** — wrapped in paragraph tags for consistent rendering.
+
+- **Clear Output now also flushes the pending buffer** — buffered text used to reappear on the next flush cycle after clearing.
+
+- **Stdout/stderr handlers no longer crash during cascade transitions** — both now guard against the process being None, which can happen briefly between cascade steps.
+
+- **Recovery dialog suppressed during cascade chain loading** — used to interrupt cascade runs with an unwanted prompt.
+
+- **Spinbox button alignment fixed in dark mode** — up/down buttons used to render slightly offset.
+
+- **Warning bar rounded corners restored** — both themes.
 
 #### Full suite results
 
