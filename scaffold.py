@@ -26,6 +26,7 @@ import datetime
 import hashlib
 import html
 import json
+import math
 import multiprocessing
 import os
 import re
@@ -2241,7 +2242,23 @@ class ToolForm(QWidget):
                     numeric = int(value)
                 except (ValueError, TypeError):
                     return
+                schema_min = arg.get("min")
+                schema_max = arg.get("max")
+                out_of_range = (
+                    (schema_min is not None and numeric < schema_min)
+                    or (schema_max is not None and numeric > schema_max)
+                )
                 w.setValue(numeric)
+                if out_of_range:
+                    clamped = w.value()
+                    lo = schema_min if schema_min is not None else "*"
+                    hi = schema_max if schema_max is not None else "*"
+                    print(
+                        f"[preset] value out of range for {arg['flag']}: "
+                        f"preset={numeric} clamped to {clamped} "
+                        f"(schema range: {lo}..{hi})",
+                        file=sys.stderr,
+                    )
             elif arg["default"] is not None:
                 w.setValue(int(arg["default"]))
             else:
@@ -2253,7 +2270,32 @@ class ToolForm(QWidget):
                     numeric = float(value)
                 except (ValueError, TypeError):
                     return
-                w.setValue(numeric)
+                if math.isnan(numeric) or math.isinf(numeric):
+                    w.setValue(numeric)
+                    clamped = w.value()
+                    print(
+                        f"[preset] non-finite value for {arg['flag']}: "
+                        f"preset={numeric} coerced to {clamped}",
+                        file=sys.stderr,
+                    )
+                else:
+                    schema_min = arg.get("min")
+                    schema_max = arg.get("max")
+                    out_of_range = (
+                        (schema_min is not None and numeric < schema_min)
+                        or (schema_max is not None and numeric > schema_max)
+                    )
+                    w.setValue(numeric)
+                    if out_of_range:
+                        clamped = w.value()
+                        lo = schema_min if schema_min is not None else "*"
+                        hi = schema_max if schema_max is not None else "*"
+                        print(
+                            f"[preset] value out of range for {arg['flag']}: "
+                            f"preset={numeric} clamped to {clamped} "
+                            f"(schema range: {lo}..{hi})",
+                            file=sys.stderr,
+                        )
             elif arg["default"] is not None:
                 w.setValue(float(arg["default"]))
             else:
