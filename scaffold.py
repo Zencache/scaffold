@@ -745,7 +745,7 @@ def _check_already_elevated():
         try:
             import ctypes
             _already_elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
-        except Exception:
+        except (AttributeError, RuntimeError):
             _already_elevated = False
     else:
         import os
@@ -929,7 +929,7 @@ def _detect_system_dark() -> bool:
     try:
         lightness = QApplication.palette().color(QPalette.ColorRole.Window).lightness()
         return lightness < 128
-    except Exception:
+    except (AttributeError, RuntimeError, TypeError):
         pass
     return False
 
@@ -1612,6 +1612,7 @@ class ToolForm(QWidget):
         """Instantiate and return the appropriate widget for the given arg's type."""
         try:
             return self._build_widget_inner(arg, key)
+        # broadly defensive — widget construction can raise AttributeError/RuntimeError/TypeError/ValueError/re.error/IndexError/KeyError; fallback widget preserves the form even for unanticipated schema shapes.
         except Exception as exc:
             import traceback
             print(f"Warning: failed to render widget for \"{arg.get('name', '?')}\" "
@@ -5787,7 +5788,7 @@ def _get_regex_pool():
                     saved_file = main_mod.__file__
                     try:
                         main_mod.__file__ = None
-                    except Exception:
+                    except (AttributeError, RuntimeError):
                         had_file = False
             try:
                 try:
@@ -5802,7 +5803,7 @@ def _get_regex_pool():
                 if had_file and main_mod is not None:
                     try:
                         main_mod.__file__ = saved_file
-                    except Exception:
+                    except (AttributeError, RuntimeError):
                         pass
         return _regex_pool
 
@@ -5815,9 +5816,10 @@ def _reset_regex_pool():
             try:
                 _regex_pool.terminate()
                 _regex_pool.join()
-            except Exception:
+            except (AttributeError, OSError, RuntimeError):
                 pass
-            _regex_pool = None
+            finally:
+                _regex_pool = None
 
 
 def _bounded_regex_search(pattern: str, stream: str, group: int,
@@ -5855,6 +5857,7 @@ def _bounded_regex_search(pattern: str, stream: str, group: int,
             f"timeout: regex exceeded {timeout:.1f}s",
             "timeout",
         )
+    # broadly defensive — pool.get() re-raises arbitrary worker exceptions; narrowing would turn unexpected worker errors into uncaught escapes.
     except Exception as exc:
         _reset_regex_pool()
         return (False, f"worker error: {exc}", "worker_error")
@@ -6960,6 +6963,7 @@ class CascadeSidebar(QDockWidget):
                         try:
                             pdata = _read_json_file(preset_path)
                             desc = pdata.get("_description", None)
+                        # broadly defensive — filesystem probe during label refresh; any OS/attribute/lookup error falls back to a default label rather than breaking the UI.
                         except Exception:
                             pass
                         slot["_cached_description"] = desc
@@ -7486,13 +7490,14 @@ class CascadeSidebar(QDockWidget):
                 and Path(current_path).resolve() == Path(tool_path).resolve()
             ):
                 snapshot = self._main_window.form.serialize_values()
+        # broadly defensive — cascade advance touches schema/preset/Qt state; narrowing would risk aborting a cascade on an unanticipated error class.
         except Exception:
             snapshot = None
 
         # Load tool
         try:
             self._main_window._load_tool_path(tool_path)
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             self._cascade_finish_status = "error_halted"
             self._chain_cleanup(f"Cascade failed loading tool: {e}")
             return
@@ -7639,6 +7644,7 @@ class CascadeSidebar(QDockWidget):
                     if pk in snapshot:
                         try:
                             form._set_field_value(key, snapshot[pk])
+                        # intentional fallback — see comment block at the top of this overlay loop; per-key overlay failure continues with the preset value rather than halting the chain.
                         except Exception:
                             pass
                 # _extra_flags is not a field key; handle separately.
@@ -7647,6 +7653,7 @@ class CascadeSidebar(QDockWidget):
                     form.extra_flags_edit.setPlainText(snapshot["_extra_flags"])
                     if hasattr(form, "extra_flags_group"):
                         form.extra_flags_group.setChecked(True)
+            # intentional fallback — extra_flags overlay failure continues with preset's extra_flags rather than halting the chain.
             except Exception:
                 pass
 
@@ -7806,12 +7813,13 @@ class CascadeSidebar(QDockWidget):
                                 f"Cascade: waiting {delay_secs}s before step {next_step}..."
                             )
                         QTimer.singleShot(delay_ms, self._chain_advance)
+                # broadly defensive — wraps the full Qt on-finished callback body (~90 lines across multiple helpers); narrowing would risk leaving the cascade in a non-idle state on an unanticipated error.
                 except Exception as _wrap_exc:
                     # Restore original handler so main window is usable
                     if self._stored_original_on_finished is not None:
                         try:
                             self._main_window._on_finished = self._stored_original_on_finished
-                        except Exception:
+                        except (AttributeError, RuntimeError):
                             pass
                     print(
                         f"[scaffold] cascade step handler crashed: {_wrap_exc}",
@@ -7822,12 +7830,13 @@ class CascadeSidebar(QDockWidget):
                         self._chain_cleanup(
                             f"Cascade crashed in step handler: {_wrap_exc}"
                         )
+                    # broadly defensive — chain-finished handler touches multiple subsystem states; narrowing would risk stranding the chain on an unexpected error.
                     except Exception:
                         # Last-resort: unfreeze run button so UI stays usable
                         try:
                             self._main_window.run_btn.setEnabled(True)
                             self.run_chain_btn.setEnabled(True)
-                        except Exception:
+                        except (AttributeError, RuntimeError):
                             pass
 
             self._main_window._on_finished = _chain_on_finished
@@ -7853,10 +7862,11 @@ class CascadeSidebar(QDockWidget):
                     ))
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
+        # broadly defensive — wraps the entire cascade-step setup/launch path (closure definition, handler install, process start, failed-start cleanup); narrowing would risk stranding the chain on an unexpected error class.
         except Exception as e:
             try:
                 self._main_window._on_finished = original_on_finished
-            except Exception:
+            except (AttributeError, RuntimeError):
                 pass
             self._cascade_finish_status = "error_halted"
             self._chain_cleanup(f"Cascade crashed: {e}")
@@ -7925,6 +7935,7 @@ class CascadeSidebar(QDockWidget):
                 self._cascade_steps.append(self._build_chain_step_record(
                     self._chain_current, _sslot, None, "stopped",
                 ))
+        # broadly defensive — stop handler must not itself throw; any error during teardown is logged elsewhere or swallowed to guarantee the chain reaches an idle state.
         except Exception:
             pass  # Never crash the stop path
         if was_running == CHAIN_RUNNING:
@@ -8072,6 +8083,7 @@ class MainWindow(QMainWindow):
         self._cleanup_stale_recovery_files()
         try:
             self._recover_crashed_cascade_runs()
+        # broadly defensive — crashed-run recovery probe at startup; any error falls through to a normal boot rather than blocking app start.
         except Exception as exc:
             print(f"Cascade crash recovery failed: {exc}", file=sys.stderr)
 
