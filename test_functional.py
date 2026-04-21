@@ -24794,6 +24794,101 @@ check(_s188_print_count <= 1,
 
 
 # =====================================================================
+# Section 189 — v2.10.5 narrowing regression guards
+# =====================================================================
+print("\n=== SECTION 189: v2.10.5 narrowing regression guards ===")
+
+# 189a: _reset_regex_pool clears the global regardless of what the
+# terminate/join calls raise — finally block guarantees the reset.
+# Use a mock pool object whose terminate() raises a plausible type.
+class _S189MockPool:
+    def __init__(self, raise_from_terminate):
+        self._raise = raise_from_terminate
+        self.terminate_called = False
+        self.join_called = False
+    def terminate(self):
+        self.terminate_called = True
+        if self._raise:
+            raise self._raise
+    def join(self):
+        self.join_called = True
+
+import scaffold as _s189_sc
+_s189_original_pool = _s189_sc._regex_pool
+try:
+    for _s189_exc in (None, OSError("mock"), AttributeError("mock"),
+                      RuntimeError("mock")):
+        _s189_sc._regex_pool = _S189MockPool(_s189_exc)
+        _s189_sc._reset_regex_pool()
+        check(_s189_sc._regex_pool is None,
+              f"189a: _regex_pool reset to None even when terminate raises "
+              f"{type(_s189_exc).__name__ if _s189_exc else 'nothing'}")
+finally:
+    _s189_sc._regex_pool = _s189_original_pool
+
+# 189b: the 8 NARROW_WITH_RUNTIME sites still present in scaffold.py as
+# narrowed catches (not as `except Exception:`). Grep the source.
+_s189_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+
+# For each narrowed site, verify the narrowed form is present at or near
+# the expected line. Be generous with the line window (±5) to tolerate
+# minor drift, and match on the expected tuple.
+_s189_expected_narrows = {
+    "_check_already_elevated": "except (AttributeError, RuntimeError):",
+    "_detect_system_dark":     "except (AttributeError, RuntimeError, TypeError):",
+}
+# Note: the two _get_regex_pool sites and the four other NARROW_WITH_RUNTIME
+# sites all use the same `except (AttributeError, RuntimeError):` shape;
+# grep for the total count of that exact string instead of per-function.
+_s189_common_narrow = "except (AttributeError, RuntimeError):"
+_s189_common_count = _s189_src.count(_s189_common_narrow)
+check(_s189_common_count >= 6,
+      f"189b: at least 6 narrowed `{_s189_common_narrow}` catches present "
+      f"(got {_s189_common_count})")
+
+for _s189_func, _s189_pat in _s189_expected_narrows.items():
+    # Find the function def, then scan forward for the narrowed except.
+    _s189_def_idx = _s189_src.find(f"def {_s189_func}(")
+    check(_s189_def_idx >= 0,
+          f"189b: function {_s189_func} exists")
+    _s189_window = _s189_src[_s189_def_idx:_s189_def_idx + 4000]
+    check(_s189_pat in _s189_window,
+          f"189b: {_s189_func} contains narrowed `{_s189_pat}`")
+
+# 189c: broad-except count across scaffold.py is at or below a ceiling.
+# Before v2.10.5 there were 20 broad catches; after v2.10.5 at most 11
+# should remain (9 Group C + up to 2 Group D). Parse via AST to be robust.
+import ast as _s189_ast
+_s189_tree = _s189_ast.parse(_s189_src)
+_s189_broad = 0
+for _s189_node in _s189_ast.walk(_s189_tree):
+    if isinstance(_s189_node, _s189_ast.ExceptHandler):
+        t = _s189_node.type
+        if t is None:
+            _s189_broad += 1
+        elif isinstance(t, _s189_ast.Name) and t.id == "Exception":
+            _s189_broad += 1
+        elif isinstance(t, _s189_ast.Tuple) and any(
+            isinstance(x, _s189_ast.Name) and x.id == "Exception"
+            for x in t.elts
+        ):
+            _s189_broad += 1
+check(_s189_broad <= 11,
+      f"189c: at most 11 broad-except catches remain "
+      f"(got {_s189_broad}; v2.10.5 narrowed 9-11 from the original 20)")
+check(_s189_broad >= 9,
+      f"189c: at least 9 broad-except catches remain "
+      f"(got {_s189_broad}; Group C sites must stay broad)")
+
+# 189d: the `# broadly defensive — ` comment pattern appears at least 9
+# times (one per Group C site). Count exact prefix occurrences.
+_s189_defensive_count = _s189_src.count("# broadly defensive — ")
+check(_s189_defensive_count >= 9,
+      f"189d: at least 9 `# broadly defensive — ` comments present "
+      f"(got {_s189_defensive_count})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
