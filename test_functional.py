@@ -24311,6 +24311,301 @@ QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # =====================================================================
+print("\n=== SECTION 185: _set_field_value warns on integer/float range clamp (F17) ===")
+# =====================================================================
+# Before F17, passing an out-of-range preset value to _set_field_value
+# silently called w.setValue(numeric); Qt clamped to the widget's min/max
+# and the drift was invisible. F17 compares against arg['min']/arg['max']
+# — the schema bounds, not the widget bounds — and prints a [preset]
+# stderr line when the preset exceeds them. Qt's clamping behavior is
+# unchanged; the fix is pure visibility.
+#
+# T1 — below-range integer → warning, widget clamped to schema_min.
+# T2 — above-range integer → warning, widget clamped to schema_max.
+# T3 — in-range integer → NO warning (regression guard for the 99% case).
+# T4 — below-range float → warning, widget clamped to 0.0.
+# T5 — above-range float → warning, widget clamped to 10.0.
+# T6 — NaN float → non-finite warning (distinct message, not range-warning).
+# T7 — inf float → non-finite warning.
+# T8 — integer with neither min nor max → NO warning at any magnitude
+#      (schema declined to declare bounds).
+# T9 — sentinel widget (min=1, default=None) with preset=0 → warning using
+#      schema bounds (1..100), not widget bounds (0). Validates the key
+#      design decision: comparing against arg['min'] catches preset values
+#      equal to schema_min-1 that silently land in sentinel state.
+
+_s185_tmpdir = Path(tempfile.mkdtemp(prefix="s185_"))
+
+_s185_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s185_main",
+    "binary": sys.executable,
+    "description": "section 185 range-clamp tool",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {
+            "name": "Count", "flag": "--count", "type": "integer",
+            "description": "", "required": False, "default": 50,
+            "choices": None, "group": None, "depends_on": None,
+            "repeatable": False, "separator": "space", "positional": False,
+            "short_flag": None, "validation": None, "examples": None,
+            "display_group": None, "min": 0, "max": 100,
+            "deprecated": None, "dangerous": False,
+        },
+        {
+            "name": "Rate", "flag": "--rate", "type": "float",
+            "description": "", "required": False, "default": 5.0,
+            "choices": None, "group": None, "depends_on": None,
+            "repeatable": False, "separator": "space", "positional": False,
+            "short_flag": None, "validation": None, "examples": None,
+            "display_group": None, "min": 0.0, "max": 10.0,
+            "deprecated": None, "dangerous": False,
+        },
+    ],
+}
+_s185_tool_path = _s185_tmpdir / "s185_tool.json"
+_s185_tool_path.write_text(
+    json.dumps(scaffold.normalize_tool(_s185_tool_data)), encoding="utf-8",
+)
+
+_s185_win = scaffold.MainWindow(tool_path=str(_s185_tool_path))
+_s185_form = _s185_win.form
+app.processEvents()
+
+_s185_int_key = ("__global__", "--count")
+_s185_float_key = ("__global__", "--rate")
+
+
+# ---------------------------------------------------------------
+# T1 — below-range integer → warning, clamped to schema_min (0)
+# ---------------------------------------------------------------
+print("\n--- T1: below-range integer → warning, clamped ---")
+with _patch_stderr() as _s185_t1_buf:
+    _s185_form._set_field_value(_s185_int_key, -5)
+_s185_t1_val = _s185_form.fields[_s185_int_key]["widget"].value()
+_s185_t1_err = _s185_t1_buf.getvalue()
+check(
+    _s185_t1_val == 0
+    and "[preset] value out of range for --count" in _s185_t1_err
+    and "preset=-5" in _s185_t1_err
+    and "clamped to 0" in _s185_t1_err
+    and "schema range: 0..100" in _s185_t1_err,
+    f"T1: below-range int clamps to 0 with warning "
+    f"(widget={_s185_t1_val}, stderr={_s185_t1_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T2 — above-range integer → warning, clamped to schema_max (100)
+# ---------------------------------------------------------------
+print("\n--- T2: above-range integer → warning, clamped ---")
+with _patch_stderr() as _s185_t2_buf:
+    _s185_form._set_field_value(_s185_int_key, 500)
+_s185_t2_val = _s185_form.fields[_s185_int_key]["widget"].value()
+_s185_t2_err = _s185_t2_buf.getvalue()
+check(
+    _s185_t2_val == 100
+    and "[preset] value out of range for --count" in _s185_t2_err
+    and "preset=500" in _s185_t2_err
+    and "clamped to 100" in _s185_t2_err,
+    f"T2: above-range int clamps to 100 with warning "
+    f"(widget={_s185_t2_val}, stderr={_s185_t2_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T3 — in-range integer → NO warning (regression guard for 99% case)
+# ---------------------------------------------------------------
+print("\n--- T3: in-range integer → no warning ---")
+with _patch_stderr() as _s185_t3_buf:
+    _s185_form._set_field_value(_s185_int_key, 42)
+_s185_t3_val = _s185_form.fields[_s185_int_key]["widget"].value()
+_s185_t3_err = _s185_t3_buf.getvalue()
+check(
+    _s185_t3_val == 42
+    and "[preset] value out of range" not in _s185_t3_err,
+    f"T3: in-range int → no warning "
+    f"(widget={_s185_t3_val}, stderr={_s185_t3_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T4 — below-range float → warning, clamped to 0.0
+# ---------------------------------------------------------------
+print("\n--- T4: below-range float → warning, clamped ---")
+with _patch_stderr() as _s185_t4_buf:
+    _s185_form._set_field_value(_s185_float_key, -1.5)
+_s185_t4_val = _s185_form.fields[_s185_float_key]["widget"].value()
+_s185_t4_err = _s185_t4_buf.getvalue()
+check(
+    _s185_t4_val == 0.0
+    and "[preset] value out of range for --rate" in _s185_t4_err
+    and "preset=-1.5" in _s185_t4_err
+    and "clamped to 0.0" in _s185_t4_err,
+    f"T4: below-range float clamps to 0.0 with warning "
+    f"(widget={_s185_t4_val}, stderr={_s185_t4_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T5 — above-range float → warning, clamped to 10.0
+# ---------------------------------------------------------------
+print("\n--- T5: above-range float → warning, clamped ---")
+with _patch_stderr() as _s185_t5_buf:
+    _s185_form._set_field_value(_s185_float_key, 99.99)
+_s185_t5_val = _s185_form.fields[_s185_float_key]["widget"].value()
+_s185_t5_err = _s185_t5_buf.getvalue()
+check(
+    _s185_t5_val == 10.0
+    and "[preset] value out of range for --rate" in _s185_t5_err
+    and "preset=99.99" in _s185_t5_err
+    and "clamped to 10.0" in _s185_t5_err,
+    f"T5: above-range float clamps to 10.0 with warning "
+    f"(widget={_s185_t5_val}, stderr={_s185_t5_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T6 — NaN float → non-finite warning (distinct from range warning)
+# ---------------------------------------------------------------
+print("\n--- T6: NaN float → non-finite warning ---")
+with _patch_stderr() as _s185_t6_buf:
+    _s185_form._set_field_value(_s185_float_key, float("nan"))
+_s185_t6_err = _s185_t6_buf.getvalue()
+check(
+    "[preset] non-finite value for --rate" in _s185_t6_err
+    and "preset=nan" in _s185_t6_err
+    and "coerced to" in _s185_t6_err
+    and "value out of range" not in _s185_t6_err,
+    f"T6: NaN emits non-finite warning, not range warning "
+    f"(stderr={_s185_t6_err!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T7 — inf float → non-finite warning
+# ---------------------------------------------------------------
+print("\n--- T7: inf float → non-finite warning ---")
+with _patch_stderr() as _s185_t7_buf:
+    _s185_form._set_field_value(_s185_float_key, float("inf"))
+_s185_t7_err = _s185_t7_buf.getvalue()
+check(
+    "[preset] non-finite value for --rate" in _s185_t7_err
+    and "preset=inf" in _s185_t7_err
+    and "coerced to" in _s185_t7_err,
+    f"T7: inf emits non-finite warning "
+    f"(stderr={_s185_t7_err!r})",
+)
+
+_s185_win.close()
+_s185_win.deleteLater()
+app.processEvents()
+
+
+# ---------------------------------------------------------------
+# T8 — integer with neither min nor max → no warning at any magnitude
+# ---------------------------------------------------------------
+print("\n--- T8: no schema bounds → no warning at any magnitude ---")
+_s185_nobounds_data = {
+    "_format": "scaffold_schema",
+    "tool": "s185_nobounds",
+    "binary": sys.executable,
+    "description": "section 185 no-bounds tool",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {
+            "name": "N", "flag": "--n", "type": "integer",
+            "description": "", "required": False, "default": 0,
+            "choices": None, "group": None, "depends_on": None,
+            "repeatable": False, "separator": "space", "positional": False,
+            "short_flag": None, "validation": None, "examples": None,
+            "display_group": None, "min": None, "max": None,
+            "deprecated": None, "dangerous": False,
+        },
+    ],
+}
+_s185_nobounds_path = _s185_tmpdir / "s185_nobounds.json"
+_s185_nobounds_path.write_text(
+    json.dumps(scaffold.normalize_tool(_s185_nobounds_data)), encoding="utf-8",
+)
+_s185_nobounds_win = scaffold.MainWindow(tool_path=str(_s185_nobounds_path))
+_s185_nobounds_form = _s185_nobounds_win.form
+app.processEvents()
+
+_s185_nobounds_key = ("__global__", "--n")
+with _patch_stderr() as _s185_t8_buf:
+    _s185_nobounds_form._set_field_value(_s185_nobounds_key, -1_000_000)
+    _s185_nobounds_form._set_field_value(_s185_nobounds_key, 1_000_000)
+_s185_t8_err = _s185_t8_buf.getvalue()
+check(
+    "[preset] value out of range" not in _s185_t8_err,
+    f"T8: no schema bounds → no range warning "
+    f"(stderr={_s185_t8_err!r})",
+)
+
+_s185_nobounds_win.close()
+_s185_nobounds_win.deleteLater()
+app.processEvents()
+
+
+# ---------------------------------------------------------------
+# T9 — sentinel widget (min=1, default=None) with preset=0 → warning
+#      uses schema bounds, not widget bounds
+# ---------------------------------------------------------------
+print("\n--- T9: sentinel widget, preset below schema_min → warning ---")
+_s185_sentinel_data = {
+    "_format": "scaffold_schema",
+    "tool": "s185_sentinel",
+    "binary": sys.executable,
+    "description": "section 185 sentinel tool",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {
+            "name": "X", "flag": "--x", "type": "integer",
+            "description": "", "required": False, "default": None,
+            "choices": None, "group": None, "depends_on": None,
+            "repeatable": False, "separator": "space", "positional": False,
+            "short_flag": None, "validation": None, "examples": None,
+            "display_group": None, "min": 1, "max": 100,
+            "deprecated": None, "dangerous": False,
+        },
+    ],
+}
+_s185_sentinel_path = _s185_tmpdir / "s185_sentinel.json"
+_s185_sentinel_path.write_text(
+    json.dumps(scaffold.normalize_tool(_s185_sentinel_data)), encoding="utf-8",
+)
+_s185_sentinel_win = scaffold.MainWindow(tool_path=str(_s185_sentinel_path))
+_s185_sentinel_form = _s185_sentinel_win.form
+app.processEvents()
+
+_s185_sentinel_key = ("__global__", "--x")
+with _patch_stderr() as _s185_t9_buf:
+    _s185_sentinel_form._set_field_value(_s185_sentinel_key, 0)
+_s185_t9_err = _s185_t9_buf.getvalue()
+check(
+    "[preset] value out of range for --x" in _s185_t9_err
+    and "preset=0" in _s185_t9_err
+    and "schema range: 1..100" in _s185_t9_err,
+    f"T9: sentinel widget, preset=0 below schema_min=1 → warning "
+    f"using schema bounds "
+    f"(stderr={_s185_t9_err!r})",
+)
+
+_s185_sentinel_win.close()
+_s185_sentinel_win.deleteLater()
+app.processEvents()
+
+
+# Cleanup section 185
+shutil.rmtree(_s185_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
