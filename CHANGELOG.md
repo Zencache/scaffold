@@ -5,32 +5,22 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.10.4] — 2026-04-21
 
-Housekeeping release. Cleanups that reduce drift between related code paths and remove dead references. No user-visible behavior change.
+Maintenance fixes. Small drifts between related code paths closed out, a dead constant removed, and test coverage of bundled cascades made self-maintaining. No user-visible behavior change.
 
-### Changed
-
-- **Slot initialization in the cascade dock now flows through a single helper** — four parallel dict literals creating empty slots (in add, load, import, and restore paths) had to be updated in lockstep whenever the slot shape changed. A `_new_slot()` method on `CascadeSidebar` now returns the canonical shape; all four sites call it.
-
-- **Field-key lookups in dependency wiring now use the same helper as the rest of the form code** — `_apply_dependencies` constructed `(scope, flag)` tuples by hand while every other field-key site routed through `self._field_key(...)`. The two hand-built tuples now go through the helper, eliminating a small drift risk.
-
-- **Cascade-example test coverage enumerates the `cascades/` folder automatically** — §175's "bundled cascades still present" guard iterated over a hardcoded list of four filenames, so new example files were silently excluded from coverage. The test now globs `cascades/*.json` and asserts each file survives the suite run.
+### Fixed
+- **Cascade-example test coverage now picks up new example files automatically.** The guard that verifies bundled cascades still load iterated a hardcoded list of four filenames, so examples added later were silently excluded from coverage. It now enumerates `cascades/*.json` at runtime.
+- **Empty cascade slots are now built in one place.** Four parallel code paths (add, load, import, restore) each constructed the same empty-slot dict by hand, so any future change to the slot shape had to be made in lockstep across all four. They now share a single helper.
+- **Dependency wiring uses the same field-key helper as the rest of the form.** One function was building `(scope, flag)` tuples by hand while every other site in the form went through the established helper — a minor drift risk, now gone.
 
 ### Removed
+- **Unused `CHAIN_FINISHED` chain-state constant.** It had no readers and was only exercised by its own "still exists" assertion.
 
-- **Dropped an unused `CHAIN_FINISHED` chain-state constant** — it had no readers in scaffold.py and was only exercised by its own "constant exists" assertion in the test suite. Removing the constant and the two dead assertions.
+### Tests
+New §188 in `test_functional.py` guards against regression of the above: the removed constant stays absent, the field-key helper returns its canonical shape, the new slot helper is present with the expected shape, the four baseline cascade examples remain on disk, and the renumbered §187 section marker is unique. Assertion totals below.
 
-### Internal
-
-- Renamed single-letter except-clause variables (`_e` → `exc`) in five locations where the exception was actually referenced, and elided three unused for-loop targets to `_` (anonymous wildcard) in `_populate_table`.
-- Dropped obsolete "Phase 2" labels from two comments that were carrying implementation-phase jargon no longer meaningful outside the original work.
-- Renumbered a duplicated §30 test section (Preset Import/Export and Delete Tool both carried the same header) — Delete Tool is now §187.
-
-### Added
-
-**Tests (+7 assertions):** new `test_functional.py §188` (v2.10.4 cleanup regression guards): `CHAIN_FINISHED` stays absent; `_field_key` returns the canonical `(scope, flag)` tuple; `_new_slot` exists on `CascadeSidebar` and returns the canonical shape; `cascades/` retains the four baseline example files; `§187` section marker is unique.
+Also: renumbered a duplicated §30 section header to §187 (two different tests carried the same number), cleaned up two stale "Phase 2" comments, and renamed placeholder single-letter exception variables to conventional names.
 
 #### Full suite results
-
 - **All 6 test suites pass: 3,125/3,125 assertions, 0 failures**
   - Functional: 2,638/2,638 (+7)
   - Security: 231/231
@@ -38,7 +28,6 @@ Housekeeping release. Cleanups that reduce drift between related code paths and 
   - Smoke: 78/78
   - Manual verification: 61/61
   - Examples: 52/52
-
 
 ## [v2.10.3] — 2026-04-21
 
