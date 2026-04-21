@@ -438,6 +438,24 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
             if arg["min"] > arg["max"]:
                 errors.append(f"{prefix}: \"min\" ({arg['min']}) must be <= \"max\" ({arg['max']})")
 
+        # Reject integer min/max at Qt QSpinBox's 32-bit C int boundaries
+        # where min - 1 (sentinel) or max + 1 (headroom) would overflow and
+        # silently fall back to QLineEdit. Float bounds are unaffected —
+        # QDoubleSpinBox handles the full Python float range.
+        if arg.get("type") == "integer":
+            _imin = arg.get("min")
+            if isinstance(_imin, (int, float)) and _imin <= -2147483647:
+                errors.append(
+                    f"{prefix}: integer \"min\" ({_imin}) is below the safe threshold "
+                    f"(-2147483647); Qt integer widgets cannot represent min - 1 for the unset sentinel"
+                )
+            _imax = arg.get("max")
+            if isinstance(_imax, (int, float)) and _imax >= 2147483646:
+                errors.append(
+                    f"{prefix}: integer \"max\" ({_imax}) is above the safe threshold "
+                    f"(2147483646); Qt integer widgets cannot represent max + 1 for range headroom"
+                )
+
         # deprecated validation
         if "deprecated" in arg and arg["deprecated"] is not None:
             if not isinstance(arg["deprecated"], str):
