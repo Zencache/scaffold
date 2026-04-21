@@ -2135,10 +2135,9 @@ class ToolForm(QWidget):
 
         # Subcommand
         sub = preset.get("_subcommand")
-        if self.sub_combo is not None and sub:
-            idx = self.sub_combo.findData(sub)
-            if idx >= 0:
-                self.sub_combo.setCurrentIndex(idx)
+        if self.sub_combo is not None:
+            idx = self.sub_combo.findData(sub) if sub else -1
+            self.sub_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         # Elevation
         if self.elevation_check is not None and "_elevated" in preset:
