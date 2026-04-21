@@ -24127,6 +24127,190 @@ QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # =====================================================================
+print("\n=== SECTION 184: apply_values resets sub_combo on missing/empty/invalid _subcommand (F11) ===")
+# =====================================================================
+# Before F11, apply_values silently skipped the sub_combo update whenever
+# preset["_subcommand"] was missing, None, empty, or unknown. Result: the
+# combo kept its pre-call selection — a stale UI state that disagreed with
+# the rest of the form (which had been reset to defaults). reset_to_defaults
+# already collapses these cases to index 0; F11 makes apply_values match.
+#
+# T1 — valid _subcommand → that subcommand is selected (regression guard).
+# T2 — missing _subcommand → reset to index 0 (NEW).
+# T3 — None _subcommand → reset to index 0 (NEW).
+# T4 — empty-string _subcommand → reset to index 0 (NEW).
+# T5 — invalid _subcommand → reset to index 0 (NEW).
+# T6 — no-subcommand tool: apply_values is a no-op for sub_combo
+#      (regression guard).
+
+_s184_tmpdir = Path(tempfile.mkdtemp(prefix="s184_"))
+
+_s184_tool_data = {
+    "_format": "scaffold_schema",
+    "tool": "s184_multi",
+    "binary": sys.executable,
+    "description": "section 184 multi-subcommand tool",
+    "elevated": None,
+    "subcommands": [
+        {"name": "alpha", "description": "alpha sub",
+         "arguments": [_s179_make_arg("A", "--a", "string")]},
+        {"name": "bravo", "description": "bravo sub",
+         "arguments": [_s179_make_arg("B", "--b", "string")]},
+        {"name": "charlie", "description": "charlie sub",
+         "arguments": [_s179_make_arg("C", "--c", "string")]},
+    ],
+    "arguments": [],
+}
+_s184_tool_path = _s184_tmpdir / "s184_tool.json"
+_s184_tool_path.write_text(
+    json.dumps(scaffold.normalize_tool(_s184_tool_data)), encoding="utf-8",
+)
+
+_s184_win = scaffold.MainWindow(tool_path=str(_s184_tool_path))
+_s184_form = _s184_win.form
+app.processEvents()
+
+# Sanity: combo populated with all three subcommands.
+_s184_combo_names = [
+    _s184_form.sub_combo.itemData(i)
+    for i in range(_s184_form.sub_combo.count())
+]
+assert _s184_combo_names == ["alpha", "bravo", "charlie"], (
+    f"§184 setup: combo has unexpected entries {_s184_combo_names!r}"
+)
+
+
+# ---------------------------------------------------------------
+# T1 — valid _subcommand: pre-state charlie, preset says alpha
+# ---------------------------------------------------------------
+print("\n--- T1: valid _subcommand selects that subcommand ---")
+_s184_form.sub_combo.setCurrentIndex(2)  # charlie
+app.processEvents()
+_s184_form.apply_values({"_format": "scaffold_preset", "_subcommand": "alpha"})
+app.processEvents()
+check(
+    _s184_form.get_current_subcommand() == "alpha",
+    f"T1: valid _subcommand='alpha' selects alpha "
+    f"(got {_s184_form.get_current_subcommand()!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T2 — missing _subcommand: pre-state bravo, key absent
+# ---------------------------------------------------------------
+print("\n--- T2: missing _subcommand resets to index 0 ---")
+_s184_form.sub_combo.setCurrentIndex(1)  # bravo
+app.processEvents()
+_s184_form.apply_values({"_format": "scaffold_preset"})
+app.processEvents()
+check(
+    _s184_form.get_current_subcommand() == "alpha",
+    f"T2: missing _subcommand resets to alpha "
+    f"(got {_s184_form.get_current_subcommand()!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T3 — None _subcommand: pre-state bravo
+# ---------------------------------------------------------------
+print("\n--- T3: None _subcommand resets to index 0 ---")
+_s184_form.sub_combo.setCurrentIndex(1)  # bravo
+app.processEvents()
+_s184_form.apply_values({"_format": "scaffold_preset", "_subcommand": None})
+app.processEvents()
+check(
+    _s184_form.get_current_subcommand() == "alpha",
+    f"T3: None _subcommand resets to alpha "
+    f"(got {_s184_form.get_current_subcommand()!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T4 — empty-string _subcommand: pre-state bravo
+# ---------------------------------------------------------------
+print("\n--- T4: empty-string _subcommand resets to index 0 ---")
+_s184_form.sub_combo.setCurrentIndex(1)  # bravo
+app.processEvents()
+_s184_form.apply_values({"_format": "scaffold_preset", "_subcommand": ""})
+app.processEvents()
+check(
+    _s184_form.get_current_subcommand() == "alpha",
+    f"T4: empty _subcommand resets to alpha "
+    f"(got {_s184_form.get_current_subcommand()!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T5 — invalid _subcommand: pre-state bravo, value not in combo
+# ---------------------------------------------------------------
+print("\n--- T5: invalid _subcommand resets to index 0 ---")
+_s184_form.sub_combo.setCurrentIndex(1)  # bravo
+app.processEvents()
+_s184_form.apply_values({
+    "_format": "scaffold_preset",
+    "_subcommand": "not_a_real_subcommand",
+})
+app.processEvents()
+check(
+    _s184_form.get_current_subcommand() == "alpha",
+    f"T5: invalid _subcommand resets to alpha "
+    f"(got {_s184_form.get_current_subcommand()!r})",
+)
+
+_s184_win.close()
+_s184_win.deleteLater()
+app.processEvents()
+
+
+# ---------------------------------------------------------------
+# T6 — no-subcommand tool: sub_combo is None, apply_values is a no-op
+# ---------------------------------------------------------------
+print("\n--- T6: no-subcommand tool → sub_combo None, apply_values safe ---")
+_s184_nosub_data = {
+    "_format": "scaffold_schema",
+    "tool": "s184_nosub",
+    "binary": sys.executable,
+    "description": "section 184 no-subcommand tool",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [_s179_make_arg("X", "--x", "string")],
+}
+_s184_nosub_path = _s184_tmpdir / "s184_nosub.json"
+_s184_nosub_path.write_text(
+    json.dumps(scaffold.normalize_tool(_s184_nosub_data)), encoding="utf-8",
+)
+_s184_nosub_win = scaffold.MainWindow(tool_path=str(_s184_nosub_path))
+_s184_nosub_form = _s184_nosub_win.form
+app.processEvents()
+
+_s184_t6_crashed = False
+try:
+    _s184_nosub_form.apply_values({"_format": "scaffold_preset"})
+    app.processEvents()
+except Exception:
+    _s184_t6_crashed = True
+
+check(
+    _s184_nosub_form.sub_combo is None
+    and not _s184_t6_crashed
+    and _s184_nosub_form.get_current_subcommand() is None,
+    f"T6: no-subcommand tool → sub_combo None, apply_values no-op, "
+    f"get_current_subcommand() is None "
+    f"(sub_combo={_s184_nosub_form.sub_combo!r}, crashed={_s184_t6_crashed}, "
+    f"current={_s184_nosub_form.get_current_subcommand()!r})",
+)
+
+_s184_nosub_win.close()
+_s184_nosub_win.deleteLater()
+app.processEvents()
+
+
+# Cleanup section 184
+shutil.rmtree(_s184_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
