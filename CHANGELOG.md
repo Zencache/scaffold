@@ -3,6 +3,30 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.5] — 2026-04-21
+
+Maintenance fixes. This release tightens how the app handles unexpected errors: eight places that used to quietly swallow any error now only swallow the specific ones they're designed to handle, and one cleanup routine is reworked so it can never leave the app in a half-reset state.
+
+### Fixed
+- **Regex-pool cleanup is now guaranteed to finish.** When the background worker used for regex matching is retired, the code that clears the reference to it previously sat outside the error-handling block. If cleanup failed in an unexpected way, the app could be left holding a reference to a worker that was already gone, and the next regex match would fail. The reference-clearing step now always runs, regardless of how cleanup behaves.
+- **Eight error handlers no longer swallow the wrong errors.** Several spots in the code caught "any error at all" when they were really only meant to handle a specific, predictable failure (a missing attribute, a Qt object being torn down, etc.). They now catch only the errors they're designed for, so any genuinely unexpected error will show up as an error instead of disappearing.
+
+### Changed
+- **The error handlers that must stay broad now explain why.** Eleven places legitimately need to catch any error — for example, the UX-fallback path that keeps a form rendering when a widget fails to build, or the cascade-step overlay that deliberately continues with the preset's value when an override fails. Each now carries a one-line comment explaining the reason, so future readers (and future maintainers) know the broadness is intentional.
+
+### Tests
+New §189 in `test_functional.py` guards against regression: the regex-pool cleanup is exercised with four different failure modes to confirm the reference always clears; the narrowed handlers are verified present in source; the total count of broad handlers is bounded between 9 and 11; and the explanatory-comment prefix is confirmed on the expected number of sites.
+
+#### Full suite results
+- **All 6 test suites pass: 3,137/3,137 assertions, 0 failures**
+  - Functional: 2,650/2,650 (+12)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.4] — 2026-04-21
 
 Maintenance fixes. Small drifts between related code paths closed out, a dead constant removed, and test coverage of bundled cascades made self-maintaining. No user-visible behavior change.
