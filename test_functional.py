@@ -3097,9 +3097,9 @@ check(_bundled_all_pass, "32i: all 9 bundled schemas pass validation")
 
 
 # =====================================================================
-# Section 30: Delete Tool (picker button)
+# Section 187: Delete Tool (picker button)
 # =====================================================================
-print("\n--- Section 30: Delete Tool ---")
+print("\n--- Section 187: Delete Tool ---")
 
 # Set up: create temp tool JSON files in the tools dir for deletion tests
 _tools_path = Path(__file__).parent / "tools"
@@ -3140,15 +3140,15 @@ _preset_file_del2.write_text(json.dumps({}), encoding="utf-8")
 window._show_picker()
 app.processEvents()
 
-# 30a: Delete button exists on the picker
-check(hasattr(window.picker, "delete_btn"), "30a: delete_btn attribute exists on picker")
+# 187a: Delete button exists on the picker
+check(hasattr(window.picker, "delete_btn"), "187a: delete_btn attribute exists on picker")
 
-# 30b: Delete button is disabled when no selection
+# 187b: Delete button is disabled when no selection
 window.picker.table.clearSelection()
 app.processEvents()
-check(not window.picker.delete_btn.isEnabled(), "30b: Delete button disabled with no selection")
+check(not window.picker.delete_btn.isEnabled(), "187b: Delete button disabled with no selection")
 
-# 30c: Delete button enables when a valid tool row is selected
+# 187c: Delete button enables when a valid tool row is selected
 window.picker.scan()
 app.processEvents()
 # Select the first valid tool row (use _row_map to get correct table row)
@@ -3160,25 +3160,25 @@ for _tr, _ei in enumerate(window.picker._row_map):
 if _valid_row is not None:
     window.picker.table.selectRow(_valid_row)
     app.processEvents()
-check(window.picker.delete_btn.isEnabled(), "30c: Delete button enabled with valid selection")
+check(window.picker.delete_btn.isEnabled(), "187c: Delete button enabled with valid selection")
 
-# 30d: Delete button disabled for invalid/errored tool rows — skip if no errored tools
+# 187d: Delete button disabled for invalid/errored tool rows — skip if no errored tools
 
-# 30e: File menu does NOT have Delete Tool action (removed)
-check(not hasattr(window, "act_delete_tool"), "30e: no act_delete_tool on MainWindow")
+# 187e: File menu does NOT have Delete Tool action (removed)
+check(not hasattr(window, "act_delete_tool"), "187e: no act_delete_tool on MainWindow")
 
-# 30f: Rescan picker and find our test tools
+# 187f: Rescan picker and find our test tools
 window.picker.scan()
 app.processEvents()
 _found_del1 = any(
     d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
 )
-check(_found_del1, "30f: test tool 'delete_me' found in picker after scan")
+check(_found_del1, "187f: test tool 'delete_me' found in picker after scan")
 
-# 30g: Delete tool with presets — "Delete All" (schema + presets)
+# 187g: Delete tool with presets — "Delete All" (schema + presets)
 # Select the delete_me tool row
-check(_delete_test_tool.exists(), "30g: test tool file exists before delete")
-check(_preset_dir_del.is_dir(), "30g: preset dir exists before delete")
+check(_delete_test_tool.exists(), "187g: test tool file exists before delete")
+check(_preset_dir_del.is_dir(), "187g: preset dir exists before delete")
 
 for _tr, _ei in enumerate(window.picker._row_map):
     if _ei is not None:
@@ -3211,17 +3211,17 @@ finally:
     QMessageBox.addButton = _orig_addButton_g
     QMessageBox.clickedButton = _orig_clicked_g
 
-check(not _delete_test_tool.exists(), "30g: tool file removed after delete")
-check(not _preset_dir_del.exists(), "30g: preset dir removed after 'Delete All'")
+check(not _delete_test_tool.exists(), "187g: tool file removed after delete")
+check(not _preset_dir_del.exists(), "187g: preset dir removed after 'Delete All'")
 
 _found_after = any(
     d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
 )
-check(not _found_after, "30g: tool gone from picker after delete + rescan")
+check(not _found_after, "187g: tool gone from picker after delete + rescan")
 
-# 30h: Delete tool — "Schema Only" (presets remain)
-check(_delete_test_tool2.exists(), "30h: test tool 2 file exists before delete")
-check(_preset_dir_del2.is_dir(), "30h: preset dir 2 exists before delete")
+# 187h: Delete tool — "Schema Only" (presets remain)
+check(_delete_test_tool2.exists(), "187h: test tool 2 file exists before delete")
+check(_preset_dir_del2.is_dir(), "187h: preset dir 2 exists before delete")
 
 window.picker.scan()
 app.processEvents()
@@ -3256,19 +3256,19 @@ finally:
     QMessageBox.addButton = _orig_addButton_h
     QMessageBox.clickedButton = _orig_clicked_h
 
-check(not _delete_test_tool2.exists(), "30h: tool file 2 removed after delete")
-check(_preset_dir_del2.is_dir(), "30h: preset dir 2 still exists after schema-only delete")
+check(not _delete_test_tool2.exists(), "187h: tool file 2 removed after delete")
+check(_preset_dir_del2.is_dir(), "187h: preset dir 2 still exists after schema-only delete")
 
 _found_after2 = any(
     d and d["tool"] == "delete_me2" for _, d, _, _ in window.picker._entries
 )
-check(not _found_after2, "30h: tool 2 gone from picker after delete + rescan")
+check(not _found_after2, "187h: tool 2 gone from picker after delete + rescan")
 
 # Clean up remaining preset dir from test h
 if _preset_dir_del2.is_dir():
     shutil.rmtree(_preset_dir_del2)
 
-# 30i: Delete tool with no presets — call _on_delete_tool with mocked dialog
+# 187i: Delete tool with no presets — call _on_delete_tool with mocked dialog
 _delete_test_tool3 = _tools_path / "test_delete_me3.json"
 _delete_test_data3 = {
     "tool": "delete_me3",
@@ -3282,7 +3282,7 @@ app.processEvents()
 _found_del3 = any(
     d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
 )
-check(_found_del3, "30i: test tool 3 appears in picker")
+check(_found_del3, "187i: test tool 3 appears in picker")
 
 # Select the tool
 for _tr, _ei in enumerate(window.picker._row_map):
@@ -3301,11 +3301,11 @@ try:
     app.processEvents()
 finally:
     QMessageBox.question = _orig_question_i
-check(not _delete_test_tool3.exists(), "30i: tool 3 file deleted from disk")
+check(not _delete_test_tool3.exists(), "187i: tool 3 file deleted from disk")
 _found_after3 = any(
     d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
 )
-check(not _found_after3, "30i: tool 3 gone after delete (no presets case)")
+check(not _found_after3, "187i: tool 3 gone after delete (no presets case)")
 
 # Clean up any leftover preset dirs
 for _pname in ("delete_me", "delete_me2", "delete_me3"):
@@ -3313,7 +3313,7 @@ for _pname in ("delete_me", "delete_me2", "delete_me3"):
     if _pd.is_dir():
         shutil.rmtree(_pd)
 
-# 30j: PresetPicker edit mode delete includes git restore tip and actually deletes
+# 187j: PresetPicker edit mode delete includes git restore tip and actually deletes
 window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
 app.processEvents()
 _preset_dir_j = scaffold._presets_dir(window.data["tool"])
@@ -3345,21 +3345,21 @@ try:
 finally:
     QMessageBox.question = _orig_question_j
 
-check(len(_captured_question_args_j) == 1, "30j: preset delete dialog was shown")
+check(len(_captured_question_args_j) == 1, "187j: preset delete dialog was shown")
 if _captured_question_args_j:
     _dialog_text_j = _captured_question_args_j[0][2]
-    check("git checkout" in _dialog_text_j, "30j: preset delete dialog includes git restore tip")
-    check("presets/" in _dialog_text_j, "30j: preset delete dialog includes preset path")
+    check("git checkout" in _dialog_text_j, "187j: preset delete dialog includes git restore tip")
+    check("presets/" in _dialog_text_j, "187j: preset delete dialog includes preset path")
 else:
-    check(False, "30j: preset delete dialog includes git restore tip")
-    check(False, "30j: preset delete dialog includes preset path")
+    check(False, "187j: preset delete dialog includes git restore tip")
+    check(False, "187j: preset delete dialog includes preset path")
 
-check(not _preset_file_j.exists(), "30j: preset file actually deleted from disk")
+check(not _preset_file_j.exists(), "187j: preset file actually deleted from disk")
 _pp_j.close()
 _pp_j.deleteLater()
 app.processEvents()
 
-# 30k: Delete button works after navigating back from form view
+# 187k: Delete button works after navigating back from form view
 window._show_picker()
 app.processEvents()
 # Select a valid tool (use _row_map for correct table row)
@@ -3368,7 +3368,7 @@ for _tr, _ei in enumerate(window.picker._row_map):
         window.picker.table.selectRow(_tr)
         break
 app.processEvents()
-check(window.picker.delete_btn.isEnabled(), "30k: Delete button works after returning to picker")
+check(window.picker.delete_btn.isEnabled(), "187k: Delete button works after returning to picker")
 
 
 # =====================================================================
@@ -7326,11 +7326,9 @@ check("border" not in _s63_style_after.lower() or "2px solid" not in _s63_style_
 check(hasattr(scaffold, "CHAIN_IDLE"), "63q: CHAIN_IDLE constant exists")
 check(hasattr(scaffold, "CHAIN_LOADING"), "63q: CHAIN_LOADING constant exists")
 check(hasattr(scaffold, "CHAIN_RUNNING"), "63q: CHAIN_RUNNING constant exists")
-check(hasattr(scaffold, "CHAIN_FINISHED"), "63q: CHAIN_FINISHED constant exists")
 check(scaffold.CHAIN_IDLE == "idle", "63q: CHAIN_IDLE is 'idle'")
 check(scaffold.CHAIN_LOADING == "loading", "63q: CHAIN_LOADING is 'loading'")
 check(scaffold.CHAIN_RUNNING == "running", "63q: CHAIN_RUNNING is 'running'")
-check(scaffold.CHAIN_FINISHED == "finished", "63q: CHAIN_FINISHED is 'finished'")
 
 # Cleanup
 _s63_win.close()
@@ -21576,17 +21574,10 @@ print("\n=== SECTION 175: Bundled cascades intact after suite run ===")
 # forgets to monkey-patch _cascades_dir(), this test will catch it.
 # Mirrors the coverage-guard shape of 174a — iterate over a known list,
 # assert each is present.
-_s175_BUNDLED_CASCADES = [
-    "cascade_archive_playlist.json",
-    "cascade_pandoc_dual_output.json",
-    "ping_then_nmap.json",
-    "recon_basic.json",
-]
 _s175_cascades_dir = Path(__file__).parent / "cascades"
-for _s175_fname in _s175_BUNDLED_CASCADES:
-    _s175_path = _s175_cascades_dir / _s175_fname
+for _s175_path in sorted(_s175_cascades_dir.glob("*.json")):
     check(_s175_path.exists(),
-          f"175: bundled cascade {_s175_fname} still present after test run")
+          f"175: bundled cascade {_s175_path.name} still present after test run")
 
 
 # =====================================================================

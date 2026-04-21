@@ -1898,9 +1898,9 @@ class ToolForm(QWidget):
                 continue
             # Look for parent in the same scope first, then global
             scope = key[0]
-            parent_key = (scope, dep_flag)
+            parent_key = self._field_key(scope, dep_flag)
             if parent_key not in self.fields:
-                parent_key = (self.GLOBAL, dep_flag)
+                parent_key = self._field_key(self.GLOBAL, dep_flag)
             if parent_key not in self.fields:
                 name = field["arg"].get("name", "?")
                 print(f"Warning: dependency wiring failed for \"{name}\" — "
@@ -3080,7 +3080,7 @@ class ToolPicker(QWidget):
         # Group entries by folder for header insertion
         folder_groups: list[tuple[str, list[int]]] = []  # (folder, [entry indices])
         current_folder: str | None = None
-        for idx, (path, _d, _e, _a) in enumerate(self._entries):
+        for idx, (path, _, _, _) in enumerate(self._entries):
             folder = Path(path).parent.relative_to(tools_path).as_posix()
             folder = "" if folder == "." else folder
             if folder != current_folder:
@@ -5182,9 +5182,9 @@ class CustomPathDialog(QDialog):
                 loaded = json.loads(raw)
                 if isinstance(loaded, list):
                     self._paths = [p for p in loaded if p and isinstance(p, str)]
-            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 print(
-                    f"[scaffold] custom_paths settings unreadable: {_e}",
+                    f"[scaffold] custom_paths settings unreadable: {exc}",
                     file=sys.stderr,
                 )
                 _load_failed = True
@@ -5666,7 +5666,7 @@ class CascadeCaptureDefinitionDialog(QDialog):
             else:
                 entry = {"name": name, "source": source}
 
-            # Validate via Phase 2 validator
+            # Validate via schema validator
             try:
                 _validate_capture_entry(entry, self._cascade_variables)
             except ValueError as exc:
@@ -5709,7 +5709,6 @@ CASCADE_INITIAL_SLOTS = 2
 CHAIN_IDLE = "idle"
 CHAIN_LOADING = "loading"       # Loading tool + preset into form
 CHAIN_RUNNING = "running"       # QProcess is executing
-CHAIN_FINISHED = "finished"     # Chain completed all steps
 CHAIN_PAUSED = "paused"         # Chain paused between steps
 
 _CAPTURE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -6153,7 +6152,7 @@ class CascadeSidebar(QDockWidget):
         self._argv_warned_captures: set[str] = set()
         self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
-        # Cascade history tracking (Phase 2)
+        # Cascade history tracking
         self._cascade_run_id: str | None = None
         self._cascade_steps: list[dict] = []
         self._cascade_step_start: float | None = None
@@ -6288,12 +6287,16 @@ class CascadeSidebar(QDockWidget):
                 return i
         return -1
 
+    def _new_slot(self) -> dict:
+        """Canonical empty slot init."""
+        return {"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
+
     def _on_add_slot(self) -> None:
         """Add a new empty slot at the end."""
         if len(self._slots) >= CASCADE_MAX_SLOTS:
             self._main_window.statusBar().showMessage(f"Maximum {CASCADE_MAX_SLOTS} steps")
             return
-        self._slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
+        self._slots.append(self._new_slot())
         self._add_slot_widget(len(self._slots) - 1)
         self._save_cascade()
         self._update_add_button_state()
@@ -6420,9 +6423,9 @@ class CascadeSidebar(QDockWidget):
                             "delay": item.get("delay", 0) if isinstance(item, dict) else 0,
                             "captures": item.get("captures", []) if isinstance(item, dict) else [],
                         })
-            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 print(
-                    f"[scaffold] cascade slots settings unreadable: {_e}",
+                    f"[scaffold] cascade slots settings unreadable: {exc}",
                     file=sys.stderr,
                 )
                 if hasattr(self, "_main_window") and self._main_window is not None:
@@ -6441,7 +6444,7 @@ class CascadeSidebar(QDockWidget):
                         cap["source"] = _SOURCE_MIGRATION[cap["source"]]
 
         if loaded_slots is None:
-            loaded_slots = [{"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
+            loaded_slots = [self._new_slot()
                             for _ in range(CASCADE_INITIAL_SLOTS)]
 
         # Tear down any existing widgets (hide + detach synchronously to
@@ -6473,9 +6476,9 @@ class CascadeSidebar(QDockWidget):
                 loaded_vars = json.loads(raw_vars)
                 if isinstance(loaded_vars, list):
                     self._cascade_variables = loaded_vars
-            except (json.JSONDecodeError, TypeError, ValueError) as _e:
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 print(
-                    f"[scaffold] cascade variables settings unreadable: {_e}",
+                    f"[scaffold] cascade variables settings unreadable: {exc}",
                     file=sys.stderr,
                 )
                 if hasattr(self, "_main_window") and self._main_window is not None:
@@ -6597,7 +6600,7 @@ class CascadeSidebar(QDockWidget):
 
         # Pad to minimum
         while len(new_slots) < CASCADE_INITIAL_SLOTS:
-            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
+            new_slots.append(self._new_slot())
 
         self._slots = new_slots
         for i in range(len(self._slots)):
@@ -6677,7 +6680,7 @@ class CascadeSidebar(QDockWidget):
 
         # Pad to minimum slot count
         while len(new_slots) < CASCADE_INITIAL_SLOTS:
-            new_slots.append({"tool_path": None, "preset_path": None, "delay": 0, "captures": []})
+            new_slots.append(self._new_slot())
 
         self._slots = new_slots
         for i in range(len(self._slots)):
@@ -7365,11 +7368,11 @@ class CascadeSidebar(QDockWidget):
             value = str(self._chain_variable_values[name])
             try:
                 tokens = _shlex.split(value)
-            except ValueError as _e:
+            except ValueError as exc:
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup(
                     f"Cascade stopped: capture '{name}' has unparseable "
-                    f"value {value!r} for extra flags ({_e})"
+                    f"value {value!r} for extra flags ({exc})"
                 )
                 return
             if len(tokens) != 1:
@@ -8869,14 +8872,14 @@ class MainWindow(QMainWindow):
                 os.chmod(path, 0o600)
             except OSError:
                 pass
-        except OSError as _e:
+        except OSError as exc:
             if not self._autosave_warned:
                 self._autosave_warned = True
                 self.statusBar().showMessage(
-                    f"Auto-save failed \u2014 crash recovery unavailable ({_e.strerror or 'I/O error'})",
+                    f"Auto-save failed \u2014 crash recovery unavailable ({exc.strerror or 'I/O error'})",
                     10000,
                 )
-            print(f"[scaffold] autosave write failed: {_e}", file=sys.stderr)
+            print(f"[scaffold] autosave write failed: {exc}", file=sys.stderr)
 
     def _clear_recovery_file(self) -> None:
         """Delete the recovery file if it exists."""
