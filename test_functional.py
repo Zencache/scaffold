@@ -24606,6 +24606,142 @@ QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # =====================================================================
+print("\n=== SECTION 186: validate_tool rejects extreme integer bounds (F4) ===")
+# =====================================================================
+# F4: Qt's QSpinBox uses a 32-bit C int internally. When a schema
+# declared an integer min at or below INT_MIN + 1 (-2147483647), the
+# _build_widget sentinel allocation (min - 1) would overflow Qt's C int
+# and silently fall back to QLineEdit. validate_tool now rejects these
+# extreme values at schema-load time. The threshold is symmetric on
+# the upper side (max >= 2147483646) for future-refactor safety even
+# though no current code path computes max + 1. Float bounds are
+# unaffected — QDoubleSpinBox handles the full Python float range.
+#
+# T1 — min at INT_MIN (-2147483648) rejected.
+# T2 — min at INT_MIN + 1 (-2147483647) rejected (boundary).
+# T3 — min at INT_MIN + 2 (-2147483646) accepted (boundary).
+# T4 — max at INT_MAX (2147483647) rejected.
+# T5 — normal bounds (0..100) accepted (regression guard).
+# T6 — float with extreme min accepted (type-specific asymmetry).
+
+def _s186_schema(arg_over: dict) -> dict:
+    """Build a minimal valid tool schema with a single argument.
+
+    arg_over: dict of fields to merge into the base argument, overriding
+    defaults. Top-level fields are fixed so the only validate_tool
+    errors that come back are caused by the arg override.
+    """
+    base_arg = {
+        "name": "n", "flag": "--n", "type": "integer",
+        "description": "", "required": False, "default": None,
+        "choices": None, "group": None, "depends_on": None,
+        "repeatable": False, "separator": "space", "positional": False,
+        "short_flag": None, "validation": None, "examples": None,
+        "display_group": None, "min": None, "max": None,
+        "deprecated": None, "dangerous": False,
+    }
+    base_arg.update(arg_over)
+    return {
+        "_format": "scaffold_schema",
+        "tool": "s186_tool", "binary": "true",
+        "description": "section 186 extreme-bounds tool",
+        "elevated": None, "subcommands": None,
+        "arguments": [base_arg],
+    }
+
+
+def _s186_threshold_errs(errs: list) -> list:
+    """Filter errors to just the F4 safe-threshold rejections."""
+    return [e for e in errs if "safe threshold" in e]
+
+
+# ---------------------------------------------------------------
+# T1 — integer min at INT_MIN rejected
+# ---------------------------------------------------------------
+print("\n--- T1: integer min=-2147483648 rejected ---")
+_s186_t1_errs = scaffold.validate_tool(_s186_schema({"min": -2147483648}))
+_s186_t1_hit = _s186_threshold_errs(_s186_t1_errs)
+check(
+    len(_s186_t1_hit) == 1
+    and "safe threshold" in _s186_t1_hit[0]
+    and "-2147483648" in _s186_t1_hit[0],
+    f"T1: validate_tool rejects integer min=-2147483648 "
+    f"(hits={_s186_t1_hit!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T2 — integer min at INT_MIN + 1 rejected (boundary)
+# ---------------------------------------------------------------
+print("\n--- T2: integer min=-2147483647 rejected (boundary) ---")
+_s186_t2_errs = scaffold.validate_tool(_s186_schema({"min": -2147483647}))
+_s186_t2_hit = _s186_threshold_errs(_s186_t2_errs)
+check(
+    len(_s186_t2_hit) == 1
+    and "safe threshold" in _s186_t2_hit[0]
+    and "-2147483647" in _s186_t2_hit[0],
+    f"T2: validate_tool rejects integer min=-2147483647 (boundary) "
+    f"(hits={_s186_t2_hit!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T3 — integer min at INT_MIN + 2 accepted (boundary)
+# ---------------------------------------------------------------
+print("\n--- T3: integer min=-2147483646 accepted (boundary) ---")
+_s186_t3_errs = scaffold.validate_tool(_s186_schema({"min": -2147483646}))
+_s186_t3_hit = _s186_threshold_errs(_s186_t3_errs)
+check(
+    len(_s186_t3_hit) == 0,
+    f"T3: validate_tool accepts integer min=-2147483646 (boundary) "
+    f"(hits={_s186_t3_hit!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T4 — integer max at INT_MAX rejected
+# ---------------------------------------------------------------
+print("\n--- T4: integer max=2147483647 rejected ---")
+_s186_t4_errs = scaffold.validate_tool(_s186_schema({"max": 2147483647}))
+_s186_t4_hit = _s186_threshold_errs(_s186_t4_errs)
+check(
+    len(_s186_t4_hit) == 1
+    and "safe threshold" in _s186_t4_hit[0]
+    and "2147483647" in _s186_t4_hit[0],
+    f"T4: validate_tool rejects integer max=2147483647 "
+    f"(hits={_s186_t4_hit!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T5 — normal integer bounds accepted (regression guard)
+# ---------------------------------------------------------------
+print("\n--- T5: normal integer bounds (0..100) accepted ---")
+_s186_t5_errs = scaffold.validate_tool(_s186_schema({"min": 0, "max": 100}))
+_s186_t5_hit = _s186_threshold_errs(_s186_t5_errs)
+check(
+    len(_s186_t5_hit) == 0,
+    f"T5: validate_tool accepts integer min=0,max=100 (regression guard) "
+    f"(hits={_s186_t5_hit!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T6 — float with extreme min accepted (type-specific asymmetry)
+# ---------------------------------------------------------------
+print("\n--- T6: float with extreme min accepted ---")
+_s186_t6_errs = scaffold.validate_tool(_s186_schema({
+    "type": "float", "min": -2147483648.0,
+}))
+_s186_t6_hit = _s186_threshold_errs(_s186_t6_errs)
+check(
+    len(_s186_t6_hit) == 0,
+    f"T6: validate_tool accepts float min=-2147483648.0 (asymmetry) "
+    f"(hits={_s186_t6_hit!r})",
+)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
