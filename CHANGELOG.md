@@ -33,7 +33,7 @@ Continued audit-response hardening. Two HIGH-severity findings closed. No schema
 
 ## [v2.10.0] — 2026-04-20
 
-Code was submitted to an external code auditor (7x Opus 4.7 agents and 7x MiniMax M2.7 agents, each focused on different sections of the codebase) for another deep code audit, surfacing the findings in this changelog as well as the next couple updates. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
+Code was submitted to an external code auditor (Sent a well crafted prompt to PaperclipAI to spawn 7x Opus 4.7 agents and 7x MiniMax M2.7 agents, each focused on different sections of the codebase) for another deep code audit, surfacing the findings in this changelog as well as the next couple updates. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
 
 ### Fixed
 
