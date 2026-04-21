@@ -591,6 +591,22 @@ _PRESET_MAX_STRING_LEN = 10_000
 # Safe value types allowed in presets
 _PRESET_SAFE_TYPES = (str, int, float, bool, list, type(None))
 
+# Preset meta-key type contract. Validators reject wrong types before
+# apply_values is called. Recovery file meta-keys (_recovery_*) are NOT
+# covered here — they are checked inline in _check_for_recovery /
+# _cleanup_stale_recovery_files. Cascade-file meta-keys (_version, and
+# _format with non-"scaffold_preset" values) are a separate file format
+# and are validated at their own load sites.
+PRESET_META_KEY_TYPES: dict[str, tuple[type, ...]] = {
+    "_format": (str,),
+    "_tool": (str,),
+    "_subcommand": (str, type(None)),
+    "_schema_hash": (str,),
+    "_elevated": (bool,),
+    "_extra_flags": (str,),
+    "_description": (str,),
+}
+
 
 def validate_preset(data, tool_data=None) -> list[str]:
     """Validate a preset dict. Returns a list of error strings (empty = valid).
@@ -623,11 +639,28 @@ def validate_preset(data, tool_data=None) -> list[str]:
         if not isinstance(key, str):
             continue  # already reported above
 
-        # Meta keys (_schema_hash, _subcommand, _extra_flags, _tool) — skip
-        # value-type checks. Meta keys start with _ and do NOT contain ":"
-        # (field keys use scope:flag format like "__global__:--verbose").
+        # Meta keys — keys starting with _ and not containing ":" (field keys
+        # use scope:flag format like "__global__:--verbose"). Registered keys
+        # are type-checked against PRESET_META_KEY_TYPES; None is treated as
+        # missing; unknown _foo keys pass for forward-compat with future
+        # scaffold versions that may add new meta-keys.
         if key.startswith("_") and ":" not in key:
-            # Still enforce string-length on string meta values
+            # None-as-missing — skip silently for both registered and unknown keys.
+            if value is None:
+                continue
+            expected = PRESET_META_KEY_TYPES.get(key)
+            if expected is not None:
+                if not isinstance(value, expected):
+                    expected_names = " or ".join(t.__name__ for t in expected)
+                    errors.append(
+                        f"Preset meta-key \"{key}\" has wrong type {type(value).__name__} "
+                        f"(expected {expected_names})"
+                    )
+                    continue
+            else:
+                # Unknown meta-key — pass (forward-compat) but log for debugging.
+                print(f"[preset] unknown meta-key: {key!r}", file=sys.stderr)
+            # Preserve string-length check on string meta values.
             if isinstance(value, str) and len(value) > _PRESET_MAX_STRING_LEN:
                 errors.append(
                     f"Preset value for \"{key}\" too long ({len(value)} chars, limit {_PRESET_MAX_STRING_LEN})"
@@ -8648,6 +8681,11 @@ class MainWindow(QMainWindow):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 ts = data.get("_recovery_timestamp", 0)
+                # Defensive: non-numeric (or bool) timestamp — treat as stale.
+                # isinstance(True, int) is True in Python, so check bool first.
+                if type(ts) is bool or not isinstance(ts, (int, float)):
+                    f.unlink()
+                    continue
                 if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
                     f.unlink()
             except (OSError, json.JSONDecodeError):
@@ -8735,6 +8773,15 @@ class MainWindow(QMainWindow):
                 pass
             return
         ts = recovery_data.get("_recovery_timestamp", 0)
+        # Defensive: non-numeric (or bool) timestamp — treat as corrupt,
+        # matching the JSONDecodeError branch above. isinstance(True, int) is
+        # True in Python, so check bool first.
+        if type(ts) is bool or not isinstance(ts, (int, float)):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
         if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
             try:
                 path.unlink(missing_ok=True)
