@@ -23922,6 +23922,211 @@ QSettings("Scaffold", "Scaffold").remove("session/last_tool")
 
 
 # =====================================================================
+print("\n=== SECTION 183: schema-hash warning on cascade slot click (F14) ===")
+# =====================================================================
+# Before v2.10.2, CascadeDock._on_slot_clicked did NOT check _schema_hash
+# at all. _on_load_preset (UI) warned via status bar; _chain_advance
+# (unattended) halted the cascade; the interactive slot-click path fell
+# through silently. F14 mirrors the _on_load_preset UI pattern because
+# slot click is human-initiated: apply_values still runs, the user is
+# warned non-blockingly via the status bar, and a forensic [cascade]
+# stderr line is emitted for post-mortem debugging.
+#
+# T1 — matching hash: happy-path message unchanged (regression guard).
+# T2 — stale hash: apply_values still ran, mismatch message + stderr line.
+# T3 — absent hash: legacy-allowed, no mismatch warning, no stderr line.
+# T4 — precedence: stale-hash message wins over password-not-restored
+#      (mirrors _on_load_preset's if/elif ordering).
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+_s183_tmpdir = Path(tempfile.mkdtemp(prefix="s183_"))
+
+# Tool without a password arg: used by T1, T2, T3 so had_pw is False and
+# the happy-path / absent-hash branches show the plain "Loaded cascade
+# step" message without any password-restored note.
+_s183_tool_nopw_data = {
+    "_format": "scaffold_schema",
+    "tool": "s183_py",
+    "binary": sys.executable,
+    "description": "section 183 runner (no password)",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [_s179_make_arg("Code", "-c", "string")],
+}
+_s183_hash_nopw = scaffold.schema_hash(_s183_tool_nopw_data)
+_s183_tool_nopw_path = _s183_tmpdir / "s183_tool_nopw.json"
+_s183_tool_nopw_path.write_text(json.dumps(_s183_tool_nopw_data), encoding="utf-8")
+
+# Tool WITH a password arg: used by T4. apply_values returns had_pw=True
+# for any preset when the form contains a password field, so this tool
+# drives the precedence test without requiring --secret in the preset.
+_s183_tool_withpw_data = {
+    "_format": "scaffold_schema",
+    "tool": "s183_pw",
+    "binary": sys.executable,
+    "description": "section 183 runner (with password)",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        _s179_make_arg("Code", "-c", "string"),
+        _s179_make_arg("Secret", "--secret", "password"),
+    ],
+}
+_s183_hash_withpw = scaffold.schema_hash(_s183_tool_withpw_data)
+_s183_tool_withpw_path = _s183_tmpdir / "s183_tool_withpw.json"
+_s183_tool_withpw_path.write_text(json.dumps(_s183_tool_withpw_data), encoding="utf-8")
+
+# Arbitrary 8-char hex string; schema_hash returns hexdigest()[:8], so this
+# is guaranteed-non-matching for both tools above.
+_s183_stale_hash = "deadbeef"
+assert _s183_stale_hash != _s183_hash_nopw
+assert _s183_stale_hash != _s183_hash_withpw
+
+
+def _s183_write_preset(name, *, tool_name, hash_value):
+    """Write a preset file for §183.
+
+    hash_value: the string to store under _schema_hash, or None to omit
+    the key entirely (legacy-preset case).
+    """
+    data = {
+        "_format": "scaffold_preset",
+        "_tool": tool_name,
+        "_subcommand": None,
+        "-c": "S183_SENTINEL",
+    }
+    if hash_value is not None:
+        data["_schema_hash"] = hash_value
+    p = _s183_tmpdir / name
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+def _s183_click_slot(tool_path, preset_path):
+    """Create a fresh MainWindow, wire up slot 0, click it, and return
+    (status_msg_lowercased, stderr_text, -c field value)."""
+    win = scaffold.MainWindow()
+    win.show()
+    app.processEvents()
+    dock = win.cascade_dock
+    try:
+        dock._slots[0]["tool_path"] = str(tool_path)
+        dock._slots[0]["preset_path"] = str(preset_path)
+        with _patch_stderr() as buf:
+            dock._on_slot_clicked(0)
+            app.processEvents()
+        status = win.statusBar().currentMessage().lower()
+        stderr_text = buf.getvalue()
+        c_val = win.form.get_field_value(("__global__", "-c"))
+    finally:
+        win.close()
+        win.deleteLater()
+        app.processEvents()
+        QSettings("Scaffold", "Scaffold").remove("cascade")
+        QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    return status, stderr_text, c_val
+
+
+# ---------------------------------------------------------------
+# T1 — matching hash: happy-path message unchanged (regression guard)
+# ---------------------------------------------------------------
+print("\n--- T1: matching hash → unchanged happy-path message ---")
+
+_s183_t1_preset = _s183_write_preset(
+    "t1_match.json", tool_name="s183_py", hash_value=_s183_hash_nopw,
+)
+_s183_t1_status, _s183_t1_stderr, _s183_t1_c = _s183_click_slot(
+    _s183_tool_nopw_path, _s183_t1_preset,
+)
+
+check(
+    _s183_t1_status == "loaded cascade step: t1_match"
+    and "[cascade] schema_hash mismatch" not in _s183_t1_stderr
+    and "S183_SENTINEL" in str(_s183_t1_c),
+    f"T1: matching hash yields pre-F14 happy-path message, no stderr "
+    f"mismatch line, form populated "
+    f"(status={_s183_t1_status!r}, stderr={_s183_t1_stderr!r}, "
+    f"-c={_s183_t1_c!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T2 — stale hash: mismatch warning + stderr, apply_values still ran
+# ---------------------------------------------------------------
+print("\n--- T2: stale hash → warning, stderr, field still populated ---")
+
+_s183_t2_preset = _s183_write_preset(
+    "t2_stale.json", tool_name="s183_py", hash_value=_s183_stale_hash,
+)
+_s183_t2_status, _s183_t2_stderr, _s183_t2_c = _s183_click_slot(
+    _s183_tool_nopw_path, _s183_t2_preset,
+)
+
+check(
+    "S183_SENTINEL" in str(_s183_t2_c)
+    and "different schema version" in _s183_t2_status
+    and "[cascade] schema_hash mismatch:" in _s183_t2_stderr
+    and "preset=" in _s183_t2_stderr
+    and "current=" in _s183_t2_stderr,
+    f"T2: stale hash → apply_values ran + mismatch message + forensic stderr "
+    f"(status={_s183_t2_status!r}, stderr={_s183_t2_stderr!r}, "
+    f"-c={_s183_t2_c!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T3 — absent hash: legacy-allowed, no mismatch warning
+# ---------------------------------------------------------------
+print("\n--- T3: absent hash → happy-path message, no warning, no stderr ---")
+
+_s183_t3_preset = _s183_write_preset(
+    "t3_absent.json", tool_name="s183_py", hash_value=None,
+)
+_s183_t3_status, _s183_t3_stderr, _s183_t3_c = _s183_click_slot(
+    _s183_tool_nopw_path, _s183_t3_preset,
+)
+
+check(
+    _s183_t3_status == "loaded cascade step: t3_absent"
+    and "different schema version" not in _s183_t3_status
+    and "[cascade] schema_hash mismatch" not in _s183_t3_stderr,
+    f"T3: absent hash → pre-F14 happy-path message, no mismatch warning "
+    f"(status={_s183_t3_status!r}, stderr={_s183_t3_stderr!r})",
+)
+
+
+# ---------------------------------------------------------------
+# T4 — precedence: stale hash + password field → mismatch message wins
+# ---------------------------------------------------------------
+# apply_values returns had_pw=True whenever the form contains a password
+# field, so the withpw tool guarantees the had_pw branch is reachable.
+# F14's if/elif/else places the hash-mismatch branch first, matching
+# _on_load_preset's ordering at lines ~9420-9432.
+print("\n--- T4: stale hash + password field → mismatch message wins ---")
+
+_s183_t4_preset = _s183_write_preset(
+    "t4_stale_pw.json", tool_name="s183_pw", hash_value=_s183_stale_hash,
+)
+_s183_t4_status, _s183_t4_stderr, _s183_t4_c = _s183_click_slot(
+    _s183_tool_withpw_path, _s183_t4_preset,
+)
+
+check(
+    "different schema version" in _s183_t4_status
+    and "password fields were not restored" not in _s183_t4_status,
+    f"T4: schema-mismatch message takes precedence over password note "
+    f"(status={_s183_t4_status!r})",
+)
+
+
+# Cleanup section 183
+shutil.rmtree(_s183_tmpdir, ignore_errors=True)
+QSettings("Scaffold", "Scaffold").remove("cascade")
+QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
