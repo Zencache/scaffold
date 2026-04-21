@@ -3,6 +3,43 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.4] — 2026-04-21
+
+Housekeeping release. Cleanups that reduce drift between related code paths and remove dead references. No user-visible behavior change.
+
+### Changed
+
+- **Slot initialization in the cascade dock now flows through a single helper** — four parallel dict literals creating empty slots (in add, load, import, and restore paths) had to be updated in lockstep whenever the slot shape changed. A `_new_slot()` method on `CascadeSidebar` now returns the canonical shape; all four sites call it.
+
+- **Field-key lookups in dependency wiring now use the same helper as the rest of the form code** — `_apply_dependencies` constructed `(scope, flag)` tuples by hand while every other field-key site routed through `self._field_key(...)`. The two hand-built tuples now go through the helper, eliminating a small drift risk.
+
+- **Cascade-example test coverage enumerates the `cascades/` folder automatically** — §175's "bundled cascades still present" guard iterated over a hardcoded list of four filenames, so new example files were silently excluded from coverage. The test now globs `cascades/*.json` and asserts each file survives the suite run.
+
+### Removed
+
+- **Dropped an unused `CHAIN_FINISHED` chain-state constant** — it had no readers in scaffold.py and was only exercised by its own "constant exists" assertion in the test suite. Removing the constant and the two dead assertions.
+
+### Internal
+
+- Renamed single-letter except-clause variables (`_e` → `exc`) in five locations where the exception was actually referenced, and elided three unused for-loop targets to `_` (anonymous wildcard) in `_populate_table`.
+- Dropped obsolete "Phase 2" labels from two comments that were carrying implementation-phase jargon no longer meaningful outside the original work.
+- Renumbered a duplicated §30 test section (Preset Import/Export and Delete Tool both carried the same header) — Delete Tool is now §187.
+
+### Added
+
+**Tests (+7 assertions):** new `test_functional.py §188` (v2.10.4 cleanup regression guards): `CHAIN_FINISHED` stays absent; `_field_key` returns the canonical `(scope, flag)` tuple; `_new_slot` exists on `CascadeSidebar` and returns the canonical shape; `cascades/` retains the four baseline example files; `§187` section marker is unique.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,125/3,125 assertions, 0 failures**
+  - Functional: 2,638/2,638 (+7)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.3] — 2026-04-21
 
 Stale-preset visibility and a schema-bounds validation guard. Integer and float fields used to silently clamp out-of-range preset values to the field's bounds, destroying the original intent with no feedback. Loading continues to clamp (Qt behavior unchanged) but out-of-range values now surface a stderr line so the drift is visible. Separately, tool schemas declaring integer bounds at Python's integer extremes used to silently produce a text field instead of a number field; validation now rejects these schemas with a clear error.
