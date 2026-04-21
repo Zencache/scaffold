@@ -3,9 +3,37 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.1] — 2026-04-20
+
+Continued audit-response hardening. Two HIGH-severity findings closed. No schema changes, no breaking changes, no user-facing behavior changes.
+
+### Fixed
+
+- **Preset size-gate mismatch across the four preset-load paths** — `_on_load_preset` and `_on_import_preset` previously gated on `MAX_SCHEMA_SIZE` (1 MB) instead of the preset-specific `MAX_PRESET_SIZE` (2 MB). The cascade paths (via `_read_user_json`) already used the correct constant, producing a functional asymmetry where a 1.5 MB preset was accepted by cascade slot-click but rejected by the UI preset picker. All four preset-load paths now gate on `MAX_PRESET_SIZE`. Constant values unchanged.
+- **`validate_tool` accepted argument `validation` patterns prone to catastrophic backtracking** — a malicious or buggy schema could ship a pattern like `(a+)+$` that would hang the form's real-time validator on certain inputs. `validate_tool` now rejects ReDoS-prone patterns via the existing `_pattern_is_redos_prone` helper (prior consumer: capture-variable validation). Zero shipped-schema collateral — all 10 validation regexes across the 7 shipped tools that use the field are simple and safe.
+
+### Added
+
+**Tests (test_security.py, test_preset_validation.py):**
+- **Static-scan regression guards for the preset size-gate constants** — pin that `_on_load_preset` and `_on_import_preset` bodies reference `MAX_PRESET_SIZE` (not `MAX_SCHEMA_SIZE`), and that `MAX_PRESET_SIZE >= MAX_SCHEMA_SIZE`.
+- **ReDoS-rejection coverage in `validate_tool`** — four canonical catastrophic-backtracking patterns rejected (e.g., `(a+)+$`), four shipped-schema-style simple patterns accepted, plus subcommand-scope coverage. Cohort test confirms every shipped `tools/*.json` still validates cleanly.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,057/3,057 assertions, 0 failures**
+  - Functional: 2,606/2,606
+  - Security: 213/213 (was 202; +11 from ReDoS rejection guards)
+  - Preset validation: 47/47 (was 40; +7 from preset size-gate guards)
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
+
+
 ## [v2.10.0] — 2026-04-20
 
-Code was submitted to an external code auditor for another deep code audit, surfacing the findings in this changelog. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
+Code was submitted to an external code auditor (7x Opus 4.7 agents and 7x MiniMax M2.7 agents, each focused on different sections of the codebase) for another deep code audit, surfacing the findings in this changelog as well as the next couple updates. Internal security and correctness audit response. Eight new findings closed across schema validation, preset handling, and shipped data. No schema changes, no breaking changes for valid tool schemas or presets. One new user-facing prompt surfaces for legacy presets missing a format marker — all presets saved by Scaffold itself carry the marker and continue to load silently.
 
 ### Fixed
 
