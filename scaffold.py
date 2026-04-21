@@ -2709,6 +2709,39 @@ def _cascades_dir() -> Path:
     return d
 
 
+def _cascade_path_is_safe(base: Path, value: str) -> bool:
+    """Return True if a cascade step's path value is safe to join with base.
+
+    Absolute paths pass through unchanged (matches _load_tool_path's general
+    policy — tool schemas and presets can live anywhere on disk). Relative
+    paths are resolved against base and rejected if they escape it via '..'
+    traversal. Empty/None values are treated as safe (caller handles the
+    empty case separately).
+    """
+    if not value:
+        return True
+    try:
+        p = Path(value)
+    except (TypeError, ValueError):
+        return False
+    if p.is_absolute():
+        return True
+    try:
+        resolved = (base / value).resolve()
+        base_resolved = base.resolve()
+    except (OSError, ValueError):
+        return False
+    try:
+        return resolved.is_relative_to(base_resolved)
+    except AttributeError:
+        # Python <3.9 fallback — scaffold targets 3.9+ so this is defensive
+        try:
+            resolved.relative_to(base_resolved)
+            return True
+        except ValueError:
+            return False
+
+
 def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str]]:
     """Return (missing_tools, missing_presets) for a cascade's referenced files.
 
@@ -2724,11 +2757,17 @@ def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str
         if not isinstance(step, dict):
             continue
         tool = step.get("tool")
-        if tool and not (base / tool).exists():
-            missing_tools.append(tool)
+        if tool:
+            if not _cascade_path_is_safe(base, tool):
+                missing_tools.append(tool)
+            elif not (base / tool).exists():
+                missing_tools.append(tool)
         preset = step.get("preset")
-        if preset and not (base / preset).exists():
-            missing_presets.append(preset)
+        if preset:
+            if not _cascade_path_is_safe(base, preset):
+                missing_presets.append(preset)
+            elif not (base / preset).exists():
+                missing_presets.append(preset)
     return missing_tools, missing_presets
 
 
@@ -6475,9 +6514,21 @@ class CascadeSidebar(QDockWidget):
 
         # Build new slots from steps
         new_slots = []
-        for step in steps:
-            tool_path = str(base / step["tool"]) if step.get("tool") else None
-            preset_path = str(base / step["preset"]) if step.get("preset") else None
+        for step_idx, step in enumerate(steps, start=1):
+            tool_value = step.get("tool")
+            if tool_value and not _cascade_path_is_safe(base, tool_value):
+                raise ValueError(
+                    f"Cascade step {step_idx} has an unsafe tool path: {tool_value!r} "
+                    f"(paths cannot escape the scaffold directory via '..')"
+                )
+            preset_value = step.get("preset")
+            if preset_value and not _cascade_path_is_safe(base, preset_value):
+                raise ValueError(
+                    f"Cascade step {step_idx} has an unsafe preset path: {preset_value!r} "
+                    f"(paths cannot escape the scaffold directory via '..')"
+                )
+            tool_path = str(base / tool_value) if tool_value else None
+            preset_path = str(base / preset_value) if preset_value else None
             new_slots.append({
                 "tool_path": tool_path,
                 "preset_path": preset_path,
