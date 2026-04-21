@@ -5,20 +5,22 @@ All notable changes to Scaffold are documented here.
 
 ## [v2.10.3] — 2026-04-21
 
-Stale-preset visibility. Integer and float fields used to silently clamp out-of-range preset values to the field's bounds, destroying the original intent with no feedback. Loading continues to clamp (Qt behavior unchanged) but out-of-range values now surface a stderr line so the drift is visible.
+Stale-preset visibility and a schema-bounds validation guard. Integer and float fields used to silently clamp out-of-range preset values to the field's bounds, destroying the original intent with no feedback. Loading continues to clamp (Qt behavior unchanged) but out-of-range values now surface a stderr line so the drift is visible. Separately, tool schemas declaring integer bounds at Python's integer extremes used to silently produce a text field instead of a number field; validation now rejects these schemas with a clear error.
 
 ### Fixed
 
 - **Out-of-range preset values silently clamped on integer/float fields** — loading a preset with a value outside the schema's declared `min`/`max` quietly clamped to the field's bound, so a preset saying `--rate 99.99` on a field capped at 10.0 would load as 10.0 with no indication the original intent was lost. Loading still clamps (Qt's behavior is unchanged), but out-of-range values now surface a `[preset]` stderr line reporting the preset value, the clamped value, and the schema range. Non-finite floats (NaN/inf) get a distinct `non-finite value` warning.
 
+- **Tool schemas declaring integer bounds at Python's integer extremes silently produced a text field instead of a number field** — an integer argument with a declared `min` at or below -2147483647 (or `max` at or above 2147483646) would overflow Qt's 32-bit spinbox sentinel allocation and the widget factory would fall back to a plain text field with no diagnostic. Validation now rejects these schemas at schema-load time with a clear error. Float bounds are unaffected — QDoubleSpinBox handles the full Python float range.
+
 ### Added
 
-**Tests (+9 assertions):** 9 in `test_functional.py §185` (integer/float range-clamp warning: below/above/in-range for int and float, NaN, inf, no-schema-bounds policy, sentinel-widget schema-vs-widget-bounds).
+**Tests (+15 assertions):** 9 in `test_functional.py §185` (integer/float range-clamp warning: below/above/in-range for int and float, NaN, inf, no-schema-bounds policy, sentinel-widget schema-vs-widget-bounds); 6 in `test_functional.py §186` (validate_tool rejects extreme integer min/max at Qt sentinel boundaries, accepts normal and float extremes).
 
 #### Full suite results
 
-- **All 6 test suites pass: 3,112/3,112 assertions, 0 failures**
-  - Functional: 2,625/2,625 (+9)
+- **All 6 test suites pass: 3,118/3,118 assertions, 0 failures**
+  - Functional: 2,631/2,631 (+15)
   - Security: 231/231
   - Preset validation: 65/65
   - Smoke: 78/78
