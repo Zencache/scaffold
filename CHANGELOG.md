@@ -88,7 +88,7 @@ Two findings from the 2026-04-20 audit. No schema changes, no breaking changes.
 
 ## [v2.10.0] — 2026-04-20
 
-First batch of audit-response fixes. An external audit (7× Opus 4.7 + 7× MiniMax M2.7 agents via PaperclipAI, each focused on a different section of the codebase) surfaced the findings driving this release and the next several. Eight findings closed across schema validation, preset handling, and shipped data. No breaking changes for valid schemas or presets. One new prompt appears for legacy presets missing a format marker — every preset Scaffold has ever saved itself carries the marker and loads silently.
+First batch of audit-response fixes. An external audit (7× Opus 4.7 + 7× MiniMax M2.7 agents via PaperclipAI/Hermes, each focused on a different section of the codebase) surfaced the findings driving this release and the next several. Eight findings closed across schema validation, preset handling, and shipped data. No breaking changes for valid schemas or presets. One new prompt appears for legacy presets missing a format marker — every preset Scaffold has ever saved itself carries the marker and loads silently.
 
 ### Fixed
 
