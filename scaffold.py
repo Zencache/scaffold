@@ -6959,10 +6959,37 @@ class CascadeSidebar(QDockWidget):
                     )
                     return
                 had_pw = self._main_window.form.apply_values(preset_data)
-                msg = f"Loaded cascade step: {Path(preset_path).stem}"
-                if had_pw:
-                    msg += " \u2014 password fields were not restored"
-                self._main_window.statusBar().showMessage(msg)
+                # Schema-hash warning (interactive, non-blocking). Mirrors
+                # _on_load_preset UI semantics — slot click is human-initiated,
+                # so warn via status bar rather than halt like _chain_advance
+                # (unattended). Absent _schema_hash is legacy-allowed.
+                preset_name = Path(preset_path).stem
+                saved_hash = preset_data.get("_schema_hash")
+                hash_mismatch = False
+                if saved_hash is not None:
+                    current_hash = schema_hash(self._main_window.data)
+                    if saved_hash != current_hash:
+                        hash_mismatch = True
+                        print(
+                            f"[cascade] schema_hash mismatch: "
+                            f"preset={saved_hash} current={current_hash}",
+                            file=sys.stderr,
+                        )
+                if hash_mismatch:
+                    self._main_window.statusBar().showMessage(
+                        f"Cascade step loaded: {preset_name} \u2014 Note: this "
+                        f"preset was saved with a different schema version. "
+                        f"Some fields may not have loaded."
+                    )
+                elif had_pw:
+                    self._main_window.statusBar().showMessage(
+                        f"Loaded cascade step: {preset_name} \u2014 "
+                        f"password fields were not restored"
+                    )
+                else:
+                    self._main_window.statusBar().showMessage(
+                        f"Loaded cascade step: {preset_name}"
+                    )
             except RuntimeError as e:
                 self._main_window.statusBar().showMessage(f"Preset not loaded: {e}")
             except (json.JSONDecodeError, OSError):
