@@ -3,6 +3,29 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.6] — 2026-04-21
+
+Maintenance release with one small latent-bug fix. Four places in the code had near-identical logic for turning a user-supplied name into a safe filename. Three of them agreed on the rules; one didn't, and was producing slightly different (and slightly worse) filenames than the others. All four now share a single helper and follow the same rules.
+
+### Fixed
+- **Recovery filenames no longer preserve ambiguous dots.** When the app crashes mid-edit and saves recovery state, the recovery file's name is derived from the tool's name. If a tool's name contained dots (e.g., `my.tool.v2`), the recovery file previously kept those dots (`scaffold_recovery_user_my.tool.v2.json`), which is hard to read and easy to mistake for a different file extension. Dots in tool names are now replaced with underscores, matching how preset and cascade names are already saved.
+
+### Changed
+- **Filename sanitization is now handled in one place.** Previously, the logic for turning a name into a safe filename was spelled out at four different call sites (cascade save, cascade import, preset save, and recovery path). A single helper now handles all four, so any future change to the sanitization rules happens in exactly one place.
+
+### Tests
+New §190 in `test_functional.py` guards against regression: the new helper is verified to handle a range of canonical inputs correctly, the old raw regex is confirmed to appear only once in the source (inside the helper), and the recovery-file path is exercised with a dotted tool name to lock in the bug fix.
+
+#### Full suite results
+- **All 6 test suites pass: 3,161/3,161 assertions, 0 failures**
+  - Functional: 2,674/2,674 (+24)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.5] — 2026-04-21
 
 Maintenance fixes. This release tightens how the app handles unexpected errors: eight places that used to quietly swallow any error now only swallow the specific ones they're designed to handle, and one cleanup routine is reworked so it can never leave the app in a half-reset state.
