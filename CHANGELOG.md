@@ -4,6 +4,27 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.10.8] — 2026-04-22
+
+Refactor release. Four widget-construction code paths inside the tool-form renderer shared most of their logic but differed in one small thing each: the spinbox used for integer vs float fields, and the picker button wired up for file vs directory fields. Those four paths are now two helpers, one for each pair.
+
+### Changed
+- **Integer and float spinbox widgets are now built by a single helper.** The two types shared every structural detail — range setup, sentinel handling for fields with no default, min/max clamping, signal wiring — and differed only in widget class, numeric cast, and whether to show two decimal places. A single helper method handles both; the call sites are now one line each.
+- **File and directory picker widgets are now built by a single helper.** Same story: both built an identical QLineEdit + "Browse..." button combination and only differed in which module-scope browse function the button invoked. One helper handles both cases via a keyword flag.
+
+### Tests
+New §193 in `test_functional.py` guards against regression: both helpers are verified to exist on ToolForm with the expected signatures, each is exercised with a range of minimal schemas to confirm the returned widget has the correct shape (spinbox range, sentinel value, decimals, line-edit placeholder, Browse button label), and an end-to-end nmap load confirms real tool rendering still works.
+
+#### Full suite results
+- **All 6 test suites pass: 3,227/3,227 assertions, 0 failures**
+  - Functional: 2,740/2,740 (+40)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.7] — 2026-04-22
 
 UI polish pass on the Help and View menus, plus a new User Guide dialog covering the core workflow.
