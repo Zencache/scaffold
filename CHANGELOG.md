@@ -3,6 +3,38 @@
 All notable changes to Scaffold are documented here.
 
 
+
+## [v2.10.7] — 2026-04-22
+
+UI polish pass on the Help and View menus, plus a new User Guide dialog covering the core workflow.
+
+### Added
+
+- **Help → User Guide dialog** covering tool loading, presets, history, and schema creation. The new entry sits between About Scaffold and Cascade Guide in the Help menu.
+
+### Changed
+
+- **Keyboard Shortcuts dialog now uses a monospace layout** with grouped section headers (File & Tools, Presets & History, View, Execution), so the shortcut column lines up cleanly under each heading.
+
+### Fixed
+
+- **View menu items no longer have cramped spacing** between the label and the right-aligned shortcut key. A single `QMenu::item` padding rule applied to the menu bar gives every menu uniform breathing room.
+
+- **Dark mode: menu bar items no longer shift/shrink on hover.** Adding an explicit `QMenuBar::item` base rule alongside the `:selected` rule keeps Qt from mixing stylesheet and native rendering across hover states, so the item box dimensions stay constant.
+
+**Tests (+8 assertions):** 8 in `test_functional.py §192` (Help menu contains User Guide action; dialog opens as a visible QDialog; content mentions "schema", "preset", "history", "PROMPT.txt"; dialog closes cleanly). Existing `§98g1–g3` continue to cover the Keyboard Shortcuts dialog content. The two Fixed items are visual-only and have no new assertions.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,187/3,187 assertions, 0 failures**
+  - Functional: 2,700/2,700 (+8)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.6a] — 2026-04-21
 
 Small refactor release. Two unrelated dialogs in the app each carried its own copy of the same file-picker and directory-picker logic. Those duplicated copies are now a single pair of helpers shared by both dialogs.
