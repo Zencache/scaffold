@@ -382,9 +382,9 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 The author has 15 years of professional IT experience and holds certifications in cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Claude Code is a useful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-**Methodology: plain-English bug hunting.** Most bugs in recent releases were found the same way: first I describe in as much detail as possible what the bug is either in the logic or in the UI. Then we write a focused diagnostic prompt describing the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first before writing any fixes.
+**Methodology: plain-English bug hunting.** Most bugs in recent releases were found the same way: first I describe in as much detail as possible what the bug behvaior is either in the logic or in the UI. Then we write a focused diagnostic prompt testing for the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first before writing any fixes.
 
-**Multi-model distillation.** External audits from Copilot, ChatGPT, and other models surface candidate findings, which are fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering.
+**Multi-model distillation.** External audits from Copilot, ChatGPT, and other models surface candidate findings, which are reviewed by the author and fed back into Claude for architectural review and final judgment on what's real, what's noise, and what's over-engineering.
 
 ---
 
