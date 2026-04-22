@@ -25663,6 +25663,138 @@ check(len(_s196_errs_none) == 0,
 
 
 # =====================================================================
+# Section 197 — subcommand preset round-trip against multi-subcommand schemas
+# =====================================================================
+print("\n=== SECTION 197: subcommand preset round-trip ===")
+
+# Fixtures: enumerate docker_test schemas and openclaw.json.
+# The test is parameterized — each fixture is loaded, exercised with
+# subcommand switching, serialized, re-applied, and verified.
+_s197_fixtures = []
+_s197_docker_dir = Path(__file__).parent / "tools" / "docker_test"
+if _s197_docker_dir.is_dir():
+    _s197_fixtures.extend(sorted(_s197_docker_dir.glob("*.json")))
+_s197_openclaw = Path(__file__).parent / "tools" / "openclaw.json"
+if _s197_openclaw.exists():
+    _s197_fixtures.append(_s197_openclaw)
+
+check(len(_s197_fixtures) >= 2,
+      f"197-pre: subcommand fixtures found (got {len(_s197_fixtures)}: "
+      f"{[p.name for p in _s197_fixtures]})")
+
+for _s197_fixture in _s197_fixtures:
+    _s197_name = _s197_fixture.stem
+    try:
+        _s197_data = scaffold.load_tool(str(_s197_fixture))
+    except Exception as _s197_e:
+        check(False, f"197: {_s197_name} failed to load: {_s197_e}")
+        continue
+    _s197_subs = _s197_data.get("subcommands")
+    if not _s197_subs:
+        continue  # fixture has no subcommands; skip (other coverage has it)
+
+    # Pick the first subcommand with at least one non-positional argument
+    _s197_target_sub = None
+    _s197_target_arg = None
+    for _s197_sub in _s197_subs:
+        _s197_args = _s197_sub.get("arguments", [])
+        _s197_non_pos = [
+            a for a in _s197_args
+            if isinstance(a, dict)
+            and not a.get("positional")
+            and a.get("type") in ("string", "boolean", "integer")
+        ]
+        if _s197_non_pos:
+            _s197_target_sub = _s197_sub
+            _s197_target_arg = _s197_non_pos[0]
+            break
+
+    if _s197_target_sub is None:
+        check(True, f"197: {_s197_name} has subcommands but no suitable test arg — skipping")
+        continue
+
+    # Load into a MainWindow, switch to the target subcommand, set a value
+    _s197_win = scaffold.MainWindow()
+    _s197_win._load_tool_path(str(_s197_fixture))
+    app.processEvents()
+
+    _s197_form = _s197_win.form
+    _s197_sub_name = _s197_target_sub["name"]
+    _s197_flag = _s197_target_arg["flag"]
+    _s197_typ = _s197_target_arg["type"]
+
+    # Switch to the target subcommand via the subcommand combobox
+    if _s197_form.sub_combo is not None:
+        _s197_sub_idx = _s197_form.sub_combo.findData(_s197_sub_name)
+        if _s197_sub_idx >= 0:
+            _s197_form.sub_combo.setCurrentIndex(_s197_sub_idx)
+            app.processEvents()
+
+    # Find the field and set a value
+    _s197_key = None
+    for _s197_k in _s197_form.fields:
+        if _s197_k[0] == _s197_sub_name and _s197_k[1] == _s197_flag:
+            _s197_key = _s197_k
+            break
+    if _s197_key is None:
+        check(False, f"197 {_s197_name}: field ({_s197_sub_name}, {_s197_flag}) not found in form")
+        _s197_win.close(); _s197_win.deleteLater(); app.processEvents()
+        continue
+
+    # Set a type-appropriate test value
+    if _s197_typ == "boolean":
+        _s197_test_value = True
+    elif _s197_typ == "integer":
+        _s197_test_value = 42
+    else:
+        _s197_test_value = "round_trip_marker_value"
+
+    _s197_form._set_field_value(_s197_key, _s197_test_value)
+    app.processEvents()
+
+    # Serialize to preset
+    _s197_preset = _s197_form.serialize_values()
+    check(isinstance(_s197_preset, dict) and len(_s197_preset) > 0,
+          f"197 {_s197_name}: serialize_values produced non-empty preset")
+
+    # The preset should contain the test value under a subcommand-scoped key
+    _s197_expected_preset_key = f"{_s197_sub_name}:{_s197_flag}"
+    _s197_preset_has_key = (
+        _s197_expected_preset_key in _s197_preset
+        or _s197_flag in _s197_preset
+    )
+    check(_s197_preset_has_key,
+          f"197 {_s197_name}: preset contains key for {_s197_sub_name}:{_s197_flag} "
+          f"(preset keys: {sorted(_s197_preset.keys())})")
+
+    # Open a fresh form, apply the preset, verify the value came back
+    _s197_win2 = scaffold.MainWindow()
+    _s197_win2._load_tool_path(str(_s197_fixture))
+    app.processEvents()
+    _s197_form2 = _s197_win2.form
+
+    # Apply the preset
+    _s197_form2.apply_values(_s197_preset)
+    app.processEvents()
+
+    # Verify the field came back with the same value
+    _s197_key2 = None
+    for _s197_k in _s197_form2.fields:
+        if _s197_k[0] == _s197_sub_name and _s197_k[1] == _s197_flag:
+            _s197_key2 = _s197_k
+            break
+
+    if _s197_key2:
+        _s197_got_value = _s197_form2.get_field_value(_s197_key2)
+        check(_s197_got_value == _s197_test_value,
+              f"197 {_s197_name}: round-trip value matches "
+              f"({_s197_test_value!r} -> {_s197_got_value!r}) for {_s197_sub_name}:{_s197_flag}")
+
+    _s197_win.close(); _s197_win.deleteLater(); app.processEvents()
+    _s197_win2.close(); _s197_win2.deleteLater(); app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
