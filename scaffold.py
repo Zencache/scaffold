@@ -657,9 +657,16 @@ PRESET_META_KEY_TYPES: dict[str, tuple[type, ...]] = {
 def validate_preset(data, tool_data=None) -> list[str]:
     """Validate a preset dict. Returns a list of error strings (empty = valid).
 
-    Checks structure, value types, and string lengths. If *tool_data* is
-    provided, emits informational warnings for keys that don't match any
-    known flag in the schema (stale keys from older schema versions).
+    Checks structure, value types, and string lengths of *data*.
+
+    If *tool_data* is provided, additionally warns for keys that don't match
+    any flag defined in the tool's schema — useful for catching preset files
+    that reference flags from older schema versions. This parameter is a
+    test-only entrypoint used by the shipped-presets cohort guard in
+    test_preset_validation.py §30; production callers omit it. The key
+    format produced by serialize_values() and the key format expected by
+    this branch were reconciled in v2.10.0, so wiring tool_data= into a
+    production caller is a feature decision, not a compatibility gate.
     """
     errors = []
 
