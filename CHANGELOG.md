@@ -3,6 +3,26 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.10.6a] — 2026-04-21
+
+Small refactor release. Two unrelated dialogs in the app each carried its own copy of the same file-picker and directory-picker logic. Those duplicated copies are now a single pair of helpers shared by both dialogs.
+
+### Changed
+- **File- and directory-picker logic is now shared.** Two independent dialogs (the tool form and the cascade-variables dialog) each had its own near-identical implementation of the file and directory picker buttons. Both now call the same pair of module-level helpers, so any future change to picker behavior happens in one place instead of two.
+
+### Tests
+New §191 in `test_functional.py` guards against regression: the helpers are verified to exist at module scope with the expected signature, the two classes that previously held copies no longer define them, and no caller retains the old method-bound call shape.
+
+#### Full suite results
+- **All 6 test suites pass: 3,179/3,179 assertions, 0 failures**
+  - Functional: 2,692/2,692 (+18)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.6] — 2026-04-21
 
 Maintenance release with one small latent-bug fix. Four places in the code had near-identical logic for turning a user-supplied name into a safe filename. Three of them agreed on the rules; one didn't, and was producing slightly different (and slightly worse) filenames than the others. All four now share a single helper and follow the same rules.
