@@ -8248,6 +8248,8 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("Help")
         act_about = help_menu.addAction("About Scaffold")
         act_about.triggered.connect(self._on_about)
+        act_user_guide = help_menu.addAction("User Guide")
+        act_user_guide.triggered.connect(self._on_show_user_guide)
         act_cascade_guide = help_menu.addAction("Cascade Guide")
         act_cascade_guide.triggered.connect(self._on_show_cascade_guide)
         act_shortcuts = help_menu.addAction("Keyboard Shortcuts")
@@ -8313,6 +8315,92 @@ class MainWindow(QMainWindow):
             "License: PolyForm Noncommercial 1.0.0<br><br>"
             "<a href='https://github.com/Zencache/scaffold'>github.com/Zencache/scaffold</a>",
         )
+
+    def _on_show_user_guide(self) -> None:
+        """Show the User Guide dialog covering core app features."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("User Guide")
+        dlg.setMinimumWidth(600)
+        dlg.resize(640, 560)
+        layout = QVBoxLayout(dlg)
+
+        content = QLabel()
+        content.setTextFormat(Qt.TextFormat.RichText)
+        content.setWordWrap(True)
+        content.setText(
+            "<h2>Scaffold User Guide</h2>"
+
+            "<h3>What is Scaffold?</h3>"
+            "<p>Scaffold is a GUI wrapper for command-line tools. It reads a JSON "
+            "schema describing a tool's flags and arguments, builds a form for "
+            "those fields, assembles the resulting command, and runs it.</p>"
+
+            "<h3>Loading a Tool</h3>"
+            "<p>Open a tool with File \u2192 Load Tool, drag a .json schema onto "
+            "the window, or browse the bundled set with Tool List (Ctrl+B).</p>"
+
+            "<h3>The Form</h3>"
+            "<p>Field types come from the schema. Required fields are marked "
+            "with a red asterisk. Find Field (Ctrl+F) filters the form by name. "
+            "Reset to Defaults reverts every field to its schema default.</p>"
+
+            "<h3>Command Preview</h3>"
+            "<p>The bottom of the window shows the assembled command in real "
+            "time. Copy Command places it on the clipboard. On Windows, a "
+            "CMD/PowerShell dropdown switches the quoting style for the copied "
+            "command.</p>"
+
+            "<h3>Running</h3>"
+            "<p>Run with the Run button, Ctrl+Enter, or bare Enter when focus "
+            "is outside a text field. Stop or Escape cancels a running process. "
+            "The Timeout spinner sets an auto-kill window. The output panel "
+            "color-codes stdout and stderr.</p>"
+
+            "<h3>Presets</h3>"
+            "<p>Save the current field values with Ctrl+S; reopen with Ctrl+L. "
+            "Presets are stored per-tool. Descriptions are editable from the "
+            "Preset List dialog. Presets can be imported and exported as JSON.</p>"
+
+            "<h3>History</h3>"
+            "<p>View \u2192 History (Ctrl+H) lists previous runs of the current "
+            "tool. Clicking an entry restores that run's preset into the form. "
+            "History can be exported to JSON.</p>"
+
+            "<h3>Creating New Schemas</h3>"
+            "<p>Place new JSON schema files in the <code>tools/</code> folder. "
+            "Schemas can be hand-written \u2014 schema.md documents the full "
+            "format. An LLM is not required, it just makes the work faster: "
+            "PROMPT.txt contains a prompt that turns a tool's help text into "
+            "a schema. Either way, validate the result with "
+            "<code>python scaffold.py --validate path/to/tool.json</code>.</p>"
+
+            "<h3>Cascades</h3>"
+            "<p>Cascades chain multiple tools to run in sequence \u2014 see "
+            "Help \u2192 Cascade Guide for details.</p>"
+
+            "<h3>Themes</h3>"
+            "<p>Switch theme from View \u2192 Theme, or toggle dark/light with "
+            "Ctrl+D.</p>"
+        )
+
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.close)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        if _dark_mode:
+            dlg.setStyleSheet(
+                f"QDialog {{ background-color: {DARK_COLORS['widget']}; color: {DARK_COLORS['text']}; }}"
+            )
+
+        dlg.exec()
 
     def _on_show_cascade_guide(self) -> None:
         """Show the Cascade Guide dialog explaining cascade features."""
