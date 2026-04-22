@@ -255,6 +255,75 @@ for label in _pos_subset:
     check(len(cmd) == 2,
           f"2e-{label}: cmd length is 2 for positional (got {len(cmd)})")
 
+# ---------------------------------------------------------------------
+# 2f: metachar passthrough with separator="equals" (--flag=value)
+# ---------------------------------------------------------------------
+print("\n  --- 2f: separator=equals metachar passthrough ---")
+_s2f_schema = {
+    "_format": "scaffold_schema",
+    "tool": "s2f_equals_probe",
+    "binary": "echo",
+    "description": "",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "string",
+         "separator": "equals"},
+    ],
+}
+_s2f_data = scaffold.normalize_tool(_s2f_schema)
+_s2f_path = _write_schema("s2f_equals", _s2f_data)
+_s2f_win = scaffold.MainWindow()
+_s2f_form = _load_form(_s2f_win, _s2f_path)
+_s2f_metachars = [
+    "value; rm -rf /",
+    "value && ls",
+    "value | cat /etc/passwd",
+    "value `whoami`",
+    "value $(id)",
+    "value > /tmp/out",
+]
+_s2f_key = (_s2f_form.GLOBAL, "--flag")
+for _s2f_mc in _s2f_metachars:
+    _s2f_form.fields[_s2f_key]["widget"].setText(_s2f_mc)
+    app.processEvents()
+    _s2f_cmd, _ = _s2f_form.build_command()
+    # The value must appear joined to the flag with '=' and NOT split
+    # through shell interpretation. Since build_command returns a list
+    # of args for QProcess (no shell), each arg is a literal string.
+    _s2f_joined = f"--flag={_s2f_mc}"
+    check(_s2f_joined in _s2f_cmd,
+          f"2f: separator=equals preserves metachars literally in --flag={_s2f_mc!r}")
+
+# ---------------------------------------------------------------------
+# 2g: metachar passthrough with separator="none" (-Dkey=value shape)
+# ---------------------------------------------------------------------
+print("\n  --- 2g: separator=none metachar passthrough ---")
+_s2g_schema = {
+    "_format": "scaffold_schema",
+    "tool": "s2g_none_probe",
+    "binary": "echo",
+    "description": "",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {"name": "Define", "flag": "-D", "type": "string",
+         "separator": "none"},
+    ],
+}
+_s2g_data = scaffold.normalize_tool(_s2g_schema)
+_s2g_path = _write_schema("s2g_none", _s2g_data)
+_s2g_win = scaffold.MainWindow()
+_s2g_form = _load_form(_s2g_win, _s2g_path)
+_s2g_key = (_s2g_form.GLOBAL, "-D")
+for _s2g_mc in _s2f_metachars:
+    _s2g_form.fields[_s2g_key]["widget"].setText(_s2g_mc)
+    app.processEvents()
+    _s2g_cmd, _ = _s2g_form.build_command()
+    _s2g_joined = f"-D{_s2g_mc}"
+    check(_s2g_joined in _s2g_cmd,
+          f"2g: separator=none preserves metachars literally in -D{_s2g_mc!r}")
+
 # =====================================================================
 print("\n=== SECTION 3: Binary Field Validation Hardening ===")
 # =====================================================================

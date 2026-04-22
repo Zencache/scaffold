@@ -25601,6 +25601,68 @@ check(len(_s195_at_limit_errs) == 0,
 
 
 # =====================================================================
+# Section 196 — display_group non-string validation guard
+# =====================================================================
+print("\n=== SECTION 196: display_group non-string validation guard ===")
+
+# 196a: display_group with integer value is rejected by validate_tool
+_s196_bad_int = {
+    "tool": "s196_bad_int",
+    "binary": "echo",
+    "description": "",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [
+        {"name": "Flag", "flag": "--flag", "type": "boolean",
+         "display_group": 123},
+    ],
+}
+_s196_errs_int = scaffold.validate_tool(_s196_bad_int)
+check(len(_s196_errs_int) > 0,
+      f"196a: display_group as int is rejected (errs: {_s196_errs_int})")
+
+# 196b: display_group with list value is rejected
+_s196_bad_list = dict(_s196_bad_int)
+_s196_bad_list["arguments"] = [
+    {"name": "Flag", "flag": "--flag", "type": "boolean",
+     "display_group": ["nested"]},
+]
+_s196_errs_list = scaffold.validate_tool(_s196_bad_list)
+check(len(_s196_errs_list) > 0,
+      f"196b: display_group as list is rejected (errs: {_s196_errs_list})")
+
+# 196c: display_group with dict value is rejected
+_s196_bad_dict = dict(_s196_bad_int)
+_s196_bad_dict["arguments"] = [
+    {"name": "Flag", "flag": "--flag", "type": "boolean",
+     "display_group": {"nested": "dict"}},
+]
+_s196_errs_dict = scaffold.validate_tool(_s196_bad_dict)
+check(len(_s196_errs_dict) > 0,
+      f"196c: display_group as dict is rejected (errs: {_s196_errs_dict})")
+
+# 196d: display_group with valid string is accepted
+_s196_good = dict(_s196_bad_int)
+_s196_good["arguments"] = [
+    {"name": "Flag", "flag": "--flag", "type": "boolean",
+     "display_group": "My Group"},
+]
+_s196_errs_good = scaffold.validate_tool(_s196_good)
+check(len(_s196_errs_good) == 0,
+      f"196d: display_group as string is accepted (errs: {_s196_errs_good})")
+
+# 196e: display_group=None (unset) is accepted
+_s196_none = dict(_s196_bad_int)
+_s196_none["arguments"] = [
+    {"name": "Flag", "flag": "--flag", "type": "boolean",
+     "display_group": None},
+]
+_s196_errs_none = scaffold.validate_tool(_s196_none)
+check(len(_s196_errs_none) == 0,
+      f"196e: display_group=None is accepted (errs: {_s196_errs_none})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
