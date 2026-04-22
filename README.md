@@ -4,7 +4,7 @@ Scaffold — Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-10%2C300%2B-informational)
-![Tests](https://img.shields.io/badge/tests-3%2C179%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3%2C187%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
 ![Security Tests](https://img.shields.io/badge/security%20tests-231%20assertions-critical)
 ![No Shell](https://img.shields.io/badge/shell%20invocation-never-critical)
@@ -377,7 +377,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,179 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,187 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through multi-part review: cleanup, error handling audit, performance profiling, and linting
 5. **Iteration, not generation** — most features took multiple rounds of build-test-fix. The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging
