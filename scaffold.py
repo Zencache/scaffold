@@ -1002,6 +1002,7 @@ def apply_theme(dark: bool) -> None:
         app.setStyleSheet(
             # Menu bar and menus
             f"QMenuBar {{ background-color: {C['widget']}; color: {C['text']}; }}"
+            f"QMenuBar::item {{ background: transparent; padding: 4px 10px; }}"
             f"QMenuBar::item:selected {{ background-color: {C['selection']}; }}"
             f"QMenu {{ background-color: {C['widget']}; color: {C['text']};"
             f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
