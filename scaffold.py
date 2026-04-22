@@ -77,6 +77,20 @@ def _sanitize_filename_component(name: str) -> str:
     return safe
 
 
+def _browse_file(line_edit: "QLineEdit", parent: "QWidget | None" = None) -> None:
+    """Open a file-picker dialog; on accept, set the selected path into line_edit."""
+    path, _ = QFileDialog.getOpenFileName(parent, "Select File")
+    if path:
+        line_edit.setText(path)
+
+
+def _browse_directory(line_edit: "QLineEdit", parent: "QWidget | None" = None) -> None:
+    """Open a directory-picker dialog; on accept, set the selected path into line_edit."""
+    path = QFileDialog.getExistingDirectory(parent, "Select Directory")
+    if path:
+        line_edit.setText(path)
+
+
 ARG_DEFAULTS = {
     "short_flag": None,
     "description": "",
@@ -1788,7 +1802,7 @@ class ToolForm(QWidget):
             if arg["description"]:
                 line.setPlaceholderText(arg["description"])
             btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, le=line: self._browse_file(le))
+            btn.clicked.connect(lambda checked, le=line: _browse_file(le, self))
             layout.addWidget(line, 1)
             layout.addWidget(btn)
             line.textChanged.connect(lambda _: self.command_changed.emit())
@@ -1804,7 +1818,7 @@ class ToolForm(QWidget):
             if arg["description"]:
                 line.setPlaceholderText(arg["description"])
             btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, le=line: self._browse_directory(le))
+            btn.clicked.connect(lambda checked, le=line: _browse_directory(le, self))
             layout.addWidget(line, 1)
             layout.addWidget(btn)
             line.textChanged.connect(lambda _: self.command_changed.emit())
@@ -1843,22 +1857,6 @@ class ToolForm(QWidget):
         if arg.get("validation"):
             lines.append(f"Validation: {_esc(arg['validation'])}")
         return "<p>" + "<br>".join(lines) + "</p>"
-
-    # ------------------------------------------------------------------
-    # Browse dialogs
-    # ------------------------------------------------------------------
-
-    def _browse_file(self, line_edit: QLineEdit) -> None:
-        """Open a file-picker dialog and write the chosen path into line_edit."""
-        path, _ = QFileDialog.getOpenFileName(self, "Select File")
-        if path:
-            line_edit.setText(path)
-
-    def _browse_directory(self, line_edit: QLineEdit) -> None:
-        """Open a directory-picker dialog and write the chosen path into line_edit."""
-        path = QFileDialog.getExistingDirectory(self, "Select Directory")
-        if path:
-            line_edit.setText(path)
 
     # ------------------------------------------------------------------
     # Validation
@@ -5002,9 +5000,9 @@ class CascadeVariableDialog(QDialog):
             h.addWidget(le)
             btn = QPushButton("Browse...")
             if type_hint == "file":
-                btn.clicked.connect(lambda _, edit=le: self._browse_file(edit))
+                btn.clicked.connect(lambda _, edit=le: _browse_file(edit, self))
             else:
-                btn.clicked.connect(lambda _, edit=le: self._browse_directory(edit))
+                btn.clicked.connect(lambda _, edit=le: _browse_directory(edit, self))
             h.addWidget(btn)
             self._inputs[flag] = le
             return container
@@ -5015,18 +5013,6 @@ class CascadeVariableDialog(QDialog):
             w.setPlaceholderText(description)
         self._inputs[flag] = w
         return w
-
-    # -- browse helpers -----------------------------------------------------
-
-    def _browse_file(self, line_edit: QLineEdit) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select File")
-        if path:
-            line_edit.setText(path)
-
-    def _browse_directory(self, line_edit: QLineEdit) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Directory")
-        if path:
-            line_edit.setText(path)
 
     # -- accept / validate --------------------------------------------------
 
