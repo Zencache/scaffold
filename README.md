@@ -19,6 +19,8 @@ No shell invocation, by design. Every command runs through PySide6's QProcess wi
 
 Not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
+Tools don't have to be on your system PATH either. Add one or more custom directories via File > Custom PATH Directories and Scaffold will search them for binaries — useful for unpacked release archives, portable script collections, or per-project tool folders. Custom directories are used for both the tool picker's installed/not-installed detection and for process execution, so a binary resolved from a custom directory runs identically to one on the system PATH. Settings persist across sessions, and in portable mode they're stored in scaffold.ini alongside the app.
+
 Presets save the work of reconstructing complex commands. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
 
 Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same QProcess pipeline. Cascades can be saved and shared. An experimental LLM-assisted cascade generation workflow is also available, using a preconfigured project with persistent schema context.
