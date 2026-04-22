@@ -6,8 +6,9 @@ Scaffold — Your CLI Tools, but with Buttons
 ![Lines of Code](https://img.shields.io/badge/lines-10%2C300%2B-informational)
 ![Tests](https://img.shields.io/badge/tests-3%2C125%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
+![Security Tests](https://img.shields.io/badge/security%20tests-231%20assertions-critical)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
-![No Shell](https://img.shields.io/badge/shell%3DTrue-never%20%28231%20security%20tests%29-critical)
+![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
 
