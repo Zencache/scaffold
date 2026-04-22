@@ -24889,6 +24889,87 @@ check(_s189_defensive_count >= 9,
 
 
 # =====================================================================
+# Section 190 — _sanitize_filename_component regression guards
+# =====================================================================
+print("\n=== SECTION 190: _sanitize_filename_component regression guards ===")
+
+# 190a: helper exists at module scope
+check(hasattr(scaffold, "_sanitize_filename_component"),
+      "190a: _sanitize_filename_component exists at module scope")
+check(callable(getattr(scaffold, "_sanitize_filename_component", None)),
+      "190a: _sanitize_filename_component is callable")
+
+# 190b: canonical transformations
+_s190_cases = [
+    # (input, expected output)
+    ("simple_name",           "simple_name"),
+    ("name with spaces",      "name_with_spaces"),
+    ("name-with-dashes",      "name-with-dashes"),
+    ("name.with.dots",        "name_with_dots"),          # dots stripped
+    (".hidden",               "hidden"),                  # leading dot + strip
+    ("trailing.",             "trailing"),                # trailing dot + strip
+    ("a.b.c.d.e",             "a_b_c_d_e"),               # multi-dot
+    ("Name (Paren)",          "Name__Paren"),             # parens become _
+    ("  leading spaces",      "leading_spaces"),          # leading ws collapsed + stripped
+    ("trailing spaces  ",     "trailing_spaces"),         # trailing ws collapsed + stripped
+    ("multi   spaces",        "multi_spaces"),            # \s+ collapsed
+    ("slash/not/ok",          "slash_not_ok"),            # slash becomes _
+    ("",                      ""),                        # empty input → empty output
+    ("...",                   ""),                        # all-punct → empty
+    ("unicode_é_ok",          "unicode_é_ok"),            # \w includes unicode
+]
+for _s190_inp, _s190_expected in _s190_cases:
+    _s190_got = scaffold._sanitize_filename_component(_s190_inp)
+    check(_s190_got == _s190_expected,
+          f"190b: sanitize({_s190_inp!r}) == {_s190_expected!r} (got {_s190_got!r})")
+
+# 190c: all four call sites now route through the helper.
+# Grep scaffold.py: the old two-step pattern should appear ONLY inside
+# the helper itself, not at any caller.
+_s190_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+_s190_raw_pattern = r"re.sub(r'[^\w\- ]', '_', "
+_s190_raw_count = _s190_src.count(_s190_raw_pattern)
+check(_s190_raw_count == 1,
+      f"190c: raw sanitize regex appears exactly once (in helper); got {_s190_raw_count}")
+
+# 190d: the dot-preserving variant is gone entirely.
+_s190_dot_pattern = r"[^\w\-. ]"
+_s190_dot_count = _s190_src.count(_s190_dot_pattern)
+check(_s190_dot_count == 0,
+      f"190d: dot-preserving sanitize pattern is gone; got {_s190_dot_count}")
+
+# 190e: _recovery_file_path for a dotted tool name now produces a clean
+# filename (the latent bug fix). Build a MainWindow, stub data with a
+# dotted tool, call the path helper.
+_s190_win = scaffold.MainWindow()
+app.processEvents()
+_s190_win.data = {"tool": "foo.bar.baz", "fields": {}}
+_s190_path = _s190_win._recovery_file_path()
+check(_s190_path is not None,
+      "190e: _recovery_file_path returns a path for a dotted tool name")
+check(".bar." not in _s190_path.name and ".baz." not in _s190_path.name,
+      f"190e: recovery filename does not preserve mid-name dots (got {_s190_path.name})")
+check(_s190_path.name.endswith(".json"),
+      f"190e: recovery filename ends with .json (got {_s190_path.name})")
+check("foo_bar_baz" in _s190_path.name,
+      f"190e: recovery filename contains sanitized form 'foo_bar_baz' (got {_s190_path.name})")
+_s190_win.close()
+_s190_win.deleteLater()
+app.processEvents()
+
+# 190f: _recovery_file_path still returns None when data is None
+# (guard against accidental behavior change in the None branch).
+_s190_win2 = scaffold.MainWindow()
+app.processEvents()
+_s190_win2.data = None
+check(_s190_win2._recovery_file_path() is None,
+      "190f: _recovery_file_path returns None when data is None")
+_s190_win2.close()
+_s190_win2.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
