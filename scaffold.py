@@ -1732,44 +1732,10 @@ class ToolForm(QWidget):
             w.textChanged.connect(lambda: self.command_changed.emit())
 
         elif t == "integer":
-            w = QSpinBox()
-            w.setRange(-SPINBOX_RANGE, SPINBOX_RANGE)
-            if arg["default"] is not None:
-                w.setValue(int(arg["default"]))
-            else:
-                w.setRange(-1, SPINBOX_RANGE)
-                w.setValue(-1)
-                w.setSpecialValueText(" ")
-            if arg.get("min") is not None:
-                if arg["default"] is None:
-                    # Sentinel is one below the schema min
-                    w.setMinimum(arg["min"] - 1)
-                    w.setValue(arg["min"] - 1)
-                else:
-                    w.setMinimum(int(arg["min"]))
-            if arg.get("max") is not None:
-                w.setMaximum(int(arg["max"]))
-            w.valueChanged.connect(lambda _: self.command_changed.emit())
+            w = self._build_numeric_spinbox(arg, integer_type=True)
 
         elif t == "float":
-            w = QDoubleSpinBox()
-            w.setRange(-SPINBOX_RANGE, SPINBOX_RANGE)
-            w.setDecimals(2)
-            if arg["default"] is not None:
-                w.setValue(float(arg["default"]))
-            else:
-                w.setRange(-1.0, SPINBOX_RANGE)
-                w.setValue(-1.0)
-                w.setSpecialValueText(" ")
-            if arg.get("min") is not None:
-                if arg["default"] is None:
-                    w.setMinimum(float(arg["min"]) - 1.0)
-                    w.setValue(float(arg["min"]) - 1.0)
-                else:
-                    w.setMinimum(float(arg["min"]))
-            if arg.get("max") is not None:
-                w.setMaximum(float(arg["max"]))
-            w.valueChanged.connect(lambda _: self.command_changed.emit())
+            w = self._build_numeric_spinbox(arg, integer_type=False)
 
         elif t == "enum":
             w = QComboBox()
@@ -1794,36 +1760,10 @@ class ToolForm(QWidget):
             w.itemChanged.connect(lambda: self.command_changed.emit())
 
         elif t == "file":
-            w = QWidget()
-            layout = QHBoxLayout(w)
-            layout.setContentsMargins(0, 0, 0, 0)
-            line = QLineEdit()
-            if arg["default"] is not None:
-                line.setText(str(arg["default"]))
-            if arg["description"]:
-                line.setPlaceholderText(arg["description"])
-            btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, le=line: _browse_file(le, self))
-            layout.addWidget(line, 1)
-            layout.addWidget(btn)
-            line.textChanged.connect(lambda _: self.command_changed.emit())
-            w._line_edit = line
+            w = self._build_path_widget(arg, pick_directory=False)
 
         elif t == "directory":
-            w = QWidget()
-            layout = QHBoxLayout(w)
-            layout.setContentsMargins(0, 0, 0, 0)
-            line = QLineEdit()
-            if arg["default"] is not None:
-                line.setText(str(arg["default"]))
-            if arg["description"]:
-                line.setPlaceholderText(arg["description"])
-            btn = QPushButton("Browse...")
-            btn.clicked.connect(lambda checked, le=line: _browse_directory(le, self))
-            layout.addWidget(line, 1)
-            layout.addWidget(btn)
-            line.textChanged.connect(lambda _: self.command_changed.emit())
-            w._line_edit = line
+            w = self._build_path_widget(arg, pick_directory=True)
 
         else:
             w = QLabel(f"[unsupported type: {t}]")
@@ -1831,6 +1771,63 @@ class ToolForm(QWidget):
         if arg["description"]:
             w.setToolTip(self._build_tooltip(arg))
 
+        return w
+
+    def _build_numeric_spinbox(self, arg: dict, *, integer_type: bool) -> "QAbstractSpinBox":
+        """Build a QSpinBox (integer) or QDoubleSpinBox (float) from a numeric arg.
+
+        The two types share all structural setup — range, sentinel handling for
+        null defaults, min/max clamping, valueChanged wiring. The only behavior
+        differences are (1) the widget class, (2) the numeric cast, and (3)
+        setDecimals(2) for floats. This helper consolidates both paths.
+        """
+        cls = QSpinBox if integer_type else QDoubleSpinBox
+        cast = int if integer_type else float
+        sentinel = -1 if integer_type else -1.0
+        w = cls()
+        w.setRange(-SPINBOX_RANGE, SPINBOX_RANGE)
+        if not integer_type:
+            w.setDecimals(2)
+        if arg["default"] is not None:
+            w.setValue(cast(arg["default"]))
+        else:
+            w.setRange(sentinel, SPINBOX_RANGE)
+            w.setValue(sentinel)
+            w.setSpecialValueText(" ")
+        if arg.get("min") is not None:
+            if arg["default"] is None:
+                # Sentinel is one below the schema min
+                w.setMinimum(cast(arg["min"]) - cast(1))
+                w.setValue(cast(arg["min"]) - cast(1))
+            else:
+                w.setMinimum(cast(arg["min"]))
+        if arg.get("max") is not None:
+            w.setMaximum(cast(arg["max"]))
+        w.valueChanged.connect(lambda _: self.command_changed.emit())
+        return w
+
+    def _build_path_widget(self, arg: dict, *, pick_directory: bool) -> "QWidget":
+        """Build a QWidget(QLineEdit + Browse button) for a file or directory arg.
+
+        Both path types share the full layout shape; the only difference is
+        which module-scope browse helper the button invokes. This helper
+        consolidates both paths.
+        """
+        browse_fn = _browse_directory if pick_directory else _browse_file
+        w = QWidget()
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        line = QLineEdit()
+        if arg["default"] is not None:
+            line.setText(str(arg["default"]))
+        if arg["description"]:
+            line.setPlaceholderText(arg["description"])
+        btn = QPushButton("Browse...")
+        btn.clicked.connect(lambda checked, le=line: browse_fn(le, self))
+        layout.addWidget(line, 1)
+        layout.addWidget(btn)
+        line.textChanged.connect(lambda _: self.command_changed.emit())
+        w._line_edit = line
         return w
 
     @staticmethod
