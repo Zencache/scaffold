@@ -64,6 +64,19 @@ def _user_id() -> str:
         return "default"
 
 
+def _sanitize_filename_component(name: str) -> str:
+    """Return a filename-safe version of name.
+
+    Non-word characters (except hyphens and spaces) are replaced with '_',
+    whitespace is collapsed to single underscores, and leading/trailing
+    underscores are stripped. Returns '' if nothing survives — callers
+    must treat that as an invalid-name signal.
+    """
+    safe = re.sub(r'[^\w\- ]', '_', name)
+    safe = re.sub(r'\s+', '_', safe).strip('_')
+    return safe
+
+
 ARG_DEFAULTS = {
     "short_flag": None,
     "description": "",
@@ -6722,8 +6735,7 @@ class CascadeSidebar(QDockWidget):
             return
         name = name.strip()
 
-        safe_name = re.sub(r'[^\w\- ]', '_', name)
-        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        safe_name = _sanitize_filename_component(name)
         if not safe_name:
             QMessageBox.warning(self, "Invalid Name", "The name is not valid after sanitizing.")
             return
@@ -6900,8 +6912,7 @@ class CascadeSidebar(QDockWidget):
                 return
 
         name = data.get("name", src.stem)
-        safe_name = re.sub(r'[^\w\- ]', '_', name)
-        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        safe_name = _sanitize_filename_component(name)
         if not safe_name:
             safe_name = src.stem
 
@@ -8850,7 +8861,7 @@ class MainWindow(QMainWindow):
         """Return the recovery file path for the current tool, or None."""
         if self.data is None:
             return None
-        safe_name = re.sub(r'[^\w\-. ]', '_', self.data["tool"])
+        safe_name = _sanitize_filename_component(self.data["tool"])
         return Path(tempfile.gettempdir()) / f"scaffold_recovery_{_user_id()}_{safe_name}.json"
 
     def _autosave_on_change(self) -> None:
@@ -9439,8 +9450,7 @@ class MainWindow(QMainWindow):
         name = name.strip()
 
         # Sanitize filename (match cascade save pattern)
-        safe_name = re.sub(r'[^\w\- ]', '_', name)
-        safe_name = re.sub(r'\s+', '_', safe_name).strip('_')
+        safe_name = _sanitize_filename_component(name)
         if not safe_name:
             QMessageBox.warning(self, "Invalid Name", "The name is not valid after sanitizing.")
             return
