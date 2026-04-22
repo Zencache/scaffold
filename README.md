@@ -4,40 +4,37 @@ Scaffold — Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-10%2C300%2B-informational)
-![Tests](https://img.shields.io/badge/tests-3%2C187%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3%2C112%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
-![Security Tests](https://img.shields.io/badge/security%20tests-231%20assertions-critical)
-![No Shell](https://img.shields.io/badge/shell%20invocation-never-critical)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
+![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
 ![Fully Offline](https://img.shields.io/badge/network-fully%20offline-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-purple)
 
 Stop memorizing flags. Start clicking them.
 
-Scaffold turns any CLI tool written in any language into a native point-and-click GUI with a clean overview of every command option. Works with any binary, public or internal, big or small. If it has docs, it works. Live syntax-colored command preview, output streaming and export, saved presets with import/export, and multi-tool cascade chaining with loops, stop-on-error, per-step delays, and variable injection between steps. Secure by design with a strict no-shell policy, all execution through PySide6's QProcess passing literal strings directly to the target binary, so no shell injection risk and it leaves no shell history. Add new tools in under a minute: paste the bundled schema prompt plus the tool's docs into any LLM, drop the returned JSON into the tools folder, done. Backed by a 3000+ test suite with 200+ tests dedicated to security. Runs in a single Python file by design. Simple. Powerful.
+Scaffold turns command-line tools into native desktop GUIs. Most CLIs that take flags and positional arguments can be described in a JSON schema — Scaffold reads the schema and builds the form. Every option becomes visible, typed, and clickable instead of memorized. Adding a new tool is usually a two-step process: paste the included schema prompt plus the tool's docs into an LLM, then drop the returned JSON into the `tools/` folder. This works well for most standard binaries, shell scripts, `.cmd` files, and Python scripts. Interactive prompts, full-screen TUIs, and unusual argument parsers are where it struggles — see [Limitations](#limitations).
 
-Secure and immune to shell injection by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (231 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing inputs as literal strings directly to the target binary so no shell is ever invoked, and it leaves no shell history behind. Scaffold streams command output live into its own panel, keeps a command history window for reviewing past runs, and lets you copy or export any output to a file.
+No shell invocation, by design. Every command runs through PySide6's QProcess with arguments passed as a list — no shell parsing, no string interpolation, no command string assembly. Shell metacharacters in schemas or user input are treated as literal strings because nothing ever interprets them as shell syntax. This isn't sanitization; it's the absence of an attack surface. A dedicated security test suite (231 assertions) covers the contract and you can run it yourself via `python test_security.py`. Output streams live into the app, the command history window records past runs, and any output can be copied or saved to disk.
 
-This works with any CLI tool, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
+This works for most CLI tools, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
-Presets and preset chains are what really make this powerful though. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation; describe what you want in plain English and drop the result into your presets folder.
+Presets and preset chains are what really make this powerful though. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
 
-Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables, all through the same secure QProcess pipeline. Cascades can also be saved and shared! *NEW EXPERIMENTAL* Now including a guide for generating cascades by using an LLM with persistent project files!
+Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline. Cascades can also be saved and shared! *NEW EXPERIMENTAL* Now including a guide for generating cascades by using an LLM with persistent project files!
 
-Under the hood, Scaffold generates interactive forms from simple JSON schema files complete with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
+Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
 
-Simple. Powerful. Secure by design. No telemetry, no network calls, no BS!
-
-*Note: all Scaffold versions released before 2.7.8 are under the MIT license. Scaffold versions after 2.8 are released under PolyForm Non-Commercial. For corporate licensing contact kev@gurutechnology.services
+Single Python file, one dependency (PySide6), no telemetry, no network calls, fully offline.
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold running an nmap schema" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (3,187 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (3,112 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
-> **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes through the same secure QProcess.
+> **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
 ---
 
@@ -76,9 +73,9 @@ To launch directly into a specific tool: `python scaffold.py tools/nmap.json`
 
 ## Features
 
-- **Works with any CLI tool** — JSON schema in, native GUI out
+- **Works with most CLI tools** — JSON schema in, native GUI out
 - **Presets** — save, name, reload, and share form configurations
-- **Immune to shell injection** — QProcess with list args, no shell
+- **No shell invocation** — QProcess with list args, arguments passed directly to the target binary
 - **Typed input constraints** — widgets validate values at entry
 - **LLM-powered schema generation** — paste SCHEMA_PROMPT.txt + docs, get a schema
 - **Syntax-colored command preview** — live preview with color-coded tokens
@@ -222,9 +219,9 @@ The security model has been reviewed across multiple LLM-assisted audit cycles.
 
 ## Detailed Features
 
-### Works with any CLI tool
+### Works with most CLI tools
 
-If a tool accepts flags and arguments, Scaffold can build a GUI for it. From simple utilities like `ping` to tools with hundreds of flags and nested subcommands like `curl` (271 arguments) or `ffmpeg` (123 arguments). Write a JSON schema — or have an LLM generate one from the tool's documentation — and Scaffold renders a native desktop form. No custom UI code needed.
+Most tools that accept flags and positional arguments can be described by a schema. From simple utilities like `ping` to tools with hundreds of flags and nested subcommands like `curl` (271 arguments) or `ffmpeg` (123 arguments). Write a JSON schema — or have an LLM generate one from the tool's documentation — and Scaffold renders a native desktop form. No custom UI code needed. What doesn't fit the model: interactive prompts that expect sequential stdin responses, full-screen TUIs that repaint the terminal, and tools whose behavior depends on stdin piping rather than flags.
 
 ### Presets
 
@@ -377,16 +374,16 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,187 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,112 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through multi-part review: cleanup, error handling audit, performance profiling, and linting
 5. **Iteration, not generation** — most features took multiple rounds of build-test-fix. The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging
 
 The author has 15 years of professional IT experience and holds certifications in cybersecurity, ethical hacking, penetration testing, and Python development — not a software developer by trade, but far from starting from zero. Claude Code is a useful tool, but a tool still needs someone behind it who knows what they're building and why.
 
-**Methodology: plain-English bug hunting.** Most bugs in recent releases were fixed the same way: first I describe in as much detail as possible what the bug behvaior is either in the logic or in the UI. Then we write a focused diagnostic prompt testing for the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first before writing any fixes. This can be very time consuming, but ships nearly perfect working code 9/10 times. Its rare I have to go through a second diagnostic pass.
+**Methodology: plain-English bug hunting.** Most bugs in recent releases were found the same way: first I describe in as much detail as possible what the bug is either in the logic or in the UI. Then we write a focused diagnostic prompt describing the suspected issue, run it against the full codebase in a fresh context window, collect measurements and code traces, then write a targeted fix grounded in confirmed findings. No fix prompt is written from assumption — every non-obvious bug gets a diagnostic pass first before writing any fixes.
 
-**Multi-model distillation.** External audits from Copilot, ChatGPT, and other models surface candidate findings, which are reviewed by the author and fed back into Claude for architectural review and final judgment on what's real, what's noise, and what's over-engineering.
+**Multi-model distillation.** External audits from Copilot, ChatGPT, and other models surface candidate findings, which are fed back into Claude Opus Extended Thinking for architectural review and final judgment on what's real, what's noise, and what's over-engineering.
 
 ---
 
