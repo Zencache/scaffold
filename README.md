@@ -20,11 +20,11 @@ Secure and immune to shell injection by design. Scaffold enforces a strict globa
 
 This works with any CLI tool, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
-Presets and preset chains are what really make this powerful though. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation — describe what you want in plain English and drop the result into your presets folder.
+Presets and preset chains are what really make this powerful though. Save your perfectly-tuned nmap recon scan, your go-to ffmpeg encoding pipeline, or your favorite hashcat attack config as a named preset with a description. Save it once, reload it anytime. Share preset files with your team. Don't want to build them by hand? Use the built-in LLM preset generation; describe what you want in plain English and drop the result into your presets folder.
 
-Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables — all through the same secure QProcess pipeline. Cascades can also be saved and shared! *NEW EXPERIMENTAL* Now including a guide for generating cascades by using an LLM with persistent project files!
+Need to chain multiple tools together? The cascade system lines up sequential tool runs with per-step delays, loop mode, and runtime variables, all through the same secure QProcess pipeline. Cascades can also be saved and shared! *NEW EXPERIMENTAL* Now including a guide for generating cascades by using an LLM with persistent project files!
 
-Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
+Under the hood, Scaffold generates interactive forms from simple JSON schema files complete with dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
 
 Simple. Powerful. Secure by design. No telemetry, no network calls, no BS!
 
