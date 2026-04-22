@@ -13,7 +13,7 @@ Scaffold — Your CLI Tools, but with Buttons
 
 Stop memorizing flags. Start clicking them.
 
-Scaffold turns any CLI tool in any language into a native point-and-click GUI with a clean overview of every command option. Works with any binary, public or internal, big or small — if it has docs, it works. Add new tools in under a minute: paste the bundled schema prompt plus the tool's docs into any LLM, drop the returned JSON into the tools folder, done. Live syntax-colored command preview, output streaming and export, saved presets with import/export, and multi-tool cascade chaining with loops, stop-on-error, per-step delays, and variable injection between steps. Secure by design — strict no-shell policy, all execution through PySide6's QProcess passing literal strings directly to the target binary, so no shell injection risk and no shell history. Backed by a 2900+ test suite with 150+ tests dedicated to security. Runs in a single Python file by design. Simple. Powerful.
+Scaffold turns any CLI tool written in any language into a native point-and-click GUI with a clean overview of every command option. Works with any binary, public or internal, big or small — if it has docs, it works. Add new tools in under a minute: paste the bundled schema prompt plus the tool's docs into any LLM, drop the returned JSON into the tools folder, done. Live syntax-colored command preview, output streaming and export, saved presets with import/export, and multi-tool cascade chaining with loops, stop-on-error, per-step delays, and variable injection between steps. Secure by design — strict no-shell policy, all execution through PySide6's QProcess passing literal strings directly to the target binary, so no shell injection risk and no shell history. Backed by a 3000+ test suite with 200+ tests dedicated to security. Runs in a single Python file by design. Simple. Powerful.
 
 Secure and immune to shell injection by design. Scaffold enforces a strict global NO SHELL policy, verified by a dedicated security test suite (231 assertions) you can run yourself anytime. All execution goes through PySide6's QProcess, passing inputs as literal strings directly to the target binary so no shell is ever invoked, and it leaves no shell history behind. Scaffold streams command output live into its own panel, keeps a command history window for reviewing past runs, and lets you copy or export any output to a file.
 
@@ -25,7 +25,7 @@ Need to chain multiple tools together? The cascade system lines up sequential to
 
 Under the hood, Scaffold generates interactive forms from simple JSON schema files — dropdowns, checkboxes, file pickers, and a live syntax-colored command preview. Hand a tool's man page to an LLM with the bundled SCHEMA_PROMPT.txt and get a working schema back. Collapsible sections, field search, and display groups keep large forms manageable.
 
-Simple. Powerful. Secure by design. No telemetry, no network calls, no BS.
+Simple. Powerful. Secure by design. No telemetry, no network calls, no BS!
 
 <p>
   <img src="nmap%20example.png" alt="Scaffold running an nmap schema" width="48%">
