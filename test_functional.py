@@ -24970,6 +24970,64 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 191 — module-scope _browse_file / _browse_directory guards
+# =====================================================================
+print("\n=== SECTION 191: module-scope _browse_file / _browse_directory guards ===")
+
+# 191a: module-scope helpers exist and are callable
+check(hasattr(scaffold, "_browse_file"),
+      "191a: _browse_file exists at module scope")
+check(callable(getattr(scaffold, "_browse_file", None)),
+      "191a: _browse_file is callable")
+check(hasattr(scaffold, "_browse_directory"),
+      "191a: _browse_directory exists at module scope")
+check(callable(getattr(scaffold, "_browse_directory", None)),
+      "191a: _browse_directory is callable")
+
+# 191b: helpers accept (line_edit, parent=None) signature
+import inspect as _s191_inspect
+_s191_file_sig = _s191_inspect.signature(scaffold._browse_file)
+_s191_dir_sig = _s191_inspect.signature(scaffold._browse_directory)
+_s191_file_params = list(_s191_file_sig.parameters.keys())
+_s191_dir_params = list(_s191_dir_sig.parameters.keys())
+check(_s191_file_params == ["line_edit", "parent"],
+      f"191b: _browse_file signature is (line_edit, parent) (got {_s191_file_params})")
+check(_s191_dir_params == ["line_edit", "parent"],
+      f"191b: _browse_directory signature is (line_edit, parent) (got {_s191_dir_params})")
+check(_s191_file_sig.parameters["parent"].default is None,
+      "191b: _browse_file parent defaults to None")
+check(_s191_dir_sig.parameters["parent"].default is None,
+      "191b: _browse_directory parent defaults to None")
+
+# 191c: ToolForm and CascadeVariableDialog no longer define these methods
+check(not hasattr(scaffold.ToolForm, "_browse_file"),
+      "191c: ToolForm._browse_file no longer exists (extracted to module)")
+check(not hasattr(scaffold.ToolForm, "_browse_directory"),
+      "191c: ToolForm._browse_directory no longer exists")
+check(not hasattr(scaffold.CascadeVariableDialog, "_browse_file"),
+      "191c: CascadeVariableDialog._browse_file no longer exists")
+check(not hasattr(scaffold.CascadeVariableDialog, "_browse_directory"),
+      "191c: CascadeVariableDialog._browse_directory no longer exists")
+
+# 191d: source-level — the exact method-def patterns should be gone
+_s191_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+check(_s191_src.count("    def _browse_file(") == 0,
+      "191d: no indented `def _browse_file(` remains (all extracted)")
+check(_s191_src.count("    def _browse_directory(") == 0,
+      "191d: no indented `def _browse_directory(` remains")
+check(_s191_src.count("def _browse_file(") == 1,
+      "191d: exactly one module-scope `def _browse_file(`")
+check(_s191_src.count("def _browse_directory(") == 1,
+      "191d: exactly one module-scope `def _browse_directory(`")
+
+# 191e: no caller still uses self._browse_file / self._browse_directory
+check(_s191_src.count("self._browse_file(") == 0,
+      "191e: no `self._browse_file(` call sites remain")
+check(_s191_src.count("self._browse_directory(") == 0,
+      "191e: no `self._browse_directory(` call sites remain")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
