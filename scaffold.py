@@ -8253,6 +8253,8 @@ class MainWindow(QMainWindow):
         act_shortcuts = help_menu.addAction("Keyboard Shortcuts")
         act_shortcuts.triggered.connect(self._on_keyboard_shortcuts)
 
+        self.menuBar().setStyleSheet("QMenu::item { padding: 4px 28px 4px 20px; }")
+
     def _sync_theme_checks(self) -> None:
         """Update View > Theme check marks to match the stored preference."""
         pref = self.settings.value("appearance/theme", "system")
