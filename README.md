@@ -28,6 +28,8 @@ Under the hood, Scaffold generates interactive forms from simple JSON schema fil
 
 Simple. Powerful. Secure by design. No telemetry, no network calls, no BS!
 
+*Note: all Scaffold versions released before 2.7.8 are under the MIT license. Scaffold versions after 2.8 are released under PolyForm Non-Commercial. For corporate licensing contact kev@gurutechnology.services
+
 <p>
   <img src="nmap%20example.png" alt="Scaffold running an nmap schema" width="48%">
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
