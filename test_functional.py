@@ -25028,6 +25028,83 @@ check(_s191_src.count("self._browse_directory(") == 0,
 
 
 # =====================================================================
+# Section 192 — User Guide dialog (Help menu)
+# =====================================================================
+print("\n=== SECTION 192: User Guide dialog (Help menu) ===")
+
+_s192_tool = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s192_w = scaffold.MainWindow(tool_path=_s192_tool)
+_s192_w.show()
+app.processEvents()
+
+# 192a: Help menu contains a "User Guide" action
+_s192_help_menu = None
+for _act in _s192_w.menuBar().actions():
+    if _act.menu() and _act.text() == "Help":
+        _s192_help_menu = _act.menu()
+        break
+
+check(_s192_help_menu is not None, "192a: Help menu exists")
+
+_s192_help_action_refs = list(_s192_help_menu.actions()) if _s192_help_menu else []
+_s192_help_action_names = [a.text() for a in _s192_help_action_refs]
+_s192_user_guide_action = None
+for _i, _t in enumerate(_s192_help_action_names):
+    if _t == "User Guide":
+        _s192_user_guide_action = _s192_help_action_refs[_i]
+        break
+
+check(_s192_user_guide_action is not None, "192b: 'User Guide' action exists in Help menu")
+
+# 192c: Clicking it opens a visible QDialog (not the main window)
+_s192_guide_dialog = None
+_s192_guide_text = ""
+if _s192_user_guide_action:
+    def _s192_check_guide():
+        global _s192_guide_dialog, _s192_guide_text
+        for w in QApplication.topLevelWidgets():
+            if isinstance(w, QDialog) and w.isVisible() and w is not _s192_w:
+                _s192_guide_dialog = w
+                for lbl in w.findChildren(QLabel):
+                    _s192_guide_text += lbl.text() + " "
+                w.close()
+                break
+    QTimer.singleShot(200, _s192_check_guide)
+    _s192_user_guide_action.trigger()
+    app.processEvents()
+    _s192_deadline = time.time() + 2
+    while time.time() < _s192_deadline:
+        app.processEvents()
+        if _s192_guide_dialog is not None:
+            break
+        time.sleep(0.05)
+
+    check(_s192_guide_dialog is not None, "192c: User Guide opens a QDialog distinct from main window")
+
+    _s192_gt = _s192_guide_text.lower()
+    check("schema" in _s192_gt, "192d: Guide text mentions 'schema'")
+    check("preset" in _s192_gt, "192e: Guide text mentions 'preset'")
+    check("history" in _s192_gt, "192f: Guide text mentions 'history'")
+    check("PROMPT.txt" in _s192_guide_text, "192g: Guide text mentions 'PROMPT.txt'")
+
+    # 192h: Dialog closed cleanly (close() was called inside the timer; verify it is no longer visible)
+    app.processEvents()
+    check(not _s192_guide_dialog.isVisible(), "192h: Dialog closes cleanly")
+else:
+    for _label, _msg in (
+        ("192c", "User Guide opens a QDialog"),
+        ("192d", "Guide text mentions 'schema'"),
+        ("192e", "Guide text mentions 'preset'"),
+        ("192f", "Guide text mentions 'history'"),
+        ("192g", "Guide text mentions 'PROMPT.txt'"),
+        ("192h", "Dialog closes cleanly"),
+    ):
+        check(False, f"{_label}: (no User Guide action found) {_msg}")
+
+_s192_w.close(); _s192_w.deleteLater(); app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
