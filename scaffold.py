@@ -2955,6 +2955,37 @@ def _clamp_for_last_column(widget, logical_index: int, old_size: int, new_size: 
         header.blockSignals(False)
 
 
+def _wire_last_column(
+    owner,
+    table,
+    *,
+    extra=None,
+) -> None:
+    """Wire a table's sectionResized signal to clamp the last column.
+
+    Parameters:
+        owner: the widget/dialog that owns `table`; used only to keep the
+               connection alive for its lifetime.
+        table: the QTableWidget / QTreeWidget / QTreeView whose header's
+               sectionResized signal should be connected.
+        extra: optional callback of shape (idx, old, new) -> None called
+               AFTER _clamp_for_last_column on every resize. Used for
+               call sites that need additional per-column logic (e.g.,
+               minimum/maximum bounds on a specific column).
+    """
+    if hasattr(table, "horizontalHeader"):
+        header = table.horizontalHeader()
+    else:
+        header = table.header()
+
+    def _handler(idx: int, old: int, new: int) -> None:
+        _clamp_for_last_column(table, idx, old, new)
+        if extra is not None:
+            extra(idx, old, new)
+
+    header.sectionResized.connect(_handler)
+
+
 # ---------------------------------------------------------------------------
 # Tool picker
 # ---------------------------------------------------------------------------
@@ -3001,7 +3032,7 @@ class ToolPicker(QWidget):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self.table)
         _orig_resize = self.table.resizeEvent
         self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
@@ -3206,10 +3237,6 @@ class ToolPicker(QWidget):
         if event.type() == QEvent.Type.PaletteChange:
             self._update_header_colors()
         super().changeEvent(event)
-
-    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
-        """Redistribute space so the last column fills remaining viewport width."""
-        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_filter(self, text: str) -> None:
         """Hide table rows that don't match the search text or are in collapsed folders."""
@@ -3519,7 +3546,7 @@ class PresetPicker(QDialog):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self.table)
         _orig_resize = self.table.resizeEvent
         self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
@@ -3648,10 +3675,6 @@ class PresetPicker(QDialog):
         self.edit_desc_btn.setEnabled(False)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(False)
-
-    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
-        """Redistribute space so the last column fills remaining viewport width."""
-        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -3887,7 +3910,7 @@ class HistoryDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setColumnWidth(0, 50)
-        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self.table)
         _orig_resize = self.table.resizeEvent
         self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
@@ -3986,10 +4009,6 @@ class HistoryDialog(QDialog):
         self.search_bar.setVisible(not empty)
         self.empty_label.setVisible(empty)
         self.clear_btn.setEnabled(not empty)
-
-    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
-        """Redistribute space so the last column fills remaining viewport width."""
-        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_selection(self) -> None:
         """Enable/disable Restore button based on selection."""
@@ -4103,7 +4122,7 @@ class CascadeHistoryDialog(QDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.tree.setColumnWidth(3, 60)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        header.sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self.tree)
         _orig_resize = self.tree.resizeEvent
         self.tree.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.tree))
         layout.addWidget(self.tree, 1)
@@ -4271,12 +4290,6 @@ class CascadeHistoryDialog(QDialog):
         self.clear_btn.setEnabled(not empty)
         self.export_all_btn.setEnabled(not empty)
         self._on_selection()
-
-    # ----- column resizing --------------------------------------------------
-
-    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
-        """Redistribute space so the last column fills remaining viewport width."""
-        _clamp_for_last_column(self.tree, logical_index, old_size, new_size)
 
     # ----- selection & enablement ------------------------------------------
 
@@ -4773,7 +4786,7 @@ class CascadeListDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self.table)
         _orig_resize = self.table.resizeEvent
         self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
@@ -4852,10 +4865,6 @@ class CascadeListDialog(QDialog):
         self.action_btn.setEnabled(False)
         if self.delete_btn:
             self.delete_btn.setEnabled(False)
-
-    def _on_section_resized(self, logical_index: int, old_size: int, new_size: int) -> None:
-        """Redistribute space so the last column fills remaining viewport width."""
-        _clamp_for_last_column(self.table, logical_index, old_size, new_size)
 
     def _on_selection(self) -> None:
         """Enable/disable buttons based on selection."""
@@ -5314,7 +5323,7 @@ class CascadeVariableDefinitionDialog(QDialog):
         header.resizeSection(0, 120)
         header.resizeSection(1, 160)
         header.resizeSection(2, 110)
-        header.sectionResized.connect(self._on_section_resized)
+        _wire_last_column(self, self._table, extra=self._enforce_flag_col_bounds)
         _orig_resize = self._table.resizeEvent
         self._table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self._table))
         self._table.verticalHeader().setVisible(False)
@@ -5381,15 +5390,15 @@ class CascadeVariableDefinitionDialog(QDialog):
         for row in rows:
             self._table.removeRow(row)
 
-    def _on_section_resized(self, idx: int, _old: int, new: int) -> None:
-        """Clamp columns to viewport and enforce Flag column width bounds."""
-        _clamp_for_last_column(self._table, idx, _old, new)
-        if idx == 1:
-            header = self._table.horizontalHeader()
-            if new < _FLAG_COL_MIN:
-                header.resizeSection(1, _FLAG_COL_MIN)
-            elif new > _FLAG_COL_MAX:
-                header.resizeSection(1, _FLAG_COL_MAX)
+    def _enforce_flag_col_bounds(self, idx: int, _old: int, new: int) -> None:
+        """Clamp the Flag column width to [_FLAG_COL_MIN, _FLAG_COL_MAX]."""
+        if idx != 1:
+            return
+        header = self._table.horizontalHeader()
+        if new < _FLAG_COL_MIN:
+            header.resizeSection(1, _FLAG_COL_MIN)
+        elif new > _FLAG_COL_MAX:
+            header.resizeSection(1, _FLAG_COL_MAX)
 
     # -- accept / validate --------------------------------------------------
 
