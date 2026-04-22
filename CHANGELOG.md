@@ -4,6 +4,32 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.10.10] — 2026-04-22
+
+Closes the v2.10.x cleanup arc. Eight coverage gaps surfaced by the 2026-04-20 deep code audit are now guarded against regression, and one validation helper's docstring is updated to document a subtle test-only contract.
+
+### Fixed
+- **Force-kill and timeout paths now have regression coverage.** The process-termination logic on the main window — SIGKILL escalation when a graceful stop is ignored, and the user-set timeout kill — was functionally working but completely untested. A silent regression in either path would have let runaway processes survive stop requests with no suite-level signal.
+- **Oversized recovery file handling is now verified.** The bounded-size guard on startup recovery existed in code but had no regression test, meaning a future refactor could have removed the size cap and let a corrupted or malicious recovery file crash the app at launch.
+- **Shipped-preset schema drift is now detected automatically.** Every default preset that carries a real schema hash is now cross-checked against the current hash of its tool schema on every test run. If a tool schema changes and a preset shipped against the old version isn't updated, the suite fails loudly instead of users hitting mysterious "flag not recognized" errors at load time. Presets using the `"00000000"` opt-out sentinel are respected as intentional skips.
+- **Meta-key and meta-value length rejection is now guarded.** `validate_preset`'s length caps existed but nothing in the suite exercised them; a future change that accidentally raised or removed those caps would have shipped silently.
+- **`display_group` non-string values are now rejected with a regression test.** The validation branch existed but was unreachable from any test, meaning a future simplification could have deleted it without the suite noticing.
+- **Metachar passthrough is now verified for `separator="equals"` and `separator="none"`.** Prior security coverage tested only the default `"space"` separator's handling of shell metacharacters; the two alternate join paths reach `build_command` through different logic and had no regression guard.
+- **Subcommand preset round-trips are now verified against real multi-subcommand schemas.** The subcommand-scoped key format (`sub_name:flag`) was only exercised by synthetic fixtures; the suite now loads docker_test schemas and openclaw, switches subcommands, sets values, serializes, re-applies, and verifies round-trip fidelity on real shipped schemas.
+
+### Changed
+- **`validate_preset`'s optional `tool_data=` argument is now documented as a test-only entrypoint.** Production callers omit this argument; its actual use is the shipped-presets cohort guard in `test_preset_validation.py §30`, which catches drift between newly-shipped default presets and their corresponding tool schemas. The docstring now says so plainly, so future cleanup work doesn't silently remove load-bearing validation infrastructure.
+
+#### Full suite results
+- **All 6 test suites pass: 3,304/3,304 assertions, 0 failures**
+  - Functional: 2,805/2,805 (+36)
+  - Security: 243/243 (+12)
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.9] — 2026-04-22
 
 Refactor release. Six different dialogs each had their own copy of the method that keeps a table's last column filling the available width when a user resizes other columns. All six now share a single helper, with an optional extension hook for the one dialog that needs additional column-width enforcement.
