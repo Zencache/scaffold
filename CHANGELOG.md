@@ -4,6 +4,26 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.10.9] — 2026-04-22
+
+Refactor release. Six different dialogs each had their own copy of the method that keeps a table's last column filling the available width when a user resizes other columns. All six now share a single helper, with an optional extension hook for the one dialog that needs additional column-width enforcement.
+
+### Changed
+- **Last-column width management is now handled in one place.** Six dialogs (tool picker, preset picker, history, cascade history, cascade list, cascade variable definitions) each defined a small wrapper method that redistributed table space when a column was resized. The wrapper logic is now a single module-level helper; the one dialog that needs additional behavior (enforcing bounds on the Flag column) passes that behavior as a callback.
+
+### Tests
+New §194 in `test_functional.py` guards against regression: the helper is verified to exist with the expected signature, the six classes no longer define the old wrapper method, the extension hook is exercised with a real table widget, and an end-to-end nmap load confirms no regression in real tool rendering.
+
+#### Full suite results
+- **All 6 test suites pass: 3,256/3,256 assertions, 0 failures**
+  - Functional: 2,769/2,769 (+29)
+  - Security: 231/231
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.8] — 2026-04-22
 
 Refactor release. Four widget-construction code paths inside the tool-form renderer shared most of their logic but differed in one small thing each: the spinbox used for integer vs float fields, and the picker button wired up for file vs directory fields. Those four paths are now two helpers, one for each pair.
