@@ -25105,6 +25105,190 @@ _s192_w.close(); _s192_w.deleteLater(); app.processEvents()
 
 
 # =====================================================================
+# Section 193 — widget-builder extraction regression guards
+# =====================================================================
+print("\n=== SECTION 193: widget-builder extraction regression guards ===")
+
+# 193a: helpers exist on ToolForm with the expected signatures
+check(hasattr(scaffold.ToolForm, "_build_numeric_spinbox"),
+      "193a: ToolForm._build_numeric_spinbox exists")
+check(hasattr(scaffold.ToolForm, "_build_path_widget"),
+      "193a: ToolForm._build_path_widget exists")
+
+import inspect as _s193_inspect
+_s193_numeric_sig = _s193_inspect.signature(scaffold.ToolForm._build_numeric_spinbox)
+_s193_path_sig = _s193_inspect.signature(scaffold.ToolForm._build_path_widget)
+check("integer_type" in _s193_numeric_sig.parameters,
+      "193a: _build_numeric_spinbox takes integer_type parameter")
+check(_s193_numeric_sig.parameters["integer_type"].kind == _s193_inspect.Parameter.KEYWORD_ONLY,
+      "193a: integer_type is keyword-only")
+check("pick_directory" in _s193_path_sig.parameters,
+      "193a: _build_path_widget takes pick_directory parameter")
+check(_s193_path_sig.parameters["pick_directory"].kind == _s193_inspect.Parameter.KEYWORD_ONLY,
+      "193a: pick_directory is keyword-only")
+
+# 193b: construct a minimal ToolForm to call the helpers directly
+_s193_tool = {
+    "_format": "scaffold_schema",
+    "tool": "s193_probe",
+    "binary": "echo",
+    "description": "v2.10.8 regression guard",
+    "elevated": None,
+    "subcommands": None,
+    "arguments": [],
+}
+_s193_form = scaffold.ToolForm(scaffold.normalize_tool(_s193_tool))
+
+# 193c: integer spinbox has SPINBOX_RANGE default range and sentinel when default=None
+_s193_int_arg = {
+    "name": "Count", "flag": "--count", "type": "integer",
+    "default": None, "min": None, "max": None,
+    "description": "", "required": False, "choices": None,
+    "group": None, "depends_on": None, "repeatable": False,
+    "separator": "space", "positional": False, "validation": None,
+    "examples": None, "deprecated": None, "dangerous": False,
+}
+_s193_iw = _s193_form._build_numeric_spinbox(_s193_int_arg, integer_type=True)
+from PySide6.QtWidgets import QSpinBox as _S193_QSpinBox, QDoubleSpinBox as _S193_QDoubleSpinBox
+check(isinstance(_s193_iw, _S193_QSpinBox),
+      f"193c: integer_type=True returns QSpinBox (got {type(_s193_iw).__name__})")
+check(_s193_iw.minimum() == -1,
+      f"193c: null-default integer uses sentinel -1 (got {_s193_iw.minimum()})")
+check(_s193_iw.maximum() == scaffold.SPINBOX_RANGE,
+      f"193c: integer max is SPINBOX_RANGE (got {_s193_iw.maximum()})")
+check(_s193_iw.value() == -1,
+      f"193c: integer sentinel value is -1 (got {_s193_iw.value()})")
+check(_s193_iw.specialValueText() == " ",
+      f"193c: integer sentinel has blank specialValueText (got {_s193_iw.specialValueText()!r})")
+
+# 193d: integer with explicit default skips sentinel, respects min/max
+_s193_int_arg2 = dict(_s193_int_arg)
+_s193_int_arg2["default"] = 5
+_s193_int_arg2["min"] = 0
+_s193_int_arg2["max"] = 10
+_s193_iw2 = _s193_form._build_numeric_spinbox(_s193_int_arg2, integer_type=True)
+check(_s193_iw2.value() == 5, f"193d: integer default=5 (got {_s193_iw2.value()})")
+check(_s193_iw2.minimum() == 0, f"193d: integer min=0 (got {_s193_iw2.minimum()})")
+check(_s193_iw2.maximum() == 10, f"193d: integer max=10 (got {_s193_iw2.maximum()})")
+
+# 193e: integer with null default + min set uses min-1 sentinel
+_s193_int_arg3 = dict(_s193_int_arg)
+_s193_int_arg3["min"] = 5
+_s193_iw3 = _s193_form._build_numeric_spinbox(_s193_int_arg3, integer_type=True)
+check(_s193_iw3.minimum() == 4, f"193e: integer min=5 with null default uses min-1=4 (got {_s193_iw3.minimum()})")
+check(_s193_iw3.value() == 4, f"193e: integer sentinel value is min-1=4 (got {_s193_iw3.value()})")
+
+# 193f: float spinbox has decimals=2 and float sentinel
+_s193_flt_arg = dict(_s193_int_arg)
+_s193_flt_arg["type"] = "float"
+_s193_fw = _s193_form._build_numeric_spinbox(_s193_flt_arg, integer_type=False)
+check(isinstance(_s193_fw, _S193_QDoubleSpinBox),
+      f"193f: integer_type=False returns QDoubleSpinBox (got {type(_s193_fw).__name__})")
+check(_s193_fw.decimals() == 2, f"193f: float uses decimals=2 (got {_s193_fw.decimals()})")
+check(abs(_s193_fw.minimum() - (-1.0)) < 0.001,
+      f"193f: null-default float uses sentinel -1.0 (got {_s193_fw.minimum()})")
+check(_s193_fw.specialValueText() == " ",
+      f"193f: float sentinel has blank specialValueText (got {_s193_fw.specialValueText()!r})")
+
+# 193g: float with explicit default and min=0.1 / max=99.9 respects bounds
+_s193_flt_arg2 = dict(_s193_flt_arg)
+_s193_flt_arg2["default"] = 1.5
+_s193_flt_arg2["min"] = 0.1
+_s193_flt_arg2["max"] = 99.9
+_s193_fw2 = _s193_form._build_numeric_spinbox(_s193_flt_arg2, integer_type=False)
+check(abs(_s193_fw2.value() - 1.5) < 0.001, f"193g: float default=1.5 (got {_s193_fw2.value()})")
+check(abs(_s193_fw2.minimum() - 0.1) < 0.001, f"193g: float min=0.1 (got {_s193_fw2.minimum()})")
+check(abs(_s193_fw2.maximum() - 99.9) < 0.001, f"193g: float max=99.9 (got {_s193_fw2.maximum()})")
+
+# 193h: file widget has QLineEdit + "Browse..." button, exposes _line_edit
+_s193_file_arg = dict(_s193_int_arg)
+_s193_file_arg["type"] = "file"
+_s193_file_arg["description"] = "Select an input file"
+_s193_fpw = _s193_form._build_path_widget(_s193_file_arg, pick_directory=False)
+from PySide6.QtWidgets import QLineEdit as _S193_QLineEdit, QPushButton as _S193_QPushButton
+check(hasattr(_s193_fpw, "_line_edit"),
+      "193h: file widget exposes _line_edit attribute")
+check(isinstance(_s193_fpw._line_edit, _S193_QLineEdit),
+      "193h: _line_edit is QLineEdit")
+check(_s193_fpw._line_edit.placeholderText() == "Select an input file",
+      f"193h: description populates placeholder (got {_s193_fpw._line_edit.placeholderText()!r})")
+_s193_file_children = _s193_fpw.findChildren(_S193_QPushButton)
+check(len(_s193_file_children) >= 1 and any(b.text() == "Browse..." for b in _s193_file_children),
+      "193h: file widget contains a 'Browse...' button")
+
+# 193i: directory widget has identical shape with directory browse handler
+_s193_dir_arg = dict(_s193_int_arg)
+_s193_dir_arg["type"] = "directory"
+_s193_dir_arg["description"] = "Select a directory"
+_s193_dpw = _s193_form._build_path_widget(_s193_dir_arg, pick_directory=True)
+check(hasattr(_s193_dpw, "_line_edit"),
+      "193i: directory widget exposes _line_edit attribute")
+check(_s193_dpw._line_edit.placeholderText() == "Select a directory",
+      f"193i: description populates placeholder (got {_s193_dpw._line_edit.placeholderText()!r})")
+_s193_dir_children = _s193_dpw.findChildren(_S193_QPushButton)
+check(len(_s193_dir_children) >= 1 and any(b.text() == "Browse..." for b in _s193_dir_children),
+      "193i: directory widget contains a 'Browse...' button")
+
+# 193j: default values populate line edits (both file and directory)
+_s193_file_arg3 = dict(_s193_file_arg)
+_s193_file_arg3["default"] = "/tmp/starter.txt"
+_s193_fpw3 = _s193_form._build_path_widget(_s193_file_arg3, pick_directory=False)
+check(_s193_fpw3._line_edit.text() == "/tmp/starter.txt",
+      f"193j: file default populates line edit (got {_s193_fpw3._line_edit.text()!r})")
+
+_s193_dir_arg3 = dict(_s193_dir_arg)
+_s193_dir_arg3["default"] = "/tmp/starter_dir"
+_s193_dpw3 = _s193_form._build_path_widget(_s193_dir_arg3, pick_directory=True)
+check(_s193_dpw3._line_edit.text() == "/tmp/starter_dir",
+      f"193j: directory default populates line edit (got {_s193_dpw3._line_edit.text()!r})")
+
+# 193k: source-level — raw widget-construction patterns gone from _build_widget_inner
+_s193_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+# Find the bounds of _build_widget_inner to scope the grep
+import ast as _s193_ast
+_s193_tree = _s193_ast.parse(_s193_src)
+_s193_inner_bounds = None
+for _s193_node in _s193_ast.walk(_s193_tree):
+    if isinstance(_s193_node, _s193_ast.FunctionDef) and _s193_node.name == "_build_widget_inner":
+        _s193_inner_bounds = (_s193_node.lineno, getattr(_s193_node, "end_lineno", _s193_node.lineno))
+        break
+check(_s193_inner_bounds is not None, "193k: _build_widget_inner located")
+_s193_lines = _s193_src.splitlines()
+_s193_inner_body = "\n".join(_s193_lines[_s193_inner_bounds[0]-1:_s193_inner_bounds[1]])
+check("QSpinBox()" not in _s193_inner_body,
+      "193k: no raw QSpinBox() in _build_widget_inner")
+check("QDoubleSpinBox()" not in _s193_inner_body,
+      "193k: no raw QDoubleSpinBox() in _build_widget_inner")
+check('QPushButton("Browse...")' not in _s193_inner_body,
+      "193k: no raw QPushButton('Browse...') in _build_widget_inner")
+check("_browse_file(" not in _s193_inner_body,
+      "193k: no direct _browse_file( call in _build_widget_inner")
+check("_browse_directory(" not in _s193_inner_body,
+      "193k: no direct _browse_directory( call in _build_widget_inner")
+
+# 193l: end-to-end regression — loading nmap.json still produces working widgets
+# (belt-and-suspenders: confirms the real tool loading path still works)
+_s193_win = scaffold.MainWindow()
+_s193_win._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+app.processEvents()
+# nmap has a --top-ports integer field — verify it still builds correctly
+_s193_tf = _s193_win.form
+_s193_t_key = None
+for _s193_k in _s193_tf.fields:
+    if _s193_k[1] == "--top-ports":
+        _s193_t_key = _s193_k
+        break
+check(_s193_t_key is not None, "193l: nmap --top-ports field present after reload")
+if _s193_t_key:
+    _s193_t_widget = _s193_tf.fields[_s193_t_key]["widget"]
+    check(isinstance(_s193_t_widget, _S193_QSpinBox),
+          f"193l: --top-ports widget is still QSpinBox (got {type(_s193_t_widget).__name__})")
+_s193_win.close()
+_s193_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()
