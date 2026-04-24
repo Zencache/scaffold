@@ -3045,9 +3045,10 @@ class ToolPicker(QWidget):
         self.table.doubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
 
+        tools_abs = str(_tools_dir().resolve())
         self.empty_label = QLabel(
-            "No tools found. Place JSON schema files in the tools/ directory,\n"
-            "or use File \u2192 Load to open one."
+            f"No tools found. Place JSON schema files in:\n{tools_abs}\n"
+            f"or use File \u2192 Load to open one."
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setStyleSheet("color: gray; padding: 40px;")

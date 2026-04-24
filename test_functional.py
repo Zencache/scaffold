@@ -26192,6 +26192,21 @@ check("No saved presets" in _s199_preset_status,
       f"199C.3: _on_load_preset with empty dir updates status bar "
       f"(got {_s199_preset_status!r})")
 
+# ---------------------------------------------------------------------
+# D. Tool-picker empty-state — absolute path
+# ---------------------------------------------------------------------
+_s199_picker = scaffold.ToolPicker()
+_s199_empty_text = _s199_picker.empty_label.text()
+_s199_tools_abs = str(scaffold._tools_dir().resolve())
+check(os.sep in _s199_empty_text,
+      f"199D.1: empty_label text contains os.sep (shows a path) "
+      f"(got {_s199_empty_text!r})")
+check(_s199_tools_abs in _s199_empty_text,
+      f"199D.2: empty_label text contains the resolved tools dir path "
+      f"(expected {_s199_tools_abs!r} in {_s199_empty_text!r})")
+_s199_picker.deleteLater()
+app.processEvents()
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()
