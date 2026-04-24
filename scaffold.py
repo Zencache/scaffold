@@ -77,16 +77,44 @@ def _sanitize_filename_component(name: str) -> str:
     return safe
 
 
+def _picker_start_dir(current: str) -> str:
+    """Resolve a sensible start directory for a file/directory picker.
+
+    If the current line-edit value points to an existing file, return its
+    parent dir; if it points to an existing directory, return it as-is;
+    if only the parent exists, return the parent; otherwise return "".
+    """
+    current = current.strip()
+    if not current:
+        return ""
+    try:
+        p = Path(current)
+    except (OSError, ValueError):
+        return ""
+    try:
+        if p.is_file():
+            return str(p.parent)
+        if p.is_dir():
+            return str(p)
+        if p.parent.exists():
+            return str(p.parent)
+    except OSError:
+        return ""
+    return ""
+
+
 def _browse_file(line_edit: "QLineEdit", parent: "QWidget | None" = None) -> None:
     """Open a file-picker dialog; on accept, set the selected path into line_edit."""
-    path, _ = QFileDialog.getOpenFileName(parent, "Select File")
+    start_dir = _picker_start_dir(line_edit.text())
+    path, _ = QFileDialog.getOpenFileName(parent, "Select File", start_dir)
     if path:
         line_edit.setText(path)
 
 
 def _browse_directory(line_edit: "QLineEdit", parent: "QWidget | None" = None) -> None:
     """Open a directory-picker dialog; on accept, set the selected path into line_edit."""
-    path = QFileDialog.getExistingDirectory(parent, "Select Directory")
+    start_dir = _picker_start_dir(line_edit.text())
+    path = QFileDialog.getExistingDirectory(parent, "Select Directory", start_dir)
     if path:
         line_edit.setText(path)
 

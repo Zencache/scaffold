@@ -26275,8 +26275,70 @@ shutil.rmtree(_s199_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 200 — v2.11.1 interactive affordances + R2-A2 timer leak fix
+# =====================================================================
+print("\n=== SECTION 200: v2.11.1 interactive affordances + timer leak fix ===")
+
+_s200_tmpdir = tempfile.mkdtemp(prefix="scaffold_test200_")
+
+# ---------------------------------------------------------------------
+# A. Topic 1 — File-picker start directory
+# ---------------------------------------------------------------------
+# _picker_start_dir() returns the directory the dialog should open in,
+# based on the current line-edit value.
+check(hasattr(scaffold, "_picker_start_dir"),
+      "200A.1: _picker_start_dir exists at module scope")
+check(callable(getattr(scaffold, "_picker_start_dir", None)),
+      "200A.2: _picker_start_dir is callable")
+
+# Empty field -> empty string (falls back to Qt default)
+check(scaffold._picker_start_dir("") == "",
+      "200A.3: empty input returns empty string")
+check(scaffold._picker_start_dir("   ") == "",
+      "200A.4: whitespace-only input returns empty string")
+
+# Existing file -> returns parent directory
+_s200_file = Path(_s200_tmpdir) / "sample.txt"
+_s200_file.write_text("hi")
+_s200_file_start = scaffold._picker_start_dir(str(_s200_file))
+check(_s200_file_start == str(_s200_file.parent),
+      f"200A.5: existing file returns parent dir "
+      f"(got {_s200_file_start!r}, expected {str(_s200_file.parent)!r})")
+
+# Existing directory -> returns itself
+_s200_dir_start = scaffold._picker_start_dir(_s200_tmpdir)
+check(_s200_dir_start == _s200_tmpdir,
+      f"200A.6: existing dir returns itself "
+      f"(got {_s200_dir_start!r}, expected {_s200_tmpdir!r})")
+
+# Non-existent path but parent exists -> returns parent
+_s200_nonexistent = str(Path(_s200_tmpdir) / "does_not_exist.txt")
+_s200_ne_start = scaffold._picker_start_dir(_s200_nonexistent)
+check(_s200_ne_start == _s200_tmpdir,
+      f"200A.7: non-existent path with existing parent returns parent "
+      f"(got {_s200_ne_start!r}, expected {_s200_tmpdir!r})")
+
+# Completely bogus path (parent doesn't exist either) -> falls back to ""
+_s200_garbage_start = scaffold._picker_start_dir(
+    "/nonexistent_root_for_test_200/deeper/still/gone.txt")
+check(_s200_garbage_start == "",
+      f"200A.8: bogus path falls back to empty string "
+      f"(got {_s200_garbage_start!r})")
+
+# Source-level check: both browse helpers now pass start_dir to Qt.
+_s200_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+check("_picker_start_dir(line_edit.text())" in _s200_src,
+      "200A.9: browse helpers call _picker_start_dir(line_edit.text())")
+check(_s200_src.count("_picker_start_dir(line_edit.text())") >= 2,
+      f"200A.10: both _browse_file and _browse_directory use _picker_start_dir "
+      f"(count={_s200_src.count('_picker_start_dir(line_edit.text())')})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
+shutil.rmtree(_s200_tmpdir, ignore_errors=True)
+
 window.close()
 window.deleteLater()
 app.processEvents()
