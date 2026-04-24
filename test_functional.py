@@ -25795,6 +25795,282 @@ for _s197_fixture in _s197_fixtures:
 
 
 # =====================================================================
+# Section 198 — Status bar split (progress label vs. sticky main region)
+# =====================================================================
+# v2.11.0 Phase 1 architectural change: progress text ("Running... (Ns)")
+# moves off QStatusBar.showMessage() onto a permanent-widget QLabel on the
+# right side of the status bar. Sticky messages ("Loaded X — N fields",
+# "Preset saved", exit outcomes, etc.) stay in the main (transient) region.
+# This separation fixes the long-standing bug where the elapsed timer
+# stomped the load message within a second of clicking Run.
+print("\n=== SECTION 198: status bar progress-label split ===")
+
+import time as _s198_time
+
+_s198_tmpdir = tempfile.mkdtemp(prefix="scaffold_test198_")
+_s198_tool = {
+    "tool": "tool_198",
+    "binary": "echo",
+    "description": "Status bar split test",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string", "required": True},
+    ],
+}
+_s198_path = os.path.join(_s198_tmpdir, "tool_198.json")
+Path(_s198_path).write_text(json.dumps(_s198_tool))
+
+_s198_win = scaffold.MainWindow()
+_s198_win.show()
+app.processEvents()
+
+# ---------------------------------------------------------------------
+# A. Infrastructure
+# ---------------------------------------------------------------------
+check(hasattr(_s198_win, "_progress_label"),
+      "198A.1: MainWindow has _progress_label attribute")
+check(isinstance(_s198_win._progress_label, QLabel),
+      f"198A.2: _progress_label is a QLabel "
+      f"(got {type(_s198_win._progress_label).__name__})")
+check(_s198_win._progress_label.parent() is _s198_win.statusBar(),
+      "198A.3: _progress_label parented to the status bar "
+      "(not elsewhere in the window)")
+# The progress label must be in the status bar's child tree but NOT in the
+# transient region. currentMessage() is the transient region's text; put a
+# value in the progress label and confirm it does NOT leak into
+# currentMessage().
+_s198_win._progress_label.setText("__probe__")
+app.processEvents()
+check("__probe__" not in _s198_win.statusBar().currentMessage(),
+      "198A.4: progress-label text does not appear in transient "
+      "currentMessage() (confirms permanent-widget region)")
+_s198_win._progress_label.setText("")
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      "198A.5: _progress_label initial / reset text is empty string")
+
+# ---------------------------------------------------------------------
+# B. Progress writes target the progress region
+# ---------------------------------------------------------------------
+_s198_win._load_tool_path(_s198_path)
+app.processEvents()
+
+# Fake "run in progress" state; call _update_elapsed directly rather than
+# starting a real QProcess (which would race with the test).
+_s198_win._run_start_time = _s198_time.monotonic() - 3.0
+_s198_win._update_elapsed()
+app.processEvents()
+_s198_progress_text = _s198_win._progress_label.text()
+check("Running..." in _s198_progress_text,
+      f"198B.1: _update_elapsed writes 'Running...' to progress label "
+      f"(got {_s198_progress_text!r})")
+check("s" in _s198_progress_text and any(c.isdigit() for c in _s198_progress_text),
+      f"198B.2: progress label contains elapsed seconds digit "
+      f"(got {_s198_progress_text!r})")
+
+# Fire _update_elapsed a second time at a different elapsed to confirm it
+# updates, not appends.
+_s198_win._run_start_time = _s198_time.monotonic() - 7.0
+_s198_win._update_elapsed()
+app.processEvents()
+_s198_progress_text2 = _s198_win._progress_label.text()
+check(_s198_progress_text2 != _s198_progress_text
+      and "Running..." in _s198_progress_text2,
+      f"198B.3: second _update_elapsed updates text "
+      f"(was {_s198_progress_text!r}, now {_s198_progress_text2!r})")
+
+# Source-level guard: no remaining showMessage calls write "Running..."
+# progress text to the main region. (Note: the startup-time "Ready —
+# Running as administrator" line contains the substring "Running" but is
+# not a progress write, so we match the specific "Running..." pattern.)
+_s198_source = Path(scaffold.__file__).read_text(encoding="utf-8")
+import re as _s198_re
+_s198_offenders = _s198_re.findall(
+    r"statusBar\(\)\.showMessage\([^)]*Running\.\.\.",
+    _s198_source,
+)
+check(len(_s198_offenders) == 0,
+      f"198B.4: no statusBar().showMessage() calls emit 'Running...' "
+      f"progress text (offenders: {_s198_offenders})")
+
+# ---------------------------------------------------------------------
+# C. Progress region clears on termination (all 6 exit paths)
+# ---------------------------------------------------------------------
+def _s198_reset_run_state(win):
+    """Reset per-run flags and prime the progress label with text."""
+    win._killed = False
+    win._error_reported = False
+    win._timed_out = False
+    win._elevated_run = False
+    win._run_start_time = _s198_time.monotonic()
+    win._history_display = "echo --msg hi"
+    win._history_preset = {}
+    win._history_timestamp = _s198_time.time()
+    win._progress_label.setText("Running... (5s)")
+
+# C.1 — timed_out path
+_s198_reset_run_state(_s198_win)
+_s198_win._timed_out = True
+_s198_win._on_finished(-1, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.1: progress label cleared on timed-out path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Timed out" in _s198_win.statusBar().currentMessage(),
+      f"198C.1b: 'Timed out' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.2 — killed path
+_s198_reset_run_state(_s198_win)
+_s198_win._killed = True
+_s198_win._on_finished(-1, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.2: progress label cleared on killed path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Process stopped" in _s198_win.statusBar().currentMessage(),
+      f"198C.2b: 'Process stopped' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.3 — crashed path
+_s198_reset_run_state(_s198_win)
+_s198_win._on_finished(-1, QProcess.ExitStatus.CrashExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.3: progress label cleared on crashed path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Crashed" in _s198_win.statusBar().currentMessage(),
+      f"198C.3b: 'Crashed' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.4 — elevation cancelled path (elevated_run + exit 126/127)
+_s198_reset_run_state(_s198_win)
+_s198_win._elevated_run = True
+_s198_win._on_finished(126, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.4: progress label cleared on elevation-cancelled path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Elevation cancelled" in _s198_win.statusBar().currentMessage(),
+      f"198C.4b: 'Elevation cancelled' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.5 — clean exit 0 path
+_s198_reset_run_state(_s198_win)
+_s198_win._on_finished(0, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.5: progress label cleared on exit-0 path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Exit 0" in _s198_win.statusBar().currentMessage(),
+      f"198C.5b: 'Exit 0' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.6 — non-zero exit N path
+_s198_reset_run_state(_s198_win)
+_s198_win._on_finished(2, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.6: progress label cleared on exit-N path "
+      f"(got {_s198_win._progress_label.text()!r})")
+check("Exit 2" in _s198_win.statusBar().currentMessage(),
+      f"198C.6b: 'Exit 2' still lands in main region "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# C.7 — _on_error clears the label regardless of error variant.
+# Also covers the _error_reported early-return path through _on_finished:
+# after _on_error sets _error_reported, the next _on_finished should still
+# find the label empty.
+for _s198_err in (
+    QProcess.ProcessError.FailedToStart,
+    QProcess.ProcessError.Timedout,
+    QProcess.ProcessError.WriteError,
+    QProcess.ProcessError.ReadError,
+):
+    _s198_reset_run_state(_s198_win)
+    _s198_win._on_error(_s198_err)
+    app.processEvents()
+    check(_s198_win._progress_label.text() == "",
+          f"198C.7[{_s198_err}]: _on_error clears progress label")
+
+# C.8 — _error_reported early-return through _on_finished still clears label
+_s198_reset_run_state(_s198_win)
+_s198_win._error_reported = True
+_s198_win._on_finished(-1, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check(_s198_win._progress_label.text() == "",
+      f"198C.8: progress label cleared even on _error_reported early-return "
+      f"through _on_finished (got {_s198_win._progress_label.text()!r})")
+
+# ---------------------------------------------------------------------
+# D. Sticky-message preservation (core fix regression guard)
+# ---------------------------------------------------------------------
+# Before Phase 1, the elapsed-seconds ticker stomped the "Loaded X — N
+# fields" message within 1 second of clicking Run. After Phase 1, the two
+# messages live in different regions and both survive.
+_s198_win._load_tool_path(_s198_path)
+app.processEvents()
+_s198_load_msg = _s198_win.statusBar().currentMessage()
+check("fields" in _s198_load_msg,
+      f"198D.1: 'Loaded X — N fields' message present after load "
+      f"(got {_s198_load_msg!r})")
+
+# Simulate a run starting, then several elapsed ticks.
+_s198_win._run_start_time = _s198_time.monotonic() - 1.0
+_s198_win._update_elapsed()
+app.processEvents()
+_s198_win._run_start_time = _s198_time.monotonic() - 2.0
+_s198_win._update_elapsed()
+app.processEvents()
+_s198_win._run_start_time = _s198_time.monotonic() - 3.0
+_s198_win._update_elapsed()
+app.processEvents()
+
+_s198_after_msg = _s198_win.statusBar().currentMessage()
+check("fields" in _s198_after_msg,
+      f"198D.2: load message survives multiple _update_elapsed ticks "
+      f"(got {_s198_after_msg!r})")
+check("Running..." in _s198_win._progress_label.text(),
+      f"198D.3: 'Running...' text lives in progress label, not main region "
+      f"(progress label={_s198_win._progress_label.text()!r}, "
+      f"main region={_s198_after_msg!r})")
+check("Running..." not in _s198_after_msg,
+      f"198D.4: 'Running...' did NOT leak into main region "
+      f"(main region={_s198_after_msg!r})")
+
+# ---------------------------------------------------------------------
+# E. Regression: other showMessage call sites unchanged
+# ---------------------------------------------------------------------
+# Sample 3 sticky-message call sites from scaffold.py source and confirm
+# they still call statusBar().showMessage() (not _progress_label). These
+# must NOT have been migrated by Phase 1.
+_s198_sticky_patterns = [
+    r'statusBar\(\)\.showMessage\(f?"Preset saved:',
+    r'statusBar\(\)\.showMessage\(f?"Cascade saved:',
+    r'statusBar\(\)\.showMessage\(f?"Import failed',
+]
+for _s198_pat in _s198_sticky_patterns:
+    _s198_matches = _s198_re.findall(_s198_pat, _s198_source)
+    check(len(_s198_matches) >= 1,
+          f"198E: sticky call site still present in source "
+          f"(pattern={_s198_pat!r}, matches={len(_s198_matches)})")
+
+# Runtime confirmation that the status-bar transient region still accepts
+# and surfaces showMessage() payloads — covers the mechanism those sticky
+# sites rely on.
+_s198_win.statusBar().showMessage("Preset saved: _s198_probe")
+app.processEvents()
+check(_s198_win.statusBar().currentMessage() == "Preset saved: _s198_probe",
+      f"198E.runtime: showMessage() still routes to currentMessage() "
+      f"(got {_s198_win.statusBar().currentMessage()!r})")
+
+# Cleanup section 198
+_s198_win.close()
+_s198_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s198_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 window.close()

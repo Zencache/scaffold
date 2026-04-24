@@ -8131,6 +8131,12 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Ready")
 
+        # Progress label on the status bar's permanent (right-aligned) side.
+        # Progress text ("Running... (Ns)") goes here so it doesn't stomp
+        # sticky main-region messages like "Loaded X — N fields".
+        self._progress_label = QLabel("")
+        self.statusBar().addPermanentWidget(self._progress_label)
+
         # Cascade sidebar (created before _build_menu so menu can reference it)
         self.cascade_dock = CascadeSidebar(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.cascade_dock)
@@ -10188,7 +10194,7 @@ class MainWindow(QMainWindow):
         self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
         self._style_run_btn()
-        self.statusBar().showMessage("Running... (0s)")
+        self._progress_label.setText("Running... (0s)")
         self._elapsed_timer.start()
         timeout_secs = self.timeout_spin.value()
         if timeout_secs > 0:
@@ -10254,11 +10260,12 @@ class MainWindow(QMainWindow):
         """Tick the status bar with elapsed seconds while a process is running."""
         if self._run_start_time is not None:
             elapsed = int(time.monotonic() - self._run_start_time)
-            self.statusBar().showMessage(f"Running... ({elapsed}s)")
+            self._progress_label.setText(f"Running... ({elapsed}s)")
 
     def _on_finished(self, exit_code: int, exit_status) -> None:
         """Handle process termination: print exit status and re-enable the Run button."""
         self._elapsed_timer.stop()
+        self._progress_label.setText("")
         self._timeout_timer.stop()
         self._force_kill_timer.stop()
         self._flush_output()
@@ -10301,6 +10308,7 @@ class MainWindow(QMainWindow):
 
     def _on_error(self, error) -> None:
         """Handle QProcess errors, printing a descriptive message to the output panel."""
+        self._progress_label.setText("")
         if error == QProcess.ProcessError.Crashed and self._killed:
             return  # Handled by _on_finished
         self._error_reported = True
