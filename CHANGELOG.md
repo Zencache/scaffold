@@ -4,6 +4,30 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.11.2] — 2026-04-24
+
+Patch release: size-cap history entries to prevent Windows registry
+key-size limits from silently discarding history writes.
+
+### Fixed
+- R2-E4: Command history and cascade history entries are now size-capped
+  at 64 KB per entry and 1 MB total. Oversized entries are preserved in
+  the list with the command line and timestamp visible, but the stored
+  preset_data is dropped and the entry cannot be restored to the form.
+  This prevents the Windows registry backend from silently truncating
+  history writes when a user runs commands with multi-MB extra_flags or
+  large text-field values.
+
+#### Full suite results
+- **All 6 test suites pass: 3,493/3,493 assertions, 0 failures**
+  - Functional: 2,994/2,994 (+42)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.11.1] — 2026-04-24
 
 Interactive affordances and a timer-leak fix. Six small items that each sand off a rough edge in day-to-day use, plus one quiet bug (QTimer objects accumulating across tool reloads) that had been silently growing the window's child count for every schema switch.
