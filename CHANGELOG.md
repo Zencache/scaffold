@@ -4,6 +4,33 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.11.1] — 2026-04-24
+
+Interactive affordances and a timer-leak fix. Six small items that each sand off a rough edge in day-to-day use, plus one quiet bug (QTimer objects accumulating across tool reloads) that had been silently growing the window's child count for every schema switch.
+
+### Added
+- **Keyboard shortcuts for cascade controls.** Five window-global QShortcuts now operate on cascade state regardless of sidebar visibility: Add slot (Ctrl+Shift+A), Pause/Resume (Ctrl+P), Stop (Ctrl+.), Loop toggle (Ctrl+Shift+L), and Err toggle (Ctrl+Shift+E). The shortcuts route directly to `CascadeSidebar._on_add_slot` / `_on_pause_chain` / `_on_stop_chain` / `_toggle_loop` / `_toggle_stop_on_error`, so using the keyboard matches clicking the button exactly.
+- **"Reset password copy prompt" menu entry.** Live under the File menu (after "Custom PATH Directories..."). Clicking it clears the remembered session-wide mask choice, so the next Copy triggers the Yes/No prompt again. Useful when you answered once and want a different answer now without restarting the app.
+- **Copy status now shows whether passwords were masked or real.** The status-bar feedback that appears after a Copy ("Copied to clipboard." / "Copied as Bash.") now appends " — passwords included" or " — passwords masked" when the command contained password fields with values. No change in behavior when no passwords are involved — the suffix is suppressed entirely. This closes the visibility gap where the session-wide mask choice, once made, produced silent copies with no indication of whether the clipboard contained real secrets or `********`.
+
+### Changed
+- **File pickers now open in the directory of the current field value** instead of whichever directory Qt happened to pick. A new `_picker_start_dir()` helper resolves the line-edit's current value: if it's an existing file, the dialog opens in that file's parent; if it's an existing directory, it opens there; if the value is a plausible-looking path whose parent exists, it opens in the parent. Anything that doesn't resolve falls back to Qt's default (empty string). Both `_browse_file` and `_browse_directory` use the helper, so file and directory pickers behave consistently.
+- **Subcommand combobox shows its description as a tooltip on the collapsed widget**, not just on the dropdown items. Previously, the per-item tooltip set via `setItemData(..., ToolTipRole)` only fired on items the user had opened the dropdown to see — the collapsed combobox had no tooltip at all. A second `currentIndexChanged` handler mirrors the current item's ToolTipRole onto the widget itself and primes the tooltip at form-build time, so hovering the closed combobox now reveals the same description you'd get by opening the dropdown and hovering the selected item. Subcommands with no description get an empty tooltip (not stale data from the previous selection).
+- **Cascade Loop button now shows an explicit "Loop ✗" off-state.** The Err button has always shown "Err✓" when on and "Err✗" when off. The Loop button used "Loop ✓" when on but bare "Loop" when off — ambiguous about state. Both buttons now carry a glyph in both states, so the cascade control row reads symmetrically at a glance.
+
+### Fixed
+- **QTimer leak on form reload (R2-A2).** Three timers (`_status_timer`, `_timeout_timer`, `_flush_timer`) were created inside `_build_form_view` and parented to the MainWindow. Every tool reload created new timers and dereferenced the old ones, but Qt's parent link kept them alive — they accumulated on the window as the user switched between tools. The recurring `_flush_timer` was the worst offender because every stale instance continued firing. All three are now created once in `__init__` alongside the existing force-kill / elapsed / autosave cluster; `_build_form_view` just uses the already-existing attributes. The `_status_timer` lambda resolves `self.status` at fire time, so the safety invariant (the form view rebuilds the status label on every load) is preserved. After N reloads, exactly one of each timer lives on the window.
+
+#### Full suite results
+- **All 6 test suites pass: 3,451/3,451 assertions, 0 failures**
+  - Functional: 2,952/2,952 (+91)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.11.0] — 2026-04-24
 
 Messaging and status-bar release. Phase 1 split the status bar into two regions so a live progress counter no longer stomps sticky context messages. Phase 2 is a sweep of small wording and routing fixes across the messaging layer — each one user-visible, each one the result of a specific inaccuracy surfaced by the code audit.
