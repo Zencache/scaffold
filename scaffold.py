@@ -8127,6 +8127,19 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(AUTOSAVE_DEBOUNCE_MS)
         self._autosave_timer.timeout.connect(self._autosave_form)
+        # Per-form-view timers lifted to __init__ so they aren't recreated and
+        # leaked on every form reload (R2-A2). Lambdas/bound methods resolve
+        # self.status / self._flush_output / self._on_timeout_fired fresh at
+        # fire time, so rebuilding the form view is safe.
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(lambda: self.status.setText("") if hasattr(self, "status") else None)
+        self._timeout_timer = QTimer(self)
+        self._timeout_timer.setSingleShot(True)
+        self._timeout_timer.timeout.connect(self._on_timeout_fired)
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(OUTPUT_FLUSH_MS)
+        self._flush_timer.timeout.connect(self._flush_output)
         self._autosave_warned = False
         self._default_form_snapshot = None
         self._chain_preserve_output = False
@@ -9437,10 +9450,6 @@ class MainWindow(QMainWindow):
         preview_section_widget.setLayout(preview_section)
         layout.addWidget(preview_section_widget)
 
-        self._status_timer = QTimer(self)
-        self._status_timer.setSingleShot(True)
-        self._status_timer.timeout.connect(lambda: self.status.setText(""))
-
         # Action buttons bar
         action_widget = QWidget()
         action_bar = QHBoxLayout(action_widget)
@@ -9491,9 +9500,6 @@ class MainWindow(QMainWindow):
         self.timeout_spin.valueChanged.connect(self._on_timeout_changed)
         action_bar.addWidget(self.timeout_spin)
 
-        self._timeout_timer = QTimer(self)
-        self._timeout_timer.setSingleShot(True)
-        self._timeout_timer.timeout.connect(self._on_timeout_fired)
         layout.addWidget(action_widget)
 
         # -- Output section --
@@ -9553,9 +9559,6 @@ class MainWindow(QMainWindow):
         # Per-run stream buffers for cascade capture extraction
         self._last_run_stdout: str = ""
         self._last_run_stderr: str = ""
-        self._flush_timer = QTimer(self)
-        self._flush_timer.setInterval(OUTPUT_FLUSH_MS)
-        self._flush_timer.timeout.connect(self._flush_output)
 
         # Connect live preview
         self.form.command_changed.connect(self._update_preview)

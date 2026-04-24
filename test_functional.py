@@ -26686,6 +26686,122 @@ _s200_sc_win.deleteLater()
 app.processEvents()
 
 
+# ---------------------------------------------------------------------
+# G. Topic 6 — R2-A2 timer leak fix: three timers live on MainWindow
+# ---------------------------------------------------------------------
+# The three per-form-view timers (_status_timer, _timeout_timer,
+# _flush_timer) are created once in __init__ and must preserve identity
+# across tool reloads — previously they were recreated on every
+# _build_form_view, parented to the window, and leaked.
+_s200_leak_tool_a = {
+    "tool": "tool_200_leak_a",
+    "binary": "echo",
+    "description": "Leak test tool A",
+    "arguments": [{"name": "Msg", "flag": "--msg", "type": "string"}],
+}
+_s200_leak_tool_b = {
+    "tool": "tool_200_leak_b",
+    "binary": "echo",
+    "description": "Leak test tool B",
+    "arguments": [{"name": "Val", "flag": "--val", "type": "string"}],
+}
+_s200_leak_a = os.path.join(_s200_tmpdir, "tool_200_leak_a.json")
+_s200_leak_b = os.path.join(_s200_tmpdir, "tool_200_leak_b.json")
+Path(_s200_leak_a).write_text(json.dumps(_s200_leak_tool_a))
+Path(_s200_leak_b).write_text(json.dumps(_s200_leak_tool_b))
+
+_s200_leak_win = scaffold.MainWindow()
+app.processEvents()
+
+# Timers must exist right after construction, before any form load
+check(hasattr(_s200_leak_win, "_status_timer"),
+      "200G.1: _status_timer exists on MainWindow after __init__")
+check(hasattr(_s200_leak_win, "_timeout_timer"),
+      "200G.2: _timeout_timer exists on MainWindow after __init__")
+check(hasattr(_s200_leak_win, "_flush_timer"),
+      "200G.3: _flush_timer exists on MainWindow after __init__")
+
+check(isinstance(_s200_leak_win._status_timer, QTimer),
+      "200G.4: _status_timer is a QTimer instance")
+check(isinstance(_s200_leak_win._timeout_timer, QTimer),
+      "200G.5: _timeout_timer is a QTimer instance")
+check(isinstance(_s200_leak_win._flush_timer, QTimer),
+      "200G.6: _flush_timer is a QTimer instance")
+
+# Snapshot identities
+_s200_leak_sid = _s200_leak_win._status_timer
+_s200_leak_tid = _s200_leak_win._timeout_timer
+_s200_leak_fid = _s200_leak_win._flush_timer
+
+# Reload into tool A -> same timer objects
+_s200_leak_win._load_tool_path(_s200_leak_a)
+app.processEvents()
+check(_s200_leak_win._status_timer is _s200_leak_sid,
+      "200G.7: _status_timer is same object after loading tool A")
+check(_s200_leak_win._timeout_timer is _s200_leak_tid,
+      "200G.8: _timeout_timer is same object after loading tool A")
+check(_s200_leak_win._flush_timer is _s200_leak_fid,
+      "200G.9: _flush_timer is same object after loading tool A")
+
+# Switch to tool B -> same timers again
+_s200_leak_win._load_tool_path(_s200_leak_b)
+app.processEvents()
+check(_s200_leak_win._status_timer is _s200_leak_sid,
+      "200G.10: _status_timer identity preserved through tool B switch")
+check(_s200_leak_win._timeout_timer is _s200_leak_tid,
+      "200G.11: _timeout_timer identity preserved through tool B switch")
+check(_s200_leak_win._flush_timer is _s200_leak_fid,
+      "200G.12: _flush_timer identity preserved through tool B switch")
+
+# Switch back to A and then back to B (N=4 total reloads)
+_s200_leak_win._load_tool_path(_s200_leak_a)
+app.processEvents()
+_s200_leak_win._load_tool_path(_s200_leak_b)
+app.processEvents()
+check(_s200_leak_win._status_timer is _s200_leak_sid,
+      "200G.13: _status_timer identity preserved after 4 reloads")
+check(_s200_leak_win._timeout_timer is _s200_leak_tid,
+      "200G.14: _timeout_timer identity preserved after 4 reloads")
+check(_s200_leak_win._flush_timer is _s200_leak_fid,
+      "200G.15: _flush_timer identity preserved after 4 reloads")
+
+# Count timers by type among MainWindow children — verify no leak
+_s200_all_timers = [c for c in _s200_leak_win.findChildren(QTimer)
+                    if c.parent() is _s200_leak_win]
+# Expected timers on MainWindow parent: _force_kill_timer, _elapsed_timer,
+# _autosave_timer, _status_timer, _timeout_timer, _flush_timer = 6.
+check(len(_s200_all_timers) == 6,
+      f"200G.16: exactly 6 QTimer children on MainWindow "
+      f"(got {len(_s200_all_timers)})")
+
+# Source-level checks: timers are only created in __init__, not in
+# _build_form_view.
+_s200_leak_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+check(_s200_leak_src.count("self._status_timer = QTimer(self)") == 1,
+      f"200G.17: exactly 1 `self._status_timer = QTimer(self)` creation "
+      f"(got {_s200_leak_src.count('self._status_timer = QTimer(self)')})")
+check(_s200_leak_src.count("self._timeout_timer = QTimer(self)") == 1,
+      f"200G.18: exactly 1 `self._timeout_timer = QTimer(self)` creation "
+      f"(got {_s200_leak_src.count('self._timeout_timer = QTimer(self)')})")
+check(_s200_leak_src.count("self._flush_timer = QTimer(self)") == 1,
+      f"200G.19: exactly 1 `self._flush_timer = QTimer(self)` creation "
+      f"(got {_s200_leak_src.count('self._flush_timer = QTimer(self)')})")
+
+# Smoke: firing _status_timer after a form is loaded calls self.status.setText("")
+_s200_leak_win.status.setText("dirty")
+app.processEvents()
+# Directly emit the timeout signal to avoid real 3-second wait
+_s200_leak_win._status_timer.timeout.emit()
+app.processEvents()
+check(_s200_leak_win.status.text() == "",
+      f"200G.20: _status_timer callback still clears status after reloads "
+      f"(got {_s200_leak_win.status.text()!r})")
+
+_s200_leak_win.close()
+_s200_leak_win.deleteLater()
+app.processEvents()
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================
