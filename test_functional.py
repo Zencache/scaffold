@@ -26160,6 +26160,18 @@ check("Exit 127" in _s199_win.statusBar().currentMessage(),
       f"199A.6: non-elevated exit 127 falls through to 'Exit 127' "
       f"(got {_s199_win.statusBar().currentMessage()!r})")
 
+# ---------------------------------------------------------------------
+# B. Password-restore wording — "must be re-entered" replaces "were not restored"
+# ---------------------------------------------------------------------
+check(_s199_source.count("were not restored") == 0,
+      f"199B.1: no remaining 'were not restored' strings in scaffold.py "
+      f"(autosave recovery uses 'were not saved' which is distinct)")
+check(_s199_source.count("must be re-entered") >= 5,
+      f"199B.2: 'must be re-entered' wording present (docstring + 4 sites) "
+      f"(count={_s199_source.count('must be re-entered')})")
+check("never saved" in _s199_source,
+      f"199B.3: apply_values docstring mentions 'never saved'")
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()

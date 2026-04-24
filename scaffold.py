@@ -2165,7 +2165,7 @@ class ToolForm(QWidget):
     def apply_values(self, preset: dict) -> bool:
         """Apply a preset dict to the form, resetting unmentioned fields to defaults.
 
-        Returns True if one or more password fields were skipped (not restored).
+        Returns True if the current schema contains any password fields (which are never saved and must be re-entered after any preset/history restore).
         """
         self.blockSignals(True)
 
@@ -7112,7 +7112,7 @@ class CascadeSidebar(QDockWidget):
                 elif had_pw:
                     self._main_window.statusBar().showMessage(
                         f"Loaded cascade step: {preset_name} \u2014 "
-                        f"password fields were not restored"
+                        f"password fields must be re-entered"
                     )
                 else:
                     self._main_window.statusBar().showMessage(
@@ -9693,7 +9693,7 @@ class MainWindow(QMainWindow):
             )
         elif had_pw:
             self.statusBar().showMessage(
-                f"Preset loaded: {name} \u2014 password fields contain sensitive data and were not restored."
+                f"Preset loaded: {name} \u2014 password fields must be re-entered."
             )
         else:
             self.statusBar().showMessage(f"Preset loaded: {name}")
@@ -10478,7 +10478,7 @@ class MainWindow(QMainWindow):
             self._default_form_snapshot = self.form.serialize_values()
             if had_pw:
                 self._show_status(
-                    "Form restored — password fields contain sensitive data and were not restored.",
+                    "Form restored — password fields must be re-entered.",
                     DARK_COLORS["success"] if _dark_mode else "green",
                 )
             else:
@@ -10511,7 +10511,7 @@ class MainWindow(QMainWindow):
                     self._default_form_snapshot = self.form.serialize_values()
                     msg = "Form restored from cascade step"
                     if had_pw:
-                        msg += " \u2014 password fields were not restored"
+                        msg += " \u2014 password fields must be re-entered"
                     self._show_status(msg)
                 except (OSError, json.JSONDecodeError):
                     self._show_status("Preset file could not be loaded")
