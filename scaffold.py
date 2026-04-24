@@ -7956,7 +7956,7 @@ class CascadeSidebar(QDockWidget):
         self._cascade_finish_status = "stopped"
         self._chain_cleanup("Cascade cancelled")
 
-    def _chain_cleanup(self, message: str) -> None:
+    def _chain_cleanup(self, message: str, silent: bool = False) -> None:
         """Reset chain state and re-enable UI."""
         # Record terminal cascade history transition
         if self._cascade_run_id is not None and self._cascade_finish_status:
@@ -8010,7 +8010,8 @@ class CascadeSidebar(QDockWidget):
             self._main_window.act_reload.setEnabled(True)
 
         self._clear_slot_highlights()
-        self._main_window.statusBar().showMessage(message)
+        if not silent:
+            self._main_window.statusBar().showMessage(message)
 
         # Re-evaluate run button state based on required fields
         if hasattr(self._main_window, 'form') and self._main_window.form:
@@ -9095,7 +9096,7 @@ class MainWindow(QMainWindow):
         """Persist window geometry and session state; kill any running process on exit."""
         # Stop chain runner if active
         if self.cascade_dock._chain_state != CHAIN_IDLE:
-            self.cascade_dock._chain_cleanup("Closing")
+            self.cascade_dock._chain_cleanup("Closing", silent=True)
         # Stop timers FIRST to prevent them from recreating files during teardown
         self._autosave_timer.stop()
         self._elapsed_timer.stop()

@@ -26207,6 +26207,44 @@ check(_s199_tools_abs in _s199_empty_text,
 _s199_picker.deleteLater()
 app.processEvents()
 
+# ---------------------------------------------------------------------
+# E. _chain_cleanup silent param — closeEvent dead-path
+# ---------------------------------------------------------------------
+import inspect as _s199_inspect
+_s199_sig = _s199_inspect.signature(_s199_win.cascade_dock._chain_cleanup)
+check("silent" in _s199_sig.parameters,
+      f"199E.1: _chain_cleanup accepts 'silent' keyword argument "
+      f"(params={list(_s199_sig.parameters)})")
+check(_s199_sig.parameters["silent"].default is False,
+      f"199E.2: _chain_cleanup 'silent' default is False "
+      f"(got {_s199_sig.parameters['silent'].default!r})")
+
+# silent=True: status bar unchanged
+_s199_win.statusBar().showMessage("__s199_before_silent__")
+app.processEvents()
+_s199_before_silent = _s199_win.statusBar().currentMessage()
+_s199_win.cascade_dock._chain_cleanup("Closing", silent=True)
+app.processEvents()
+check(_s199_win.statusBar().currentMessage() == _s199_before_silent,
+      f"199E.3: _chain_cleanup(silent=True) does not write status bar "
+      f"(before={_s199_before_silent!r}, "
+      f"after={_s199_win.statusBar().currentMessage()!r})")
+
+# silent=False (default): status bar gets the message
+_s199_win.statusBar().showMessage("__s199_before_noisy__")
+app.processEvents()
+_s199_win.cascade_dock._chain_cleanup("CleanupMessage")
+app.processEvents()
+check("CleanupMessage" in _s199_win.statusBar().currentMessage(),
+      f"199E.4: _chain_cleanup (default silent=False) still writes status bar "
+      f"(got {_s199_win.statusBar().currentMessage()!r})")
+
+# closeEvent call site uses silent=True
+check(_s199_re.search(
+          r'_chain_cleanup\("Closing",\s*silent=True\)',
+          _s199_source) is not None,
+      "199E.5: closeEvent call site uses _chain_cleanup('Closing', silent=True)")
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()
