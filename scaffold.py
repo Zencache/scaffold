@@ -1386,6 +1386,14 @@ class ToolForm(QWidget):
             root.addLayout(row)
             self.sub_combo.currentIndexChanged.connect(self._on_subcommand_changed)
 
+            def _update_sub_combo_tooltip():
+                idx = self.sub_combo.currentIndex()
+                tip = self.sub_combo.itemData(idx, Qt.ItemDataRole.ToolTipRole) or ""
+                self.sub_combo.setToolTip(tip)
+
+            self.sub_combo.currentIndexChanged.connect(_update_sub_combo_tooltip)
+            _update_sub_combo_tooltip()
+
         # Scroll area
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)

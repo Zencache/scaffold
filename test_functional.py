@@ -26334,6 +26334,62 @@ check(_s200_src.count("_picker_start_dir(line_edit.text())") >= 2,
       f"(count={_s200_src.count('_picker_start_dir(line_edit.text())')})")
 
 
+# ---------------------------------------------------------------------
+# B. Topic 2 — Subcommand combobox tooltip shown on collapsed widget
+# ---------------------------------------------------------------------
+_s200_sub_tool = {
+    "tool": "tool_200_sub",
+    "binary": "echo",
+    "description": "Subcommand tooltip test",
+    "arguments": [],
+    "subcommands": [
+        {"name": "alpha", "description": "First subcommand", "arguments": []},
+        {"name": "beta", "description": "Second subcommand", "arguments": []},
+        {"name": "gamma", "description": "", "arguments": []},  # no desc
+    ],
+}
+_s200_sub_path = os.path.join(_s200_tmpdir, "tool_200_sub.json")
+Path(_s200_sub_path).write_text(json.dumps(_s200_sub_tool))
+
+_s200_sub_win = scaffold.MainWindow()
+_s200_sub_win._load_tool_path(_s200_sub_path)
+app.processEvents()
+
+_s200_combo = _s200_sub_win.form.sub_combo
+check(_s200_combo is not None,
+      "200B.1: tool with subcommands has a sub_combo widget")
+
+# Initial tooltip should match item 0's description
+_s200_combo.setCurrentIndex(0)
+app.processEvents()
+_s200_tip_0 = _s200_combo.toolTip()
+check(_s200_tip_0 and "First subcommand" in _s200_tip_0,
+      f"200B.2: collapsed combobox tooltip shows first subcommand description "
+      f"(got {_s200_tip_0!r})")
+
+# Change selection -> tooltip updates
+_s200_combo.setCurrentIndex(1)
+app.processEvents()
+_s200_tip_1 = _s200_combo.toolTip()
+check(_s200_tip_1 and "Second subcommand" in _s200_tip_1,
+      f"200B.3: tooltip updates when selection changes "
+      f"(got {_s200_tip_1!r})")
+check(_s200_tip_1 != _s200_tip_0,
+      "200B.4: tooltip differs from previous selection's tooltip")
+
+# Subcommand with no description -> tooltip is empty string (not stale)
+_s200_combo.setCurrentIndex(2)
+app.processEvents()
+_s200_tip_2 = _s200_combo.toolTip()
+check(_s200_tip_2 == "",
+      f"200B.5: subcommand with no description has empty tooltip "
+      f"(got {_s200_tip_2!r})")
+
+_s200_sub_win.close()
+_s200_sub_win.deleteLater()
+app.processEvents()
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================
