@@ -26820,6 +26820,306 @@ check(scaffold.__version__ == "2.11.1",
 
 
 # =====================================================================
+# Section 201 — v2.11.2 R2-E4: history entry size cap
+# =====================================================================
+print("\n=== SECTION 201: v2.11.2 history entry size cap (R2-E4) ===")
+
+_s201_tmpdir = tempfile.mkdtemp(prefix="scaffold_test201_")
+
+# ---------------------------------------------------------------------
+# A. Module-level constants and helpers exist
+# ---------------------------------------------------------------------
+check(hasattr(scaffold, "HISTORY_ENTRY_MAX_BYTES"),
+      "201A.1: HISTORY_ENTRY_MAX_BYTES constant exists")
+check(scaffold.HISTORY_ENTRY_MAX_BYTES == 64 * 1024,
+      f"201A.2: HISTORY_ENTRY_MAX_BYTES == 64 KB "
+      f"(got {scaffold.HISTORY_ENTRY_MAX_BYTES})")
+check(hasattr(scaffold, "HISTORY_TOTAL_MAX_BYTES"),
+      "201A.3: HISTORY_TOTAL_MAX_BYTES constant exists")
+check(scaffold.HISTORY_TOTAL_MAX_BYTES == 1 * 1024 * 1024,
+      f"201A.4: HISTORY_TOTAL_MAX_BYTES == 1 MB "
+      f"(got {scaffold.HISTORY_TOTAL_MAX_BYTES})")
+check(callable(getattr(scaffold, "_enforce_history_entry_size", None)),
+      "201A.5: _enforce_history_entry_size is callable")
+check(callable(getattr(scaffold, "_enforce_history_total_size", None)),
+      "201A.6: _enforce_history_total_size is callable")
+
+# ---------------------------------------------------------------------
+# B. Per-entry cap — small entry unchanged
+# ---------------------------------------------------------------------
+_s201_small = {
+    "display": "echo hi",
+    "exit_code": 0,
+    "timestamp": 1234567890.0,
+    "preset_data": {"flag": "value"},
+    "crashed": False,
+    "error": None,
+}
+_s201_small_result = scaffold._enforce_history_entry_size(_s201_small)
+check(_s201_small_result == _s201_small,
+      "201B.1: small entry passes through unchanged")
+check("_oversized" not in _s201_small_result,
+      f"201B.2: small entry has no _oversized key "
+      f"(keys={list(_s201_small_result.keys())})")
+
+# ---------------------------------------------------------------------
+# C. Per-entry cap — oversized entry shrunk
+# ---------------------------------------------------------------------
+_s201_big_value = "x" * (100 * 1024)  # 100 KB string
+_s201_big = {
+    "display": "echo hi",
+    "exit_code": 0,
+    "timestamp": 1234567890.0,
+    "preset_data": {"huge": _s201_big_value},
+    "crashed": False,
+    "error": None,
+}
+_s201_big_result = scaffold._enforce_history_entry_size(_s201_big)
+check(_s201_big_result["preset_data"] is None,
+      "201C.1: oversized entry has preset_data == None")
+check(_s201_big_result.get("_oversized") is True,
+      f"201C.2: oversized entry has _oversized == True "
+      f"(got {_s201_big_result.get('_oversized')!r})")
+check(_s201_big_result["display"] == "echo hi",
+      "201C.3: oversized entry preserves display")
+check(_s201_big_result["timestamp"] == 1234567890.0,
+      "201C.4: oversized entry preserves timestamp")
+check(_s201_big_result["exit_code"] == 0,
+      "201C.5: oversized entry preserves exit_code")
+check(_s201_big_result["crashed"] is False,
+      "201C.6: oversized entry preserves crashed flag")
+check(_s201_big_result["error"] is None,
+      "201C.7: oversized entry preserves error")
+# Original input must not be mutated
+check(_s201_big["preset_data"] == {"huge": _s201_big_value},
+      "201C.8: helper does not mutate the input dict")
+
+# ---------------------------------------------------------------------
+# D. Per-entry cap — un-serializable entry treated as oversized
+# ---------------------------------------------------------------------
+_s201_bad = {
+    "display": "echo bad",
+    "exit_code": 0,
+    "timestamp": 1234567890.0,
+    "preset_data": {"key": object()},  # not JSON-serializable
+    "crashed": False,
+    "error": None,
+}
+_s201_bad_result = scaffold._enforce_history_entry_size(_s201_bad)
+check(_s201_bad_result["preset_data"] is None,
+      "201D.1: un-serializable entry has preset_data == None")
+check(_s201_bad_result.get("_oversized") is True,
+      f"201D.2: un-serializable entry flagged _oversized "
+      f"(got {_s201_bad_result.get('_oversized')!r})")
+check(_s201_bad_result["display"] == "echo bad",
+      "201D.3: un-serializable entry preserves display")
+
+# ---------------------------------------------------------------------
+# E. Total cap — trimming from oldest end
+# ---------------------------------------------------------------------
+_s201_chunk = "a" * (30 * 1024)  # 30 KB string per entry
+_s201_entries = []
+for i in range(50):
+    _s201_entries.append({
+        "display": f"run {i}",
+        "exit_code": 0,
+        "timestamp": 1000.0 + i,
+        "preset_data": {"data": _s201_chunk},
+        "crashed": False,
+        "error": None,
+    })
+_s201_trimmed = scaffold._enforce_history_total_size(_s201_entries)
+check(len(_s201_trimmed) < 50,
+      f"201E.1: total cap trims to <50 entries "
+      f"(got {len(_s201_trimmed)})")
+_s201_trimmed_size = len(json.dumps(_s201_trimmed).encode("utf-8"))
+check(_s201_trimmed_size <= scaffold.HISTORY_TOTAL_MAX_BYTES,
+      f"201E.2: trimmed total size <= 1 MB "
+      f"(got {_s201_trimmed_size})")
+check(_s201_trimmed[0]["display"] == "run 0",
+      f"201E.3: trimming preserves newest (index 0) entry "
+      f"(got display={_s201_trimmed[0]['display']!r})")
+# Original list must not be mutated
+check(len(_s201_entries) == 50,
+      f"201E.4: helper does not mutate input list "
+      f"(input len={len(_s201_entries)})")
+
+# ---------------------------------------------------------------------
+# F. Total cap — never trims to empty
+# ---------------------------------------------------------------------
+_s201_huge = {
+    "display": "huge",
+    "exit_code": 0,
+    "timestamp": 1.0,
+    "preset_data": {"data": "z" * (5 * 1024 * 1024)},  # ~5 MB string
+    "crashed": False,
+    "error": None,
+}
+_s201_huge_result = scaffold._enforce_history_total_size([_s201_huge])
+check(len(_s201_huge_result) == 1,
+      f"201F.1: single oversized entry kept "
+      f"(got len={len(_s201_huge_result)})")
+check(_s201_huge_result[0]["display"] == "huge",
+      "201F.2: single oversized entry retains display")
+
+# Empty list passes through unchanged
+check(scaffold._enforce_history_total_size([]) == [],
+      "201F.3: empty list passes through unchanged")
+
+# ---------------------------------------------------------------------
+# G. Integration — _record_history_entry shrinks oversized entry
+# ---------------------------------------------------------------------
+_s201_min_path = str(Path(__file__).parent / "tests" / "test_minimal.json")
+_s201_win = scaffold.MainWindow()
+_s201_win._load_tool_path(_s201_min_path)
+app.processEvents()
+_s201_win._clear_history()
+app.processEvents()
+
+# Inject a huge preset into the history capture attributes
+_s201_win._history_display = "true (oversized)"
+_s201_win._history_preset = {"big": "Y" * (200 * 1024)}  # 200 KB
+_s201_win._history_timestamp = time.time()
+_s201_win._record_history_entry(0)
+app.processEvents()
+
+_s201_loaded = _s201_win._load_history()
+check(len(_s201_loaded) == 1,
+      f"201G.1: oversized integration write produced 1 entry "
+      f"(got {len(_s201_loaded)})")
+check(_s201_loaded[0].get("_oversized") is True,
+      f"201G.2: stored entry flagged _oversized "
+      f"(got _oversized={_s201_loaded[0].get('_oversized')!r})")
+check(_s201_loaded[0]["preset_data"] is None,
+      f"201G.3: stored entry preset_data is None "
+      f"(got {_s201_loaded[0]['preset_data']!r})")
+check(_s201_loaded[0]["display"] == "true (oversized)",
+      f"201G.4: stored entry preserves display "
+      f"(got {_s201_loaded[0]['display']!r})")
+
+# Small entry through the same path stays unflagged
+_s201_win._history_display = "true (small)"
+_s201_win._history_preset = {"x": "y"}
+_s201_win._history_timestamp = time.time()
+_s201_win._record_history_entry(0)
+app.processEvents()
+_s201_loaded2 = _s201_win._load_history()
+check(_s201_loaded2[0]["display"] == "true (small)",
+      f"201G.5: small entry recorded normally "
+      f"(got {_s201_loaded2[0]['display']!r})")
+check("_oversized" not in _s201_loaded2[0],
+      f"201G.6: small entry has no _oversized key "
+      f"(keys={list(_s201_loaded2[0].keys())})")
+
+_s201_win._clear_history()
+
+# ---------------------------------------------------------------------
+# H. Integration — _append_cascade_run shrinks oversized entry
+# ---------------------------------------------------------------------
+_s201_win._clear_cascade_history()
+app.processEvents()
+
+# Build a cascade run entry with a huge config snapshot
+_s201_huge_run = {
+    "id": "test_oversized_run",
+    "name": "huge cascade",
+    "status": "running",
+    "started_at": time.time(),
+    "finished_at": None,
+    "loop_index": 0,
+    "stop_on_error": False,
+    "steps": [],
+    "config": {"giant_blob": "Z" * (200 * 1024)},  # 200 KB
+}
+_s201_win._append_cascade_run(_s201_huge_run)
+app.processEvents()
+
+_s201_cascade_loaded = _s201_win._load_cascade_history()
+check(len(_s201_cascade_loaded) == 1,
+      f"201H.1: oversized cascade entry stored "
+      f"(got {len(_s201_cascade_loaded)})")
+check(_s201_cascade_loaded[0].get("_oversized") is True,
+      f"201H.2: cascade entry flagged _oversized "
+      f"(got _oversized={_s201_cascade_loaded[0].get('_oversized')!r})")
+check(_s201_cascade_loaded[0]["id"] == "test_oversized_run",
+      f"201H.3: cascade entry preserves id "
+      f"(got id={_s201_cascade_loaded[0]['id']!r})")
+
+_s201_win._clear_cascade_history()
+
+# ---------------------------------------------------------------------
+# I. HistoryDialog UI — oversized entry shows marker and disables Restore
+# ---------------------------------------------------------------------
+_s201_dlg_history = [
+    {
+        "display": "echo small",
+        "exit_code": 0,
+        "timestamp": time.time(),
+        "preset_data": {"flag": "value"},
+        "crashed": False,
+        "error": None,
+    },
+    {
+        "display": "echo big",
+        "exit_code": 0,
+        "timestamp": time.time() - 60,
+        "preset_data": None,
+        "crashed": False,
+        "error": None,
+        "_oversized": True,
+    },
+]
+_s201_dlg = scaffold.HistoryDialog("test_tool_201", _s201_dlg_history,
+                                   parent=_s201_win)
+
+# Row 0 (small) — display unchanged
+_s201_row0_text = _s201_dlg.table.item(0, 1).text()
+check(_s201_row0_text == "echo small",
+      f"201I.1: small-entry display unchanged "
+      f"(got {_s201_row0_text!r})")
+
+# Row 1 (oversized) — display includes marker
+_s201_row1_text = _s201_dlg.table.item(1, 1).text()
+check("[entry too large to restore]" in _s201_row1_text,
+      f"201I.2: oversized-entry display includes marker "
+      f"(got {_s201_row1_text!r})")
+check("echo big" in _s201_row1_text,
+      f"201I.3: oversized-entry display retains command "
+      f"(got {_s201_row1_text!r})")
+
+# Selecting row 0 (small) enables Restore
+_s201_dlg.table.selectRow(0)
+app.processEvents()
+check(_s201_dlg.restore_btn.isEnabled() is True,
+      f"201I.4: Restore enabled when small entry is selected "
+      f"(enabled={_s201_dlg.restore_btn.isEnabled()})")
+
+# Selecting row 1 (oversized) disables Restore
+_s201_dlg.table.selectRow(1)
+app.processEvents()
+check(_s201_dlg.restore_btn.isEnabled() is False,
+      f"201I.5: Restore disabled when oversized entry is selected "
+      f"(enabled={_s201_dlg.restore_btn.isEnabled()})")
+
+# _on_restore is a no-op for oversized rows
+_s201_dlg.selected_entry = None
+_s201_dlg._on_restore()
+check(_s201_dlg.selected_entry is None,
+      f"201I.6: _on_restore on oversized row leaves selected_entry None "
+      f"(got {_s201_dlg.selected_entry!r})")
+
+_s201_dlg.close()
+_s201_dlg.deleteLater()
+app.processEvents()
+
+# Cleanup section 201
+_s201_win.close()
+_s201_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s201_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)

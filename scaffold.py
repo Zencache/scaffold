@@ -178,6 +178,18 @@ AUTOSAVE_EXPIRY_HOURS = 24      # Recovery files older than this are ignored
 # Command history
 HISTORY_MAX_ENTRIES = 50
 
+# Per-entry size cap for history. Prevents Windows registry key-size
+# limits from silently discarding writes when a user runs commands with
+# extremely large extra_flags or text-field values. An oversized entry
+# is stored with preset_data replaced by a sentinel string so the user
+# can still see the display/timestamp/exit_code but can't restore the
+# form from the entry.
+HISTORY_ENTRY_MAX_BYTES = 64 * 1024  # 64 KB per entry
+
+# Aggregate cap for the full history JSON blob. Belt-and-suspenders
+# guard against 50 entries at 63.9 KB each blowing past registry limits.
+HISTORY_TOTAL_MAX_BYTES = 1 * 1024 * 1024  # 1 MB total
+
 # Cascade history
 CASCADE_HISTORY_MAX_ENTRIES = 50
 # Bumped only when the cascade_history entry schema changes in a way
@@ -185,6 +197,39 @@ CASCADE_HISTORY_MAX_ENTRIES = 50
 # migration in _load_cascade_history — the current code silently drops
 # all history on version mismatch.
 CASCADE_HISTORY_VERSION = 1
+
+
+def _enforce_history_entry_size(entry: dict) -> dict:
+    """Return a copy of entry with preset_data dropped if the serialized
+    entry exceeds HISTORY_ENTRY_MAX_BYTES. The display/timestamp/exit_code
+    fields are always preserved so the user still sees the run happened."""
+    try:
+        size = len(json.dumps(entry).encode("utf-8"))
+    except (TypeError, ValueError):
+        size = HISTORY_ENTRY_MAX_BYTES + 1  # treat un-serializable as oversized
+    if size <= HISTORY_ENTRY_MAX_BYTES:
+        return entry
+    shrunk = dict(entry)
+    shrunk["preset_data"] = None
+    shrunk["_oversized"] = True
+    return shrunk
+
+
+def _enforce_history_total_size(entries: list[dict]) -> list[dict]:
+    """Trim the history list from the oldest end until the serialized
+    total fits under HISTORY_TOTAL_MAX_BYTES. Always keeps at least the
+    most recent entry, even if it individually exceeds the cap."""
+    if not entries:
+        return entries
+    while len(entries) > 1:
+        try:
+            size = len(json.dumps(entries).encode("utf-8"))
+        except (TypeError, ValueError):
+            return [entries[0]]  # pathological — keep only newest
+        if size <= HISTORY_TOTAL_MAX_BYTES:
+            return entries
+        entries = entries[:-1]
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -4031,7 +4076,16 @@ class HistoryDialog(QDialog):
 
             # Command column
             display = entry.get("display", "")
-            self.table.setItem(row, 1, QTableWidgetItem(display))
+            if entry.get("_oversized"):
+                display = f"{display}  [entry too large to restore]"
+            cmd_item = QTableWidgetItem(display)
+            if entry.get("_oversized"):
+                cmd_item.setForeground(QColor("#888888"))
+                cmd_item.setToolTip(
+                    "This entry exceeded the history size cap. "
+                    "The command line is preserved but the form values were dropped."
+                )
+            self.table.setItem(row, 1, cmd_item)
 
             # Time column — "Mar 31, 14:23"
             ts = entry.get("timestamp", 0)
@@ -4065,12 +4119,21 @@ class HistoryDialog(QDialog):
 
     def _on_selection(self) -> None:
         """Enable/disable Restore button based on selection."""
-        self.restore_btn.setEnabled(len(self.table.selectedItems()) > 0)
+        if not self.table.selectedItems():
+            self.restore_btn.setEnabled(False)
+            return
+        row = self.table.currentRow()
+        if 0 <= row < len(self.history) and self.history[row].get("_oversized"):
+            self.restore_btn.setEnabled(False)
+        else:
+            self.restore_btn.setEnabled(True)
 
     def _on_double_click(self) -> None:
         """Restore the double-clicked entry and close."""
         row = self.table.currentRow()
         if 0 <= row < len(self.history):
+            if self.history[row].get("_oversized"):
+                return
             self.selected_entry = self.history[row]
             self.accept()
 
@@ -4078,6 +4141,8 @@ class HistoryDialog(QDialog):
         """Restore the selected entry and close."""
         row = self.table.currentRow()
         if 0 <= row < len(self.history):
+            if self.history[row].get("_oversized"):
+                return
             self.selected_entry = self.history[row]
             self.accept()
 
@@ -10463,8 +10528,10 @@ class MainWindow(QMainWindow):
             "error": error,
         }
         history = self._load_history()
+        entry = _enforce_history_entry_size(entry)
         history.insert(0, entry)
         history = history[:HISTORY_MAX_ENTRIES]
+        history = _enforce_history_total_size(history)
         self.settings.setValue(
             f"history/{self.data['tool']}", json.dumps(history)
         )
@@ -10505,8 +10572,10 @@ class MainWindow(QMainWindow):
     def _append_cascade_run(self, entry: dict) -> None:
         """Append a cascade run entry, enforcing the FIFO cap."""
         entries = self._load_cascade_history()
+        entry = _enforce_history_entry_size(entry)
         entries.insert(0, entry)
         entries = entries[:CASCADE_HISTORY_MAX_ENTRIES]
+        entries = _enforce_history_total_size(entries)
         self._save_cascade_history(entries)
 
     def _update_cascade_run(self, run_id: str, updates: dict) -> None:
