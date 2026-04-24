@@ -26261,6 +26261,12 @@ if _s199_save_match:
           f"199F.2: _save_output has no numeric timeout args on showMessage "
           f"(offenders: {_s199_timeout_hits})")
 
+# ---------------------------------------------------------------------
+# G. Version bump
+# ---------------------------------------------------------------------
+check(scaffold.__version__ == "2.11.0",
+      f"199G.1: __version__ == '2.11.0' (got {scaffold.__version__!r})")
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()

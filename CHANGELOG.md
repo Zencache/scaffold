@@ -4,6 +4,31 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.11.0] — 2026-04-24
+
+Messaging and status-bar release. Phase 1 split the status bar into two regions so a live progress counter no longer stomps sticky context messages. Phase 2 is a sweep of small wording and routing fixes across the messaging layer — each one user-visible, each one the result of a specific inaccuracy surfaced by the code audit.
+
+### Changed
+- **Status bar is now split into two regions.** The main (transient) region holds sticky context like "Loaded nmap — 42 fields", "Preset saved: default", and exit outcomes. A new right-aligned permanent label holds the live "Running... (Ns)" progress counter while a process runs. Before this change, the elapsed-seconds ticker called `statusBar().showMessage()` every second, which clobbered the load message within a second of clicking Run and left users with no visible context for the command they were actually watching. The two messages now live in different widgets and both survive for as long as they're relevant.
+
+### Fixed
+- **Elevation exit codes 126 and 127 now produce distinct, accurate messages.** The previous branch claimed "Elevation was cancelled by the user" for both codes, but 126 means "helper could not execute" (permission denied or binary-not-executable), and only 127 could plausibly be user cancellation. Exit 126 now reports "Elevation failed: helper could not execute." to the output panel in error color and "Elevation failed" to the status bar. Exit 127 reports "Elevation cancelled or unavailable" in warning color with the matching status message. Non-elevated runs continue to fall through to the generic non-zero exit branch unchanged.
+- **Password-restore messaging now reflects reality.** Four call sites previously said "password fields were not restored", wording that implied passwords had been present in the preset and were dropped during load. Passwords are never saved in the first place — `serialize_values` skips them unconditionally at write time — so the old wording was misleading on both ends. All four sites now say "password fields must be re-entered", which is accurate regardless of what the user had typed before. `apply_values`'s docstring is updated to match: the return value indicates the schema *contains* password fields, not that any value was skipped.
+- **"No presets" empty-state now uses the status bar instead of a modal.** Three other empty-state paths in the same class already routed through `statusBar().showMessage(...)`; this one was the outlier using `QMessageBox.information`. The modal required an extra click to dismiss for no information gain. Consistency with the other empty-state handlers restored. Modals for errors, confirmations, and destructive-action warnings are unchanged — they're load-bearing.
+- **Tool-picker empty-state now shows the absolute tools directory path.** The previous "Place JSON schema files in the tools/ directory" text gave users no way to find where "tools/" actually is. The label now resolves the absolute path at construction time and displays it explicitly, so a user facing an empty picker can navigate straight to the right folder without digging through the filesystem layout.
+- **`closeEvent` no longer emits a status message the user never sees.** When the main window closes mid-cascade, `_chain_cleanup` was being called with a "Closing" message that painted to the status bar for a few hundred milliseconds before the window disappeared. `_chain_cleanup` now accepts a `silent=False` keyword argument; `closeEvent` passes `silent=True` to skip the status write while still performing all of the state-reset work. All other callers are unchanged.
+- **`_save_output` no longer uses inconsistent per-call message timeouts.** Three status messages in this method carried explicit 3000/3000/5000ms timeouts, an outlier pattern now that Phase 1's split-bar architecture means sticky messages no longer get stomped by the elapsed counter. Messages now persist until the next status update, matching every other sticky message in the file.
+
+#### Full suite results
+- **All 6 test suites pass: 3,360/3,360 assertions, 0 failures**
+  - Functional: 2,861/2,861 (+56)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.10.10] — 2026-04-22
 
 Closes the v2.10.x cleanup arc. Eight coverage gaps surfaced by the 2026-04-20 deep code audit are now guarded against regression, and one validation helper's docstring is updated to document a subtle test-only contract.
