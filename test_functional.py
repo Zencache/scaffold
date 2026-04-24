@@ -26450,6 +26450,133 @@ _s200_loop_win.deleteLater()
 app.processEvents()
 
 
+# ---------------------------------------------------------------------
+# D. Topic 4a — Password-mask status suffix on copy
+# ---------------------------------------------------------------------
+# Module-level helper returns correct suffix string for each state.
+check(scaffold._pw_copy_suffix("none") == "",
+      "200D.1: _pw_copy_suffix('none') returns empty string")
+check(scaffold._pw_copy_suffix("real") == " — passwords included",
+      f"200D.2: _pw_copy_suffix('real') returns ' — passwords included' "
+      f"(got {scaffold._pw_copy_suffix('real')!r})")
+check(scaffold._pw_copy_suffix("masked") == " — passwords masked",
+      f"200D.3: _pw_copy_suffix('masked') returns ' — passwords masked' "
+      f"(got {scaffold._pw_copy_suffix('masked')!r})")
+
+# Integration: _prepare_copy_cmd returns (cmd, pw_state) tuple.
+_s200_pw_tool = {
+    "tool": "tool_200_pw",
+    "binary": "echo",
+    "description": "Password copy test",
+    "arguments": [
+        {"name": "User", "flag": "--user", "type": "string", "required": False},
+        {"name": "Pass", "flag": "--pass", "type": "password", "required": False},
+    ],
+}
+_s200_pw_path = os.path.join(_s200_tmpdir, "tool_200_pw.json")
+Path(_s200_pw_path).write_text(json.dumps(_s200_pw_tool))
+
+_s200_pw_win = scaffold.MainWindow()
+_s200_pw_win._load_tool_path(_s200_pw_path)
+app.processEvents()
+
+# No password set -> "none"
+_s200_pw_cmd_none, _s200_pw_state_none = _s200_pw_win._prepare_copy_cmd(["echo", "hi"])
+check(_s200_pw_state_none == "none",
+      f"200D.4: _prepare_copy_cmd with no password returns ('cmd', 'none') "
+      f"(got {_s200_pw_state_none!r})")
+check(_s200_pw_cmd_none == ["echo", "hi"],
+      "200D.5: _prepare_copy_cmd passes through command when no passwords")
+
+# With a password value and choice=True -> "real"
+_s200_pw_field_key = None
+for _k in _s200_pw_win.form.fields:
+    if _s200_pw_win.form.fields[_k]["arg"]["type"] == "password":
+        _s200_pw_field_key = _k
+        break
+check(_s200_pw_field_key is not None,
+      "200D.6: password field registered in form.fields")
+_s200_pw_win.form._set_field_value(_s200_pw_field_key, "secret123")
+app.processEvents()
+
+_s200_pw_win._copy_password_choice = True
+_s200_pw_cmd_real, _s200_pw_state_real = _s200_pw_win._prepare_copy_cmd(
+    ["echo", "--pass", "secret123"])
+check(_s200_pw_state_real == "real",
+      f"200D.7: _prepare_copy_cmd with choice=True returns 'real' "
+      f"(got {_s200_pw_state_real!r})")
+
+# choice=False -> "masked"
+_s200_pw_win._copy_password_choice = False
+_s200_pw_cmd_masked, _s200_pw_state_masked = _s200_pw_win._prepare_copy_cmd(
+    ["echo", "--pass", "secret123"])
+check(_s200_pw_state_masked == "masked",
+      f"200D.8: _prepare_copy_cmd with choice=False returns 'masked' "
+      f"(got {_s200_pw_state_masked!r})")
+
+# Copied command: masked replaces password with stars
+check("secret123" not in " ".join(_s200_pw_cmd_masked),
+      "200D.9: masked command does not contain the real password")
+
+# End-to-end through _copy_command: status string has correct suffix
+_s200_pw_win._copy_password_choice = True
+_s200_pw_win._copy_command()
+app.processEvents()
+_s200_pw_status_real = _s200_pw_win.status.text()
+check("passwords included" in _s200_pw_status_real,
+      f"200D.10: _copy_command with real passwords shows 'passwords included' "
+      f"(got {_s200_pw_status_real!r})")
+
+_s200_pw_win._copy_password_choice = False
+_s200_pw_win._copy_command()
+app.processEvents()
+_s200_pw_status_masked = _s200_pw_win.status.text()
+check("passwords masked" in _s200_pw_status_masked,
+      f"200D.11: _copy_command with masked passwords shows 'passwords masked' "
+      f"(got {_s200_pw_status_masked!r})")
+
+# Clear password -> no suffix
+_s200_pw_win.form._set_field_value(_s200_pw_field_key, "")
+app.processEvents()
+_s200_pw_win._copy_command()
+app.processEvents()
+_s200_pw_status_none = _s200_pw_win.status.text()
+check("passwords" not in _s200_pw_status_none,
+      f"200D.12: _copy_command with no password has no 'passwords' suffix "
+      f"(got {_s200_pw_status_none!r})")
+
+# ---------------------------------------------------------------------
+# E. Topic 4b — Menu entry to reset password copy choice
+# ---------------------------------------------------------------------
+check(hasattr(_s200_pw_win, "act_reset_pw_copy"),
+      "200E.1: MainWindow has act_reset_pw_copy action")
+check(_s200_pw_win.act_reset_pw_copy.text() == "Reset password copy prompt",
+      f"200E.2: menu entry text is 'Reset password copy prompt' "
+      f"(got {_s200_pw_win.act_reset_pw_copy.text()!r})")
+
+# Prime a stored choice, trigger reset, verify it's cleared
+_s200_pw_win._copy_password_choice = True
+_s200_pw_win._on_reset_pw_copy_prompt()
+app.processEvents()
+check(_s200_pw_win._copy_password_choice is None,
+      f"200E.3: after reset, _copy_password_choice is None "
+      f"(got {_s200_pw_win._copy_password_choice!r})")
+check("reset" in _s200_pw_win.statusBar().currentMessage().lower(),
+      f"200E.4: reset shows confirmation message on status bar "
+      f"(got {_s200_pw_win.statusBar().currentMessage()!r})")
+
+# Triggering via the menu action directly also resets
+_s200_pw_win._copy_password_choice = False
+_s200_pw_win.act_reset_pw_copy.trigger()
+app.processEvents()
+check(_s200_pw_win._copy_password_choice is None,
+      "200E.5: menu action trigger resets _copy_password_choice")
+
+_s200_pw_win.close()
+_s200_pw_win.deleteLater()
+app.processEvents()
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================

@@ -103,6 +103,15 @@ def _picker_start_dir(current: str) -> str:
     return ""
 
 
+def _pw_copy_suffix(pw_state: str) -> str:
+    """Return a status-bar suffix describing password-masking for a copy."""
+    if pw_state == "real":
+        return " — passwords included"
+    if pw_state == "masked":
+        return " — passwords masked"
+    return ""
+
+
 def _browse_file(line_edit: "QLineEdit", parent: "QWidget | None" = None) -> None:
     """Open a file-picker dialog; on accept, set the selected path into line_edit."""
     start_dir = _picker_start_dir(line_edit.text())
@@ -8224,6 +8233,9 @@ class MainWindow(QMainWindow):
         self.act_custom_paths = menu.addAction("Custom PATH Directories...")
         self.act_custom_paths.triggered.connect(self._on_custom_paths)
 
+        self.act_reset_pw_copy = menu.addAction("Reset password copy prompt")
+        self.act_reset_pw_copy.triggered.connect(self._on_reset_pw_copy_prompt)
+
         menu.addSeparator()
 
         act_exit = menu.addAction("Exit")
@@ -9577,6 +9589,11 @@ class MainWindow(QMainWindow):
             if self.stack.currentIndex() == 0:
                 self.picker.scan()
 
+    def _on_reset_pw_copy_prompt(self) -> None:
+        """Clear the remembered copy-with-passwords choice for the session."""
+        self._copy_password_choice = None
+        self.statusBar().showMessage("Password copy prompt reset")
+
     # ------------------------------------------------------------------
     # Presets
     # ------------------------------------------------------------------
@@ -9943,11 +9960,14 @@ class MainWindow(QMainWindow):
             self.status.setStyleSheet("padding: 0 8px 4px 8px;")
             self.run_btn.setEnabled(True)
 
-    def _prepare_copy_cmd(self, cmd: list[str]) -> list[str] | None:
+    def _prepare_copy_cmd(self, cmd: list[str]) -> tuple[list[str] | None, str]:
         """Apply password masking policy to a command before copying.
 
-        Returns the (possibly masked) command, or None if the user dismissed
-        the dialog via window-close (treated as mask, choice not stored).
+        Returns a (cmd, pw_state) tuple where pw_state is one of
+        "none" (no password fields with values), "real" (real passwords
+        copied), or "masked" (passwords replaced with ********).
+        cmd is None if the user dismissed the dialog via window-close
+        (treated as masked, choice not stored).
         """
         # Check if any password fields have non-None values
         has_pw = False
@@ -9966,7 +9986,7 @@ class MainWindow(QMainWindow):
                 break
 
         if not has_pw:
-            return cmd
+            return cmd, "none"
 
         if self._copy_password_choice is None:
             answer = QMessageBox.question(
@@ -9983,25 +10003,25 @@ class MainWindow(QMainWindow):
                 self._copy_password_choice = False
             else:
                 # Dialog dismissed (window close) — mask but don't store
-                return self.form._mask_passwords_for_display(cmd)
+                return self.form._mask_passwords_for_display(cmd), "masked"
 
         if self._copy_password_choice:
-            return cmd
-        return self.form._mask_passwords_for_display(cmd)
+            return cmd, "real"
+        return self.form._mask_passwords_for_display(cmd), "masked"
 
     def _copy_command(self) -> None:
         """Copy the current command using the selected shell format to the clipboard."""
         cmd, _ = self.form.build_command()
         if self.form.is_elevation_checked():
             cmd, _ = get_elevation_command(cmd)
-        cmd = self._prepare_copy_cmd(cmd)
+        cmd, pw_state = self._prepare_copy_cmd(cmd)
         if cmd is None:
             return
         formatter, _ = _COPY_FORMATS.get(self._copy_format, (_format_display, "Command"))
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
         color = DARK_COLORS["success"] if _dark_mode else "green"
-        self._show_status("Copied to clipboard.", color)
+        self._show_status("Copied to clipboard." + _pw_copy_suffix(pw_state), color)
 
     def _set_copy_format(self, fmt: str) -> None:
         """Set the copy format, update the button label, persist, and immediately copy."""
@@ -10035,13 +10055,13 @@ class MainWindow(QMainWindow):
         cmd, _ = self.form.build_command()
         if self.form.is_elevation_checked():
             cmd, _ = get_elevation_command(cmd)
-        cmd = self._prepare_copy_cmd(cmd)
+        cmd, pw_state = self._prepare_copy_cmd(cmd)
         if cmd is None:
             return
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
         color = DARK_COLORS["success"] if _dark_mode else "green"
-        self._show_status(f"Copied as {label}.", color)
+        self._show_status(f"Copied as {label}." + _pw_copy_suffix(pw_state), color)
 
     def _copy_as_bash(self) -> None:
         self._copy_as_shell(_format_bash, "Bash")
