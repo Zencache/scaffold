@@ -10553,7 +10553,7 @@ class MainWindow(QMainWindow):
             path = None
         text = self.output.toPlainText()
         if not text.strip():
-            self.statusBar().showMessage("No output to save", 3000)
+            self.statusBar().showMessage("No output to save")
             return
 
         if path is None:
@@ -10570,9 +10570,9 @@ class MainWindow(QMainWindow):
 
         try:
             Path(path).write_text(text, encoding="utf-8")
-            self.statusBar().showMessage(f"Output saved to {path}", 3000)
+            self.statusBar().showMessage(f"Output saved to {path}")
         except OSError as e:
-            self.statusBar().showMessage(f"Error saving output: {e}", 5000)
+            self.statusBar().showMessage(f"Error saving output: {e}")
 
 
 # ---------------------------------------------------------------------------

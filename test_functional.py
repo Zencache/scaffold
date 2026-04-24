@@ -26245,6 +26245,22 @@ check(_s199_re.search(
           _s199_source) is not None,
       "199E.5: closeEvent call site uses _chain_cleanup('Closing', silent=True)")
 
+# ---------------------------------------------------------------------
+# F. _save_output timeouts removed
+# ---------------------------------------------------------------------
+_s199_save_match = _s199_re.search(
+    r"    def _save_output\(self[^\n]*\) -> None:\n(.*?)(?=\n    def |\n\n\n# )",
+    _s199_source, _s199_re.DOTALL)
+check(_s199_save_match is not None,
+      "199F.1: _save_output method body extractable from scaffold.py")
+if _s199_save_match:
+    _s199_save_body = _s199_save_match.group(1)
+    _s199_timeout_hits = _s199_re.findall(
+        r"showMessage\([^)]*,\s*\d+\s*\)", _s199_save_body)
+    check(len(_s199_timeout_hits) == 0,
+          f"199F.2: _save_output has no numeric timeout args on showMessage "
+          f"(offenders: {_s199_timeout_hits})")
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()
