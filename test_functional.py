@@ -7758,8 +7758,8 @@ for _s66_i, _s66_info in enumerate(_s66_dock._slot_widgets):
 check(hasattr(_s66_dock, "loop_btn"), "66i: loop_btn exists on CascadeSidebar")
 check(isinstance(_s66_dock.loop_btn, QPushButton), "66i: loop_btn is a QPushButton")
 
-# 66j: loop_btn starts as "Loop" (off) and _loop_enabled is False
-check(_s66_dock.loop_btn.text() == "Loop", f"66j: loop_btn text is 'Loop' (got '{_s66_dock.loop_btn.text()}')")
+# 66j: loop_btn starts as "Loop ✗" (off, v2.11.1+) and _loop_enabled is False
+check(_s66_dock.loop_btn.text() == "Loop \u2717", f"66j: loop_btn text is 'Loop \u2717' (got '{_s66_dock.loop_btn.text()}')")
 check(_s66_dock._loop_enabled is False, "66j: _loop_enabled starts False")
 
 # 66k: loop_btn is disabled during chain execution
@@ -7787,7 +7787,7 @@ check(int(_s66_saved_loop) == 1, f"66m: loop mode persisted as 1 (got {_s66_save
 _s66_dock._toggle_loop()
 app.processEvents()
 check(_s66_dock._loop_enabled is False, "66n: _loop_enabled is False after second toggle")
-check(_s66_dock.loop_btn.text() == "Loop", f"66n: loop_btn text restored to 'Loop' (got '{_s66_dock.loop_btn.text()}')")
+check(_s66_dock.loop_btn.text() == "Loop \u2717", f"66n: loop_btn text restored to 'Loop \u2717' (got '{_s66_dock.loop_btn.text()}')")
 _s66_dock._save_cascade()
 
 # Cleanup
@@ -14661,9 +14661,11 @@ def _s129_mock_question(*args, **kwargs):
     return QMessageBox.StandardButton.No
 QMessageBox.question = _s129_mock_question
 
-_s129_result_a = _s129_win._prepare_copy_cmd(_s129_cmd_a)
+_s129_result_a, _s129_state_a = _s129_win._prepare_copy_cmd(_s129_cmd_a)
 check(_s129_result_a == _s129_cmd_a,
       "129a: no password filled — cmd returned unchanged")
+check(_s129_state_a == "none",
+      f"129a: pw_state is 'none' when no password filled (got {_s129_state_a!r})")
 check(len(_s129_question_calls) == 0,
       "129a: no password filled — no prompt shown")
 check(_s129_win._copy_password_choice is None,
@@ -14675,11 +14677,13 @@ _s129_cmd_b, _ = _s129_form.build_command()
 _s129_question_calls.clear()
 _s129_win._copy_password_choice = None
 
-_s129_result_b = _s129_win._prepare_copy_cmd(_s129_cmd_b)
+_s129_result_b, _s129_state_b = _s129_win._prepare_copy_cmd(_s129_cmd_b)
 check(len(_s129_question_calls) == 1,
       "129b: prompt shown once for first copy with password")
 check(_s129_win._copy_password_choice is False,
       "129b: choice stored as False (mask)")
+check(_s129_state_b == "masked",
+      f"129b: pw_state is 'masked' when choice is No (got {_s129_state_b!r})")
 check("s3cr3t" not in _s129_result_b,
       f"129b: password masked in result: {_s129_result_b}")
 check("********" in _s129_result_b,
@@ -14688,9 +14692,11 @@ check("********" in _s129_result_b,
 # 129c: Second call — no prompt, still masked
 _s129_question_calls.clear()
 _s129_cmd_c, _ = _s129_form.build_command()
-_s129_result_c = _s129_win._prepare_copy_cmd(_s129_cmd_c)
+_s129_result_c, _s129_state_c = _s129_win._prepare_copy_cmd(_s129_cmd_c)
 check(len(_s129_question_calls) == 0,
       "129c: no second prompt (choice remembered)")
+check(_s129_state_c == "masked",
+      f"129c: pw_state stays 'masked' on second call (got {_s129_state_c!r})")
 check("s3cr3t" not in _s129_result_c,
       "129c: password still masked on second call")
 
@@ -14703,20 +14709,24 @@ def _s129_mock_yes(*args, **kwargs):
 QMessageBox.question = _s129_mock_yes
 
 _s129_cmd_d, _ = _s129_form.build_command()
-_s129_result_d = _s129_win._prepare_copy_cmd(_s129_cmd_d)
+_s129_result_d, _s129_state_d = _s129_win._prepare_copy_cmd(_s129_cmd_d)
 check(len(_s129_question_calls) == 1,
       "129d: prompt shown after choice reset")
 check(_s129_win._copy_password_choice is True,
       "129d: choice stored as True (unmask)")
+check(_s129_state_d == "real",
+      f"129d: pw_state is 'real' when choice is Yes (got {_s129_state_d!r})")
 check("s3cr3t" in _s129_result_d,
       f"129d: real password in result: {_s129_result_d}")
 
 # 129d2: Subsequent call with choice=True — no prompt, real password
 _s129_question_calls.clear()
 _s129_cmd_d2, _ = _s129_form.build_command()
-_s129_result_d2 = _s129_win._prepare_copy_cmd(_s129_cmd_d2)
+_s129_result_d2, _s129_state_d2 = _s129_win._prepare_copy_cmd(_s129_cmd_d2)
 check(len(_s129_question_calls) == 0,
       "129d2: no prompt when choice already True")
+check(_s129_state_d2 == "real",
+      f"129d2: pw_state stays 'real' on subsequent call (got {_s129_state_d2!r})")
 check("s3cr3t" in _s129_result_d2,
       "129d2: real password still returned")
 
@@ -21496,8 +21506,8 @@ check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
 # let native chrome clip "Loop" on Linux.
 _s174_dock._toggle_loop()  # ON -> OFF
 check(_s174_dock._loop_enabled is False, "174d: loop toggled OFF")
-check(_s174_dock.loop_btn.text() == "Loop",
-      f"174d: loop_btn text is 'Loop' when OFF "
+check(_s174_dock.loop_btn.text() == "Loop \u2717",
+      f"174d: loop_btn text is 'Loop \u2717' when OFF (v2.11.1+) "
       f"(got {_s174_dock.loop_btn.text()!r})")
 check("padding: 2px 8px" in _s174_dock.loop_btn.styleSheet(),
       f"174d: loop_btn OFF retains compact padding "
