@@ -26390,6 +26390,66 @@ _s200_sub_win.deleteLater()
 app.processEvents()
 
 
+# ---------------------------------------------------------------------
+# C. Topic 3 — Cascade Loop button off-state glyph
+# ---------------------------------------------------------------------
+_s200_plain_tool = {
+    "tool": "tool_200_plain",
+    "binary": "echo",
+    "description": "Loop button test",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string", "required": False},
+    ],
+}
+_s200_plain_path = os.path.join(_s200_tmpdir, "tool_200_plain.json")
+Path(_s200_plain_path).write_text(json.dumps(_s200_plain_tool))
+
+_s200_loop_win = scaffold.MainWindow()
+_s200_loop_win._load_tool_path(_s200_plain_path)
+app.processEvents()
+
+_s200_dock = _s200_loop_win.cascade_dock
+
+# Force known state: loop OFF
+if _s200_dock._loop_enabled:
+    _s200_dock._toggle_loop()
+app.processEvents()
+check(not _s200_dock._loop_enabled,
+      "200C.1: loop starts in OFF state for test")
+_s200_loop_off_text = _s200_dock.loop_btn.text()
+check(_s200_loop_off_text == "Loop \u2717",
+      f"200C.2: loop OFF button shows 'Loop \u2717' "
+      f"(got {_s200_loop_off_text!r})")
+
+# Toggle ON -> should show "Loop ✓"
+_s200_dock._toggle_loop()
+app.processEvents()
+check(_s200_dock._loop_enabled,
+      "200C.3: toggle switched loop to ON")
+_s200_loop_on_text = _s200_dock.loop_btn.text()
+check(_s200_loop_on_text == "Loop \u2713",
+      f"200C.4: loop ON button shows 'Loop \u2713' "
+      f"(got {_s200_loop_on_text!r})")
+
+# Toggle OFF again -> back to "Loop ✗"
+_s200_dock._toggle_loop()
+app.processEvents()
+_s200_loop_off_again = _s200_dock.loop_btn.text()
+check(_s200_loop_off_again == "Loop \u2717",
+      f"200C.5: loop returns to OFF state 'Loop \u2717' after toggling off "
+      f"(got {_s200_loop_off_again!r})")
+
+# Symmetry check: Err button off-state glyph matches Loop off-state pattern
+_s200_err_off = _s200_dock.stop_on_error_btn.text()
+check("\u2717" in _s200_err_off,
+      f"200C.6: Err button off-state also uses \u2717 (symmetry reference, "
+      f"got {_s200_err_off!r})")
+
+_s200_loop_win.close()
+_s200_loop_win.deleteLater()
+app.processEvents()
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================

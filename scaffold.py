@@ -6409,7 +6409,7 @@ class CascadeSidebar(QDockWidget):
             self.loop_btn.setText("Loop \u2713")
         else:
             self.loop_btn.setStyleSheet(self._chain_qss)
-            self.loop_btn.setText("Loop")
+            self.loop_btn.setText("Loop \u2717")
 
     def _toggle_stop_on_error(self) -> None:
         """Toggle stop-on-error mode on/off."""
