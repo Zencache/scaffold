@@ -9603,7 +9603,7 @@ class MainWindow(QMainWindow):
         preset_dir = _presets_dir(self.data["tool"])
         presets = sorted(preset_dir.glob("*.json"))
         if not presets:
-            QMessageBox.information(self, "No Presets", "No saved presets for this tool.")
+            self.statusBar().showMessage("No saved presets for this tool")
             return
 
         picker = PresetPicker(self.data["tool"], preset_dir, mode="load", parent=self)

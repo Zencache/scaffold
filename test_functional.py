@@ -26172,6 +26172,26 @@ check(_s199_source.count("must be re-entered") >= 5,
 check("never saved" in _s199_source,
       f"199B.3: apply_values docstring mentions 'never saved'")
 
+# ---------------------------------------------------------------------
+# C. "No presets" empty-state — status bar, not modal
+# ---------------------------------------------------------------------
+check(_s199_re.search(r'QMessageBox\.information\([^)]*"No Presets"', _s199_source) is None,
+      "199C.1: QMessageBox.information(..., 'No Presets', ...) no longer present")
+check('"No saved presets for this tool"' in _s199_source,
+      "199C.2: status-bar 'No saved presets for this tool' message present")
+
+# Runtime: _on_load_preset with empty presets dir routes to status bar
+_s199_preset_dir = scaffold._presets_dir(_s199_tool_name)
+for _s199_leftover in _s199_preset_dir.glob("*.json"):
+    _s199_leftover.unlink()
+_s199_win.statusBar().showMessage("__s199_sentinel__")
+_s199_win._on_load_preset()
+app.processEvents()
+_s199_preset_status = _s199_win.statusBar().currentMessage()
+check("No saved presets" in _s199_preset_status,
+      f"199C.3: _on_load_preset with empty dir updates status bar "
+      f"(got {_s199_preset_status!r})")
+
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()
