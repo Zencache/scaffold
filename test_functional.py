@@ -26577,6 +26577,115 @@ _s200_pw_win.deleteLater()
 app.processEvents()
 
 
+# ---------------------------------------------------------------------
+# F. Topic 5 — Five cascade keyboard shortcuts
+# ---------------------------------------------------------------------
+_s200_sc_win = scaffold.MainWindow()
+app.processEvents()
+
+_s200_shortcuts_spec = [
+    ("_shortcut_cascade_add", "Ctrl+Shift+A", "_on_add_slot"),
+    ("_shortcut_cascade_pause", "Ctrl+P", "_on_pause_chain"),
+    ("_shortcut_cascade_stop", "Ctrl+.", "_on_stop_chain"),
+    ("_shortcut_cascade_loop", "Ctrl+Shift+L", "_toggle_loop"),
+    ("_shortcut_cascade_err", "Ctrl+Shift+E", "_toggle_stop_on_error"),
+]
+
+for _attr, _seq, _method in _s200_shortcuts_spec:
+    check(hasattr(_s200_sc_win, _attr),
+          f"200F.exist: MainWindow has {_attr}")
+    if hasattr(_s200_sc_win, _attr):
+        _sc = getattr(_s200_sc_win, _attr)
+        _expected = scaffold.QKeySequence(_seq).toString()
+        _actual = _sc.key().toString()
+        check(_actual == _expected,
+              f"200F.seq: {_attr} key is {_expected!r} (got {_actual!r})")
+    # Confirm target method exists on cascade_dock
+    check(hasattr(_s200_sc_win.cascade_dock, _method),
+          f"200F.tgt: cascade_dock has {_method}")
+    check(callable(getattr(_s200_sc_win.cascade_dock, _method, None)),
+          f"200F.call: cascade_dock.{_method} is callable")
+
+# Idempotent / safe-on-empty checks — no handler should crash in idle state.
+# (cascade_dock starts with 1 default slot and in CHAIN_IDLE state.)
+_s200_init_slots = len(_s200_sc_win.cascade_dock._slots)
+try:
+    _s200_sc_win.cascade_dock._on_pause_chain()
+    _s200_pause_ok = True
+except Exception as _e:
+    _s200_pause_ok = False
+    _s200_pause_err = _e
+check(_s200_pause_ok,
+      f"200F.safe1: _on_pause_chain is safe to call when idle "
+      f"{('error: ' + str(_s200_pause_err)) if not _s200_pause_ok else ''}")
+
+try:
+    _s200_sc_win.cascade_dock._on_stop_chain()
+    _s200_stop_ok = True
+except Exception as _e:
+    _s200_stop_ok = False
+    _s200_stop_err = _e
+check(_s200_stop_ok,
+      f"200F.safe2: _on_stop_chain is safe to call when idle "
+      f"{('error: ' + str(_s200_stop_err)) if not _s200_stop_ok else ''}")
+
+# Toggle handlers: toggle via shortcut-fire equivalent, verify state changes.
+_s200_loop_before = _s200_sc_win.cascade_dock._loop_enabled
+_s200_sc_win._shortcut_cascade_loop.activated.emit()
+app.processEvents()
+_s200_loop_after = _s200_sc_win.cascade_dock._loop_enabled
+check(_s200_loop_after != _s200_loop_before,
+      f"200F.act1: Ctrl+Shift+L shortcut toggles _loop_enabled "
+      f"(before={_s200_loop_before}, after={_s200_loop_after})")
+
+_s200_err_before = _s200_sc_win.cascade_dock._stop_on_error
+_s200_sc_win._shortcut_cascade_err.activated.emit()
+app.processEvents()
+_s200_err_after = _s200_sc_win.cascade_dock._stop_on_error
+check(_s200_err_after != _s200_err_before,
+      f"200F.act2: Ctrl+Shift+E shortcut toggles _stop_on_error "
+      f"(before={_s200_err_before}, after={_s200_err_after})")
+
+# Ctrl+Shift+A shortcut adds a slot (respecting the max-slot cap)
+_s200_slots_before_add = len(_s200_sc_win.cascade_dock._slots)
+if _s200_slots_before_add < scaffold.CASCADE_MAX_SLOTS:
+    _s200_sc_win._shortcut_cascade_add.activated.emit()
+    app.processEvents()
+    _s200_slots_after_add = len(_s200_sc_win.cascade_dock._slots)
+    check(_s200_slots_after_add == _s200_slots_before_add + 1,
+          f"200F.act3: Ctrl+Shift+A adds one slot "
+          f"(before={_s200_slots_before_add}, after={_s200_slots_after_add})")
+else:
+    check(True, "200F.act3: already at max slots, skipping add test")
+
+# Ctrl+. stop shortcut: idle state -> no crash (already tested safe above,
+# this confirms the shortcut wire-through works end-to-end).
+try:
+    _s200_sc_win._shortcut_cascade_stop.activated.emit()
+    _s200_stop_sc_ok = True
+except Exception as _e:
+    _s200_stop_sc_ok = False
+    _s200_stop_sc_err = _e
+check(_s200_stop_sc_ok,
+      f"200F.act4: Ctrl+. stop shortcut fires without exception "
+      f"{('error: ' + str(_s200_stop_sc_err)) if not _s200_stop_sc_ok else ''}")
+
+# Ctrl+P pause shortcut: idle state -> no crash.
+try:
+    _s200_sc_win._shortcut_cascade_pause.activated.emit()
+    _s200_pause_sc_ok = True
+except Exception as _e:
+    _s200_pause_sc_ok = False
+    _s200_pause_sc_err = _e
+check(_s200_pause_sc_ok,
+      f"200F.act5: Ctrl+P pause shortcut fires without exception "
+      f"{('error: ' + str(_s200_pause_sc_err)) if not _s200_pause_sc_ok else ''}")
+
+_s200_sc_win.close()
+_s200_sc_win.deleteLater()
+app.processEvents()
+
+
 # =====================================================================
 # Final cleanup
 # =====================================================================

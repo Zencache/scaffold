@@ -8777,6 +8777,19 @@ class MainWindow(QMainWindow):
         self._shortcut_run_cascade_num.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._shortcut_run_cascade_num.activated.connect(self._shortcut_run_cascade_if_safe)
 
+        # Cascade control shortcuts — operate on cascade state regardless of
+        # sidebar visibility.
+        self._shortcut_cascade_add = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
+        self._shortcut_cascade_add.activated.connect(self.cascade_dock._on_add_slot)
+        self._shortcut_cascade_pause = QShortcut(QKeySequence("Ctrl+P"), self)
+        self._shortcut_cascade_pause.activated.connect(self.cascade_dock._on_pause_chain)
+        self._shortcut_cascade_stop = QShortcut(QKeySequence("Ctrl+."), self)
+        self._shortcut_cascade_stop.activated.connect(self.cascade_dock._on_stop_chain)
+        self._shortcut_cascade_loop = QShortcut(QKeySequence("Ctrl+Shift+L"), self)
+        self._shortcut_cascade_loop.activated.connect(self.cascade_dock._toggle_loop)
+        self._shortcut_cascade_err = QShortcut(QKeySequence("Ctrl+Shift+E"), self)
+        self._shortcut_cascade_err.activated.connect(self.cascade_dock._toggle_stop_on_error)
+
     def _focus_is_in_text_input(self) -> bool:
         """Return True if the currently focused widget is a text input that should consume Enter."""
         fw = QApplication.focusWidget()
