@@ -25942,16 +25942,16 @@ check("Crashed" in _s198_win.statusBar().currentMessage(),
       f"198C.3b: 'Crashed' still lands in main region "
       f"(got {_s198_win.statusBar().currentMessage()!r})")
 
-# C.4 — elevation cancelled path (elevated_run + exit 126/127)
+# C.4 — elevation failed path (elevated_run + exit 126)
 _s198_reset_run_state(_s198_win)
 _s198_win._elevated_run = True
 _s198_win._on_finished(126, QProcess.ExitStatus.NormalExit)
 app.processEvents()
 check(_s198_win._progress_label.text() == "",
-      f"198C.4: progress label cleared on elevation-cancelled path "
+      f"198C.4: progress label cleared on elevation-failed path "
       f"(got {_s198_win._progress_label.text()!r})")
-check("Elevation cancelled" in _s198_win.statusBar().currentMessage(),
-      f"198C.4b: 'Elevation cancelled' still lands in main region "
+check("Elevation failed" in _s198_win.statusBar().currentMessage(),
+      f"198C.4b: 'Elevation failed' still lands in main region "
       f"(got {_s198_win.statusBar().currentMessage()!r})")
 
 # C.5 — clean exit 0 path
@@ -26068,6 +26068,103 @@ _s198_win.close()
 _s198_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s198_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 199 — v2.11.0 Phase 2 messaging fixes
+# =====================================================================
+print("\n=== SECTION 199: v2.11.0 Phase 2 messaging fixes ===")
+
+import re as _s199_re
+
+_s199_source = Path(scaffold.__file__).read_text(encoding="utf-8")
+_s199_tmpdir = tempfile.mkdtemp(prefix="scaffold_test199_")
+_s199_tool_name = "tool_199"
+_s199_tool = {
+    "tool": _s199_tool_name,
+    "binary": "echo",
+    "description": "Phase 2 messaging test",
+    "arguments": [
+        {"name": "Msg", "flag": "--msg", "type": "string", "required": True},
+    ],
+}
+_s199_path = os.path.join(_s199_tmpdir, f"{_s199_tool_name}.json")
+Path(_s199_path).write_text(json.dumps(_s199_tool))
+
+_s199_win = scaffold.MainWindow()
+_s199_win.show()
+app.processEvents()
+_s199_win._load_tool_path(_s199_path)
+app.processEvents()
+
+
+def _s199_reset_run_state(win):
+    """Prime per-run flags for _on_finished state exercise."""
+    win._killed = False
+    win._error_reported = False
+    win._timed_out = False
+    win._elevated_run = False
+    win._run_start_time = time.monotonic()
+    win._history_display = "echo --msg hi"
+    win._history_preset = {}
+    win._history_timestamp = time.time()
+
+
+# ---------------------------------------------------------------------
+# A. Elevation accuracy — 126 (helper failed) vs 127 (cancelled/unavailable)
+# ---------------------------------------------------------------------
+_s199_reset_run_state(_s199_win)
+_s199_win._elevated_run = True
+_s199_win.output.clear()
+_s199_win._on_finished(126, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+_s199_out_126 = _s199_win.output.toPlainText()
+_s199_status_126 = _s199_win.statusBar().currentMessage()
+check("helper could not execute" in _s199_out_126,
+      f"199A.1: exit 126 output contains 'helper could not execute' "
+      f"(got {_s199_out_126!r})")
+check("Elevation failed" in _s199_status_126,
+      f"199A.2: exit 126 status bar contains 'Elevation failed' "
+      f"(got {_s199_status_126!r})")
+
+_s199_reset_run_state(_s199_win)
+_s199_win._elevated_run = True
+_s199_win.output.clear()
+_s199_win._on_finished(127, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+_s199_out_127 = _s199_win.output.toPlainText()
+_s199_status_127 = _s199_win.statusBar().currentMessage()
+check("cancelled or unavailable" in _s199_out_127,
+      f"199A.3: exit 127 output contains 'cancelled or unavailable' "
+      f"(got {_s199_out_127!r})")
+check("Elevation cancelled or unavailable" in _s199_status_127,
+      f"199A.4: exit 127 status bar contains 'Elevation cancelled or unavailable' "
+      f"(got {_s199_status_127!r})")
+
+# Regression: non-elevated 126/127 falls through to generic non-zero branch
+_s199_reset_run_state(_s199_win)
+_s199_win._elevated_run = False
+_s199_win.output.clear()
+_s199_win._on_finished(126, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check("Exit 126" in _s199_win.statusBar().currentMessage(),
+      f"199A.5: non-elevated exit 126 falls through to 'Exit 126' "
+      f"(got {_s199_win.statusBar().currentMessage()!r})")
+
+_s199_reset_run_state(_s199_win)
+_s199_win._elevated_run = False
+_s199_win.output.clear()
+_s199_win._on_finished(127, QProcess.ExitStatus.NormalExit)
+app.processEvents()
+check("Exit 127" in _s199_win.statusBar().currentMessage(),
+      f"199A.6: non-elevated exit 127 falls through to 'Exit 127' "
+      f"(got {_s199_win.statusBar().currentMessage()!r})")
+
+# Cleanup section 199
+_s199_win.close()
+_s199_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s199_tmpdir, ignore_errors=True)
 
 
 # =====================================================================

@@ -10288,11 +10288,16 @@ class MainWindow(QMainWindow):
         elif crashed and not self._killed and not self._timed_out:
             self._append_output("\n--- Process crashed ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Crashed{elapsed_str}")
-        elif self._elevated_run and exit_code in (126, 127):
+        elif self._elevated_run and exit_code == 126:
             self._append_output(
-                "\n--- Elevation was cancelled by the user. ---\n", COLOR_WARN
+                "\n--- Elevation failed: helper could not execute. ---\n", COLOR_ERR
             )
-            self.statusBar().showMessage("Elevation cancelled")
+            self.statusBar().showMessage("Elevation failed")
+        elif self._elevated_run and exit_code == 127:
+            self._append_output(
+                "\n--- Elevation cancelled or unavailable ---\n", COLOR_WARN
+            )
+            self.statusBar().showMessage("Elevation cancelled or unavailable")
         elif exit_code == 0:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_OK)
             self.statusBar().showMessage(f"Exit 0{elapsed_str}")
