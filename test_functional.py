@@ -149,6 +149,22 @@ def check(condition, name):
 
 
 # =====================================================================
+# Canonical version assertion — bump this single line per release.
+#
+# DO NOT re-add per-section version assertions. Earlier releases (v2.11.0
+# through v2.11.2) each tacked a §NNN.1 "version bump" check onto their
+# new section, which meant every release shipped with N-1 stale strings
+# to chase down. v2.11.4 consolidated to this one line; the only friction
+# now is updating EXPECTED_VERSION here. Section-level tests should
+# verify section-level behavior, not the version constant.
+# =====================================================================
+EXPECTED_VERSION = "2.11.3"
+check(scaffold.__version__ == EXPECTED_VERSION,
+      f"version: scaffold.__version__ == {EXPECTED_VERSION!r} "
+      f"(got {scaffold.__version__!r})")
+
+
+# =====================================================================
 print("\n=== SECTION 1: Launch and Navigation ===")
 # =====================================================================
 
@@ -26271,12 +26287,6 @@ if _s199_save_match:
           f"199F.2: _save_output has no numeric timeout args on showMessage "
           f"(offenders: {_s199_timeout_hits})")
 
-# ---------------------------------------------------------------------
-# G. Version bump
-# ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.3",
-      f"199G.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
-
 # Cleanup section 199
 _s199_win.close()
 _s199_win.deleteLater()
@@ -26812,13 +26822,6 @@ _s200_leak_win.deleteLater()
 app.processEvents()
 
 
-# ---------------------------------------------------------------------
-# H. Version bump
-# ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.3",
-      f"200H.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
-
-
 # =====================================================================
 # Section 201 — v2.11.2 R2-E4: history entry size cap
 # =====================================================================
@@ -27111,12 +27114,6 @@ check(_s201_dlg.selected_entry is None,
 _s201_dlg.close()
 _s201_dlg.deleteLater()
 app.processEvents()
-
-# ---------------------------------------------------------------------
-# J. Version bump
-# ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.3",
-      f"201J.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
 
 # Cleanup section 201
 _s201_win.close()
