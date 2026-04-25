@@ -791,19 +791,23 @@ def _check_preset_value_type(arg: dict, value) -> str | None:
     return None
 
 
-def validate_preset(data, tool_data=None) -> list[str]:
+def validate_preset(data, tool_data=None, report_unknown_keys=True) -> list[str]:
     """Validate a preset dict. Returns a list of error strings (empty = valid).
 
     Checks structure, value types, and string lengths of *data*.
 
-    If *tool_data* is provided, additionally warns for keys that don't match
-    any flag defined in the tool's schema — useful for catching preset files
-    that reference flags from older schema versions. This parameter is a
-    test-only entrypoint used by the shipped-presets cohort guard in
-    test_preset_validation.py §30; production callers omit it. The key
-    format produced by serialize_values() and the key format expected by
-    this branch were reconciled in v2.10.0, so wiring tool_data= into a
-    production caller is a feature decision, not a compatibility gate.
+    If *tool_data* is provided, additionally checks unknown keys (keys that
+    don't match any flag defined in the tool's schema) and per-key value
+    types against the schema's declared field types. v2.11.4 wired this
+    into production load callers (cascade slot click, chain advance,
+    UI preset load); historically it was only used by the cohort guard in
+    test_preset_validation.py §30.
+
+    *report_unknown_keys* gates the unknown-key check. Production load
+    callers pass False so the schema_hash mismatch path remains the
+    canonical "stale preset" gate (it produces a more useful diagnostic
+    than per-flag unknown-key spam). Tests and the cohort guard pass the
+    default True. Per-key type errors fire regardless.
     """
     errors = []
 
@@ -898,7 +902,8 @@ def validate_preset(data, tool_data=None) -> list[str]:
             if key.startswith("_") and ":" not in key:
                 continue
             if key not in known_args:
-                errors.append(f"Unknown preset key \"{key}\" — not found in current schema (may be from an older version)")
+                if report_unknown_keys:
+                    errors.append(f"Unknown preset key \"{key}\" — not found in current schema (may be from an older version)")
                 continue
             msg = _check_preset_value_type(known_args[key], data[key])
             if msg is not None:
@@ -7244,10 +7249,18 @@ class CascadeSidebar(QDockWidget):
                         f"{marker_problem}"
                     )
                     return
-                # Structural validation \u2014 cascade runs unattended, so malformed
-                # preset data (bad types, oversize strings, schema-as-preset) must
-                # reject instead of feeding apply_values. Mirrors UI paths.
-                verrors = validate_preset(preset_data)
+                # Structural + per-key type validation \u2014 cascade runs unattended,
+                # so malformed preset data (bad types, oversize strings,
+                # schema-as-preset) must reject instead of feeding apply_values.
+                # report_unknown_keys=False because the schema_hash check below
+                # is the canonical stale-preset gate; unknown-key errors here
+                # would be redundant noise and would block legacy presets that
+                # used to load with a schema-hash warning.
+                verrors = validate_preset(
+                    preset_data,
+                    tool_data=self._main_window.data,
+                    report_unknown_keys=False,
+                )
                 if verrors:
                     preset_name = Path(preset_path).name
                     first_err = verrors[0] if verrors else "unknown"
@@ -7744,10 +7757,16 @@ class CascadeSidebar(QDockWidget):
                         f"{self._chain_current + 1}"
                     )
                     return
-                # Structural validation \u2014 same rationale as _on_slot_clicked. Runs
-                # before the schema-hash check so structural errors name themselves
-                # specifically rather than being masked by a hash mismatch.
-                verrors = validate_preset(preset_data)
+                # Structural + per-key type validation \u2014 same rationale as
+                # _on_slot_clicked. Runs before the schema-hash check so structural
+                # errors name themselves specifically rather than being masked by
+                # a hash mismatch. report_unknown_keys=False so the schema_hash
+                # check below remains the canonical stale-preset gate.
+                verrors = validate_preset(
+                    preset_data,
+                    tool_data=self._main_window.data,
+                    report_unknown_keys=False,
+                )
                 if verrors:
                     preset_name = Path(preset_path).name
                     first_err = verrors[0] if verrors else "unknown"
@@ -9853,8 +9872,11 @@ class MainWindow(QMainWindow):
             if btn != QMessageBox.StandardButton.Yes:
                 return
 
-        # Validate preset structure
-        verrors = validate_preset(preset)
+        # Validate preset structure + per-key types against the live tool's
+        # schema. report_unknown_keys=False so old presets with renamed flags
+        # still load with the schema_hash status-bar warning shown below;
+        # type errors are hard rejects (silent-bug catch from v2.11.3).
+        verrors = validate_preset(preset, tool_data=self.data, report_unknown_keys=False)
         if verrors:
             QMessageBox.warning(
                 self, "Invalid Preset",

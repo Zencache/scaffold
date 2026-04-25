@@ -405,24 +405,31 @@ check(
 # =====================================================================
 print("\n=== Preset Validation: F16 — cascade paths call validate_preset ===")
 # =====================================================================
-# Static-scan regression guard. F16 added validate_preset(preset_data) to
-# both cascade paths so malformed presets can't silently feed apply_values
-# during unattended runs. A future refactor that drops the call would
-# reopen the hole the audit flagged.
+# Static-scan regression guard. F16 added validate_preset to both cascade
+# paths so malformed presets can't silently feed apply_values during
+# unattended runs. v2.11.4 wired tool_data= and report_unknown_keys=False
+# at these sites so per-key type rules fire too. A future refactor that
+# drops either piece reopens a hole the audit flagged.
 
 _slot_body = _f12_extract_method(_scaffold_text, "_on_slot_clicked")
 _chain_body = _f12_extract_method(_scaffold_text, "_chain_advance")
 
-# 36. _on_slot_clicked calls validate_preset(preset_data)
+# 36. _on_slot_clicked calls validate_preset with preset_data + tool_data
 check(
-    "validate_preset(preset_data)" in _slot_body,
-    "36: _on_slot_clicked contains validate_preset(preset_data) call",
+    "validate_preset(" in _slot_body
+    and "preset_data," in _slot_body
+    and "tool_data=" in _slot_body
+    and "report_unknown_keys=False" in _slot_body,
+    "36: _on_slot_clicked calls validate_preset with tool_data + report_unknown_keys=False",
 )
 
-# 37. _chain_advance calls validate_preset(preset_data)
+# 37. _chain_advance calls validate_preset with preset_data + tool_data
 check(
-    "validate_preset(preset_data)" in _chain_body,
-    "37: _chain_advance contains validate_preset(preset_data) call",
+    "validate_preset(" in _chain_body
+    and "preset_data," in _chain_body
+    and "tool_data=" in _chain_body
+    and "report_unknown_keys=False" in _chain_body,
+    "37: _chain_advance calls validate_preset with tool_data + report_unknown_keys=False",
 )
 
 

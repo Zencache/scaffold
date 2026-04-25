@@ -27381,6 +27381,253 @@ check(isinstance(_s202_msg, str) and "got bool" in _s202_msg,
 
 
 # =====================================================================
+# Section 203 — v2.11.4 Topic A: validate_preset activation at load callers
+# =====================================================================
+print("\n=== SECTION 203: v2.11.4 validate_preset activation at load callers ===")
+# v2.11.3 added per-key type rules to validate_preset but gated them
+# behind tool_data=. v2.11.4 wires tool_data=self.data and
+# report_unknown_keys=False at the three production load callers
+# (_on_load_preset, _on_slot_clicked, _chain_advance). These tests
+# confirm: (A) type-mismatch presets are now rejected with a user-visible
+# error rather than producing silently-wrong form state; (B) valid
+# presets still load (regression guard); (C) unknown-key presets still
+# load (preserved old behavior — schema_hash mismatch is the canonical
+# stale-preset gate, not unknown-key spam).
+
+_s203_tmpdir = Path(tempfile.mkdtemp(prefix="s203_"))
+
+# Schema with diverse field types so we can craft type-mismatch presets.
+_s203_schema_dict = {
+    "_format": "scaffold_schema",
+    "tool": "s203_tool",
+    "binary": "echo",
+    "description": "section 203 activation schema",
+    "arguments": [
+        {"name": "Verbose", "flag": "--verbose", "type": "boolean"},
+        {"name": "Count", "flag": "--count", "type": "integer"},
+        {"name": "Name", "flag": "--name", "type": "string"},
+        {"name": "Exclude", "flag": "--exclude", "type": "string"},
+        {"name": "Ports", "flag": "--ports", "type": "multi_enum",
+         "choices": ["80", "443"]},
+    ],
+}
+_s203_schema_path = _s203_tmpdir / "s203_tool.json"
+_s203_schema_path.write_text(json.dumps(_s203_schema_dict), encoding="utf-8")
+
+_s203_win = scaffold.MainWindow()
+_s203_win._load_tool_path(str(_s203_schema_path))
+app.processEvents()
+check(_s203_win.data is not None and _s203_win.data["tool"] == "s203_tool",
+      "203-setup: tool loaded")
+
+_s203_preset_dir = scaffold._presets_dir("s203_tool")
+_s203_preset_dir.mkdir(parents=True, exist_ok=True)
+_s203_hash = scaffold.schema_hash(_s203_win.data)
+
+# Three preset files: valid, type-mismatch, unknown-key.
+_s203_valid = _s203_preset_dir / "s203_valid.json"
+_s203_valid.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s203_tool",
+    "_subcommand": None,
+    "_schema_hash": _s203_hash,
+    "--verbose": True,
+    "--count": 5,
+    "--name": "ok",
+}), encoding="utf-8")
+
+# Mirrors the rsync_selective_copy_excludes silent-bug shape: a list value
+# stuffed into a string field. Pre-v2.11.4 this would render as Python
+# repr in the GUI and leak into the assembled command.
+_s203_typemismatch = _s203_preset_dir / "s203_typemismatch.json"
+_s203_typemismatch.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s203_tool",
+    "_subcommand": None,
+    "_schema_hash": _s203_hash,
+    "--exclude": ["*.log", "*.tmp"],
+}), encoding="utf-8")
+
+_s203_unknown = _s203_preset_dir / "s203_unknown.json"
+_s203_unknown.write_text(json.dumps({
+    "_format": "scaffold_preset",
+    "_tool": "s203_tool",
+    "_subcommand": None,
+    "_schema_hash": _s203_hash,
+    "--name": "real_value",
+    "--legacy-flag": "from_old_schema",
+}), encoding="utf-8")
+
+# Monkeypatch PresetPicker so _on_load_preset can run without UI
+_s203_orig_picker = scaffold.PresetPicker
+_s203_selected = {"path": None}
+
+
+class _s203_MockPicker:
+    def __init__(self, tool_name, preset_dir, mode="load", parent=None):
+        self.selected_path = _s203_selected["path"]
+
+    def exec(self):
+        return 1 if _s203_selected["path"] else 0
+
+
+scaffold.PresetPicker = _s203_MockPicker
+
+_s203_warning_calls = []
+_s203_orig_warning = QMessageBox.warning
+
+
+def _s203_capture_warning(parent, title, text, *args, **kwargs):
+    _s203_warning_calls.append((str(title), str(text)))
+    return QMessageBox.StandardButton.Ok
+
+
+# ---------------------------------------------------------------------
+# A. Type-mismatch preset rejected with user-visible error (not silent)
+# ---------------------------------------------------------------------
+QMessageBox.warning = _s203_capture_warning
+_s203_warning_calls.clear()
+
+# Set sentinel field value so we can confirm apply_values did NOT run
+for _k, _f in _s203_win.form.fields.items():
+    if _f["arg"]["flag"] == "--exclude":
+        _f["widget"].setText("sentinel_before_load")
+        break
+app.processEvents()
+
+_s203_selected["path"] = str(_s203_typemismatch)
+_s203_win._on_load_preset()
+app.processEvents()
+
+check(any("Invalid Preset" in t for t, _ in _s203_warning_calls),
+      f"203A.1: type-mismatch preset triggers Invalid Preset dialog "
+      f"(got {_s203_warning_calls})")
+
+# Sentinel must be unchanged — apply_values must NOT have run
+for _k, _f in _s203_win.form.fields.items():
+    if _f["arg"]["flag"] == "--exclude":
+        check(_f["widget"].text() == "sentinel_before_load",
+              f"203A.2: type-mismatch preset rejected before apply_values "
+              f"(field value: {_f['widget'].text()!r})")
+        break
+
+# Diagnostic mentions the wrong-type detail (str vs list)
+_s203_wrong_type_msgs = [t for _, t in _s203_warning_calls
+                        if "wrong type" in t.lower() or "expected str" in t.lower()]
+check(len(_s203_wrong_type_msgs) >= 1,
+      f"203A.3: dialog text names the wrong-type problem "
+      f"(got {_s203_warning_calls})")
+
+# ---------------------------------------------------------------------
+# B. Valid preset loads successfully (regression guard)
+# ---------------------------------------------------------------------
+_s203_warning_calls.clear()
+_s203_selected["path"] = str(_s203_valid)
+_s203_win._on_load_preset()
+app.processEvents()
+
+# No "Invalid Preset" dialog
+_s203_invalid_dialogs = [c for c in _s203_warning_calls if "Invalid Preset" in c[0]]
+check(len(_s203_invalid_dialogs) == 0,
+      f"203B.1: valid preset triggers no Invalid Preset dialog "
+      f"(got {_s203_warning_calls})")
+
+# Field values applied
+for _k, _f in _s203_win.form.fields.items():
+    if _f["arg"]["flag"] == "--name":
+        check(_f["widget"].text() == "ok",
+              f"203B.2: valid preset applied --name (got {_f['widget'].text()!r})")
+        break
+
+# ---------------------------------------------------------------------
+# C. Unknown-key preset still loads (preserved old behavior)
+# ---------------------------------------------------------------------
+# report_unknown_keys=False keeps unknown keys silent at this gate so
+# legacy presets with renamed flags still load (the schema_hash status-bar
+# warning then surfaces below if hash differs).
+_s203_warning_calls.clear()
+_s203_selected["path"] = str(_s203_unknown)
+_s203_win._on_load_preset()
+app.processEvents()
+
+_s203_invalid_dialogs2 = [c for c in _s203_warning_calls if "Invalid Preset" in c[0]]
+check(len(_s203_invalid_dialogs2) == 0,
+      f"203C.1: unknown-key preset still loads (no Invalid Preset dialog) "
+      f"(got {_s203_warning_calls})")
+
+# Known field still applied (apply_values ignored the unknown --legacy-flag)
+for _k, _f in _s203_win.form.fields.items():
+    if _f["arg"]["flag"] == "--name":
+        check(_f["widget"].text() == "real_value",
+              f"203C.2: unknown-key preset still applies known fields "
+              f"(got {_f['widget'].text()!r})")
+        break
+
+# ---------------------------------------------------------------------
+# D. validate_preset signature exposes report_unknown_keys parameter
+# ---------------------------------------------------------------------
+import inspect as _s203_inspect
+_s203_sig = _s203_inspect.signature(scaffold.validate_preset)
+check("report_unknown_keys" in _s203_sig.parameters,
+      f"203D.1: validate_preset has report_unknown_keys parameter "
+      f"(got {list(_s203_sig.parameters)})")
+check(_s203_sig.parameters["report_unknown_keys"].default is True,
+      f"203D.2: report_unknown_keys defaults to True (preserves test behavior) "
+      f"(got {_s203_sig.parameters['report_unknown_keys'].default!r})")
+
+# Direct: report_unknown_keys=False suppresses unknown-key errors but
+# preserves type errors.
+_s203_d3_errs = scaffold.validate_preset(
+    {"--legacy-flag": "x"}, _s203_schema_dict, report_unknown_keys=False)
+check(_s203_d3_errs == [],
+      f"203D.3: report_unknown_keys=False silences unknown-key errors "
+      f"(got {_s203_d3_errs})")
+
+_s203_d4_errs = scaffold.validate_preset(
+    {"--exclude": ["a", "b"]}, _s203_schema_dict, report_unknown_keys=False)
+check(any("wrong type" in e for e in _s203_d4_errs),
+      f"203D.4: report_unknown_keys=False does NOT silence type errors "
+      f"(got {_s203_d4_errs})")
+
+# Default behavior (True) unchanged for tests/cohort guard.
+_s203_d5_errs = scaffold.validate_preset(
+    {"--legacy-flag": "x"}, _s203_schema_dict)
+check(any("Unknown preset key" in e for e in _s203_d5_errs),
+      f"203D.5: default report_unknown_keys=True still flags unknown keys "
+      f"(got {_s203_d5_errs})")
+
+# ---------------------------------------------------------------------
+# E. Production callers still strict about non-key validation errors
+# ---------------------------------------------------------------------
+# Even with report_unknown_keys=False, structural errors (oversize string,
+# unsupported value type) still fail the load. Confirms we didn't accidentally
+# weaken the broader validation.
+_s203_e1_oversize = "x" * (scaffold._PRESET_MAX_STRING_LEN + 1)
+_s203_e1_errs = scaffold.validate_preset(
+    {"--name": _s203_e1_oversize}, _s203_schema_dict, report_unknown_keys=False)
+check(any("too long" in e for e in _s203_e1_errs),
+      f"203E.1: oversize string still flagged with report_unknown_keys=False "
+      f"(got {_s203_e1_errs})")
+
+_s203_e2_errs = scaffold.validate_preset(
+    {"--name": {"nested": "dict"}}, _s203_schema_dict, report_unknown_keys=False)
+check(any("unsupported type" in e for e in _s203_e2_errs),
+      f"203E.2: unsupported type still flagged with report_unknown_keys=False "
+      f"(got {_s203_e2_errs})")
+
+# Restore PresetPicker + QMessageBox.warning
+scaffold.PresetPicker = _s203_orig_picker
+QMessageBox.warning = _s203_orig_warning
+
+# Cleanup section 203
+_s203_win.close()
+_s203_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s203_tmpdir, ignore_errors=True)
+shutil.rmtree(_s203_preset_dir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
