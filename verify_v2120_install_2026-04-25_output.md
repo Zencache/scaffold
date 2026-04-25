@@ -168,7 +168,7 @@ Return ONLY raw JSON. No markdown fences, no explanation, no preamble, no traili
 
 ```
 $ /tmp/scaffold-install-test/Scripts/scaffold.exe --preset-prompt | head -5
-You are a preset generator for Scaffold (https://github.com/Zencache/scaffold).
+You are a preset generator for Scaffold (https://github.com/kevlattice/scaffold).
 
 Scaffold turns CLI tools into GUI forms using JSON schemas. A PRESET is a saved
 form configuration — a JSON file that maps argument flags to values, so a user
@@ -250,7 +250,7 @@ $ /tmp/scaffold-install-test/Scripts/python.exe -m pip show scaffold-gui
 Name: scaffold-gui
 Version: 2.12.0
 Summary: Schema-driven GUI generator for any CLI tool
-Home-page: https://github.com/Zencache/scaffold
+Home-page: https://github.com/kevlattice/scaffold
 Author: Kev
 License: # PolyForm Noncommercial License 1.0.0
         ...

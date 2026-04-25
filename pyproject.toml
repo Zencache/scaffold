@@ -31,9 +31,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Zencache/scaffold"
-Repository = "https://github.com/Zencache/scaffold"
-Changelog = "https://github.com/Zencache/scaffold/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/kevlattice/scaffold"
+Repository = "https://github.com/kevlattice/scaffold"
+Changelog = "https://github.com/kevlattice/scaffold/blob/main/CHANGELOG.md"
 
 [project.scripts]
 scaffold = "scaffold:main"

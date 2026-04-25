@@ -8734,7 +8734,7 @@ class MainWindow(QMainWindow):
             f"<b>Scaffold {__version__}</b><br><br>"
             "Dynamic GUI form generator for CLI tools.<br>"
             "License: PolyForm Noncommercial 1.0.0<br><br>"
-            "<a href='https://github.com/Zencache/scaffold'>github.com/Zencache/scaffold</a>",
+            "<a href='https://github.com/kevlattice/scaffold'>github.com/kevlattice/scaffold</a>",
         )
 
     def _on_show_user_guide(self) -> None:
