@@ -746,7 +746,7 @@ check(_has_redos_msg(errs),
 # shipped schema is now rejected because of the F2 check. Guards
 # against a future helper tightening that silently breaks a shipped
 # schema.
-_shipped_tools = Path(__file__).parent / "tools"
+_shipped_tools = Path(__file__).parent / "scaffold_data" / "tools"
 _cohort_problems = []
 for _schema_path in sorted(_shipped_tools.rglob("*.json")):
     try:

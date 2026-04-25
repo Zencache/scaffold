@@ -80,7 +80,7 @@ for row in range(win.picker.table.rowCount()):
           f"  row {row} has tool name: {item.text() if item else 'NONE'}")
 
 # 1b. Pick a tool — form loads
-nmap_path = str(Path(__file__).parent / "tools" / "nmap.json")
+nmap_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 win._load_tool_path(nmap_path)
 app.processEvents()
 
@@ -213,7 +213,7 @@ print("\n=== 3 — Run a Command ===")
 # =====================================================================
 
 # Load ping for a fast safe command
-ping_path = str(Path(__file__).parent / "tools" / "ping.json")
+ping_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 win._load_tool_path(ping_path)
 form = win.form
 app.processEvents()

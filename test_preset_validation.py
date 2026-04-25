@@ -262,11 +262,13 @@ check(result == [], f"29: meta keys not treated as unknown (got {result})")
 print("\n=== Preset Validation: F6 shipped-preset cohort ===")
 # =====================================================================
 
-# Walk every default preset under default_presets/<toolname>/, pair with
-# tools/<toolname>.json, and assert validate_preset(tool_data=) yields
-# zero errors. Pass 2 Check 4 recorded 53/53 failing before F6 landed.
-_presets_root = Path(__file__).parent / "default_presets"
-_tools_root = Path(__file__).parent / "tools"
+# Walk every default preset under scaffold_data/default_presets/<toolname>/,
+# pair with scaffold_data/tools/<toolname>.json, and assert
+# validate_preset(tool_data=) yields zero errors. Pass 2 Check 4 recorded
+# 53/53 failing before F6 landed. (v2.12.0 Phase 3 moved bundled files
+# into scaffold_data/.)
+_presets_root = Path(__file__).parent / "scaffold_data" / "default_presets"
+_tools_root = Path(__file__).parent / "scaffold_data" / "tools"
 
 _cohort_total = 0
 _cohort_failures = []
@@ -281,7 +283,7 @@ for _preset_path in sorted(_presets_root.glob("*/*.json")):
     if _toolname not in _cohort_schema_cache:
         _schema_path = _tools_root / f"{_toolname}.json"
         if not _schema_path.exists():
-            _cohort_schema_cache[_toolname] = (None, f"no schema at tools/{_toolname}.json")
+            _cohort_schema_cache[_toolname] = (None, f"no schema at scaffold_data/tools/{_toolname}.json")
         else:
             try:
                 _raw = scaffold.load_tool(_schema_path)

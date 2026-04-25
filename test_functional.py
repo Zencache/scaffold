@@ -187,7 +187,7 @@ for row in range(picker.table.rowCount()):
     check(tool_item is not None and len(tool_item.text()) > 0, f"  row {row} has a tool name: {tool_item.text() if tool_item else 'NONE'}")
 
 # 1c. Load a tool — form loads, window title updates
-nmap_path = str(Path(__file__).parent / "tools" / "nmap.json")
+nmap_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 window._load_tool_path(nmap_path)
 check(window.stack.currentIndex() == 1, "form view after loading nmap")
 check("nmap" in window.windowTitle().lower(), f"window title contains 'nmap': {window.windowTitle()}")
@@ -259,7 +259,7 @@ check("enum" in widget_types_found, "enum widget type present")
 # float and multi_enum may not be in nmap — check across all tools
 all_types_all_tools = set()
 for tf in ["nmap.json", "curl.json", "git.json", "ping.json", "ffmpegv2.json"]:
-    tp = Path(__file__).parent / "tools" / tf
+    tp = Path(__file__).parent / "scaffold_data" / "tools" / tf
     if tp.exists():
         d = scaffold.load_tool(str(tp))
         d = scaffold.normalize_tool(d)
@@ -480,7 +480,7 @@ print("\n=== SECTION 3b: Process Execution ===")
 # =====================================================================
 
 # Load a simple tool we know exists (ping)
-ping_path = str(Path(__file__).parent / "tools" / "ping.json")
+ping_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 window._load_tool_path(ping_path)
 form = window.form
 
@@ -721,7 +721,7 @@ window4.deleteLater()
 print("\n=== SECTION 7: Git Tool — Subcommands ===")
 # =====================================================================
 
-git_path = str(Path(__file__).parent / "tools" / "git.json")
+git_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "git.json")
 window._load_tool_path(git_path)
 form = window.form
 
@@ -752,7 +752,7 @@ print("\n=== SECTION 8: Editable Dropdown (examples) ===")
 # =====================================================================
 
 # Load curl which has examples fields
-curl_path = str(Path(__file__).parent / "tools" / "curl.json")
+curl_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "curl.json")
 window._load_tool_path(curl_path)
 form = window.form
 
@@ -779,7 +779,7 @@ print("\n=== SECTION 9: File/Directory Widget Types ===")
 # Check nmap or curl for file/directory types
 all_types_in_all_tools = set()
 for tool_file in ["nmap.json", "curl.json", "git.json", "ping.json"]:
-    tp = str(Path(__file__).parent / "tools" / tool_file)
+    tp = str(Path(__file__).parent / "scaffold_data" / "tools" / tool_file)
     data = scaffold.load_tool(tp)
     data = scaffold.normalize_tool(data)
     for arg in data.get("arguments", []):
@@ -1880,7 +1880,7 @@ for r in range(picker.table.rowCount()):
     entry_idx = picker._row_map[r] if r < len(picker._row_map) else None
     if entry_idx is None:
         continue  # skip header rows
-    _, data, error, _ = picker._entries[entry_idx]
+    _, data, error, _, _ = picker._entries[entry_idx]
     if data is not None and _s20_valid_row is None:
         _s20_valid_row = r
         _s20_valid_entry = entry_idx
@@ -2189,7 +2189,7 @@ print("\n--- Section 24: Field Search / Jump ---")
 
 # Use nmap tool for plenty of fields
 _s24_tmpdir = tempfile.mkdtemp()
-_s24_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s24_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 shutil.copy(_s24_nmap, _s24_tmpdir)
 
 _s24_w = scaffold.MainWindow()
@@ -2302,7 +2302,7 @@ print("\n--- Section 25: Colored Command Preview ---")
 
 # Use the existing nmap tool (already loaded in window from earlier sections)
 # Reload to get clean state
-_s25_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s25_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 window._load_tool_path(_s25_path)
 app.processEvents()
 _s25_form = window.form
@@ -2842,7 +2842,7 @@ check(not window._timeout_timer.isActive(), "29g: timeout timer not active when 
 
 # 29h: different tool gets independent timeout
 window.settings.remove("timeout/ping")
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 check(window.timeout_spin.value() == 0, f"29h: different tool defaults to 0 (got {window.timeout_spin.value()})")
 window.timeout_spin.setValue(60)
@@ -3100,8 +3100,8 @@ _pipe_errs = scaffold.validate_tool(_pipe_data)
 check(any("metacharacter" in e.lower() for e in _pipe_errs),
       f"32h: pipe in binary rejected (got {_pipe_errs})")
 
-# 32i: All 9 bundled schemas still pass validation
-_tools_dir_path = Path(__file__).parent / "tools"
+# 32i: All bundled schemas still pass validation (now under scaffold_data/tools/)
+_tools_dir_path = Path(__file__).parent / "scaffold_data" / "tools"
 _bundled_all_pass = True
 for _tool_file in sorted(_tools_dir_path.glob("*.json")):
     _tool_data = scaffold.load_tool(_tool_file)
@@ -3109,7 +3109,7 @@ for _tool_file in sorted(_tools_dir_path.glob("*.json")):
     if _tool_errs:
         _bundled_all_pass = False
         print(f"    WARN: {_tool_file.name} failed: {_tool_errs}")
-check(_bundled_all_pass, "32i: all 9 bundled schemas pass validation")
+check(_bundled_all_pass, "32i: all bundled schemas pass validation")
 
 
 # =====================================================================
@@ -3117,8 +3117,10 @@ check(_bundled_all_pass, "32i: all 9 bundled schemas pass validation")
 # =====================================================================
 print("\n--- Section 187: Delete Tool ---")
 
-# Set up: create temp tool JSON files in the tools dir for deletion tests
-_tools_path = Path(__file__).parent / "tools"
+# Set up: create temp tool JSON files in the user tools dir for deletion tests.
+# Bundled tools are read-only post-Phase 4, so the delete tests must use the
+# writable user dir (Phase 3 moved bundled assets into scaffold_data/).
+_tools_path = scaffold._tools_dir()
 _presets_base = Path(__file__).parent / "presets"
 
 _delete_test_tool = _tools_path / "test_delete_me.json"
@@ -3164,19 +3166,24 @@ window.picker.table.clearSelection()
 app.processEvents()
 check(not window.picker.delete_btn.isEnabled(), "187b: Delete button disabled with no selection")
 
-# 187c: Delete button enables when a valid tool row is selected
+# 187c: Delete button enables when a valid USER tool row is selected.
+# (Bundled tools are read-only post-Phase 4 — keeping delete disabled is
+# correct affordance. We rely on the test_delete_me.json fixture written
+# above, which lives in the user tools dir, to exercise the enabled path.)
 window.picker.scan()
 app.processEvents()
-# Select the first valid tool row (use _row_map to get correct table row)
 _valid_row = None
 for _tr, _ei in enumerate(window.picker._row_map):
-    if _ei is not None and window.picker._entries[_ei][1] is not None:
+    if _ei is None:
+        continue
+    _entry = window.picker._entries[_ei]
+    if _entry[1] is not None and not _entry[4]:  # valid + not bundled
         _valid_row = _tr
         break
 if _valid_row is not None:
     window.picker.table.selectRow(_valid_row)
     app.processEvents()
-check(window.picker.delete_btn.isEnabled(), "187c: Delete button enabled with valid selection")
+check(window.picker.delete_btn.isEnabled(), "187c: Delete button enabled with valid user-tool selection")
 
 # 187d: Delete button disabled for invalid/errored tool rows — skip if no errored tools
 
@@ -3187,7 +3194,7 @@ check(not hasattr(window, "act_delete_tool"), "187e: no act_delete_tool on MainW
 window.picker.scan()
 app.processEvents()
 _found_del1 = any(
-    d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
+    d and d["tool"] == "delete_me" for _, d, _, _, _ in window.picker._entries
 )
 check(_found_del1, "187f: test tool 'delete_me' found in picker after scan")
 
@@ -3198,7 +3205,7 @@ check(_preset_dir_del.is_dir(), "187g: preset dir exists before delete")
 
 for _tr, _ei in enumerate(window.picker._row_map):
     if _ei is not None:
-        _, _d, _, _ = window.picker._entries[_ei]
+        _, _d, _, _, _ = window.picker._entries[_ei]
         if _d and _d["tool"] == "delete_me":
             window.picker.table.selectRow(_tr)
             break
@@ -3231,7 +3238,7 @@ check(not _delete_test_tool.exists(), "187g: tool file removed after delete")
 check(not _preset_dir_del.exists(), "187g: preset dir removed after 'Delete All'")
 
 _found_after = any(
-    d and d["tool"] == "delete_me" for _, d, _, _ in window.picker._entries
+    d and d["tool"] == "delete_me" for _, d, _, _, _ in window.picker._entries
 )
 check(not _found_after, "187g: tool gone from picker after delete + rescan")
 
@@ -3243,7 +3250,7 @@ window.picker.scan()
 app.processEvents()
 for _tr, _ei in enumerate(window.picker._row_map):
     if _ei is not None:
-        _, _d, _, _ = window.picker._entries[_ei]
+        _, _d, _, _, _ = window.picker._entries[_ei]
         if _d and _d["tool"] == "delete_me2":
             window.picker.table.selectRow(_tr)
             break
@@ -3276,7 +3283,7 @@ check(not _delete_test_tool2.exists(), "187h: tool file 2 removed after delete")
 check(_preset_dir_del2.is_dir(), "187h: preset dir 2 still exists after schema-only delete")
 
 _found_after2 = any(
-    d and d["tool"] == "delete_me2" for _, d, _, _ in window.picker._entries
+    d and d["tool"] == "delete_me2" for _, d, _, _, _ in window.picker._entries
 )
 check(not _found_after2, "187h: tool 2 gone from picker after delete + rescan")
 
@@ -3296,14 +3303,14 @@ _delete_test_tool3.write_text(json.dumps(_delete_test_data3), encoding="utf-8")
 window.picker.scan()
 app.processEvents()
 _found_del3 = any(
-    d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
+    d and d["tool"] == "delete_me3" for _, d, _, _, _ in window.picker._entries
 )
 check(_found_del3, "187i: test tool 3 appears in picker")
 
 # Select the tool
 for _tr, _ei in enumerate(window.picker._row_map):
     if _ei is not None:
-        _, _d, _, _ = window.picker._entries[_ei]
+        _, _d, _, _, _ = window.picker._entries[_ei]
         if _d and _d["tool"] == "delete_me3":
             window.picker.table.selectRow(_tr)
             break
@@ -3319,7 +3326,7 @@ finally:
     QMessageBox.question = _orig_question_i
 check(not _delete_test_tool3.exists(), "187i: tool 3 file deleted from disk")
 _found_after3 = any(
-    d and d["tool"] == "delete_me3" for _, d, _, _ in window.picker._entries
+    d and d["tool"] == "delete_me3" for _, d, _, _, _ in window.picker._entries
 )
 check(not _found_after3, "187i: tool 3 gone after delete (no presets case)")
 
@@ -3330,7 +3337,7 @@ for _pname in ("delete_me", "delete_me2", "delete_me3"):
         shutil.rmtree(_pd)
 
 # 187j: PresetPicker edit mode delete includes git restore tip and actually deletes
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 _preset_dir_j = scaffold._presets_dir(window.data["tool"])
 _preset_file_j = _preset_dir_j / "test_del_tip.json"
@@ -3375,16 +3382,36 @@ _pp_j.close()
 _pp_j.deleteLater()
 app.processEvents()
 
-# 187k: Delete button works after navigating back from form view
-window._show_picker()
-app.processEvents()
-# Select a valid tool (use _row_map for correct table row)
-for _tr, _ei in enumerate(window.picker._row_map):
-    if _ei is not None and window.picker._entries[_ei][1] is not None:
-        window.picker.table.selectRow(_tr)
-        break
-app.processEvents()
-check(window.picker.delete_btn.isEnabled(), "187k: Delete button works after returning to picker")
+# 187k: Delete button works after navigating back from form view.
+# Create a user-tools-dir fixture so we have a deletable (non-bundled) row.
+_s187k_user_tool = _tools_path / "test_187k_user_tool.json"
+_s187k_user_tool.write_text(
+    json.dumps({
+        "tool": "s187k_probe",
+        "binary": "echo",
+        "description": "user tool for 187k",
+        "arguments": [],
+    }),
+    encoding="utf-8",
+)
+try:
+    window._show_picker()
+    app.processEvents()
+    window.picker.scan()
+    app.processEvents()
+    for _tr, _ei in enumerate(window.picker._row_map):
+        if _ei is None:
+            continue
+        _entry = window.picker._entries[_ei]
+        if _entry[1] is not None and not _entry[4]:  # valid + not bundled
+            window.picker.table.selectRow(_tr)
+            break
+    app.processEvents()
+    check(window.picker.delete_btn.isEnabled(), "187k: Delete button works after returning to picker")
+finally:
+    if _s187k_user_tool.exists():
+        _s187k_user_tool.unlink()
+    window.picker.scan()
 
 
 # =====================================================================
@@ -3393,7 +3420,7 @@ check(window.picker.delete_btn.isEnabled(), "187k: Delete button works after ret
 print("\n--- Section 33: Preset Descriptions ---")
 
 # Load a tool for preset tests
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 
 _pd_preset_dir = scaffold._presets_dir(window.data["tool"])
@@ -3473,7 +3500,7 @@ for _pf in [_pd_path_a, _pd_path_b, _pd_path_c, _pd_path_d]:
 print("\n--- Section 34: Preset Picker ---")
 
 # Set up: load ping, create 3 test presets
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 _pp_dir = scaffold._presets_dir(window.data["tool"])
 _pp_paths = []
@@ -3788,7 +3815,7 @@ _pp_settings.remove(f"favorites/{window.data['tool']}")
 print("\n--- Section 35: Edit Preset Mode and Menu Restructure ---")
 
 # Set up: load ping, create test presets
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 _em_dir = scaffold._presets_dir(window.data["tool"])
 _em_paths = []
@@ -4514,7 +4541,7 @@ print("\n--- Section 39: Process Kill Hardening ---")
 from PySide6.QtWidgets import QSpinBox, QLineEdit
 
 # Load ping for process tests
-_s39_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s39_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s39_w = scaffold.MainWindow()
 _s39_w._load_tool_path(_s39_ping)
 _s39_form = _s39_w.form
@@ -4670,7 +4697,7 @@ shutil.rmtree(_s40_tmpdir, ignore_errors=True)
 print("\n--- Section 41: FailedToStart Cleanup in _on_error ---")
 # =====================================================================
 
-_s41_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s41_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s41_w = scaffold.MainWindow()
 _s41_w._load_tool_path(_s41_ping)
 app.processEvents()
@@ -4710,7 +4737,7 @@ _s41_w.close(); _s41_w.deleteLater(); app.processEvents()
 print("\n--- Section 42: ANSI Stripping, Help Menu, Subcommand Preview Color ---")
 
 # 42a. ANSI escape code stripping in _flush_output
-_s42_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s42_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s42_w = scaffold.MainWindow()
 _s42_w._load_tool_path(_s42_ping)
 app.processEvents()
@@ -4798,7 +4825,7 @@ check(_s43_has_html_tooltip, "43a: subcommand tooltip is HTML-wrapped with <p> t
 _s43_w.close(); _s43_w.deleteLater(); app.processEvents()
 
 # 43b. Copy Output with content
-_s43_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s43_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s43_w2 = scaffold.MainWindow()
 _s43_w2._load_tool_path(_s43_ping)
 app.processEvents()
@@ -4827,7 +4854,7 @@ _s43_w2.close(); _s43_w2.deleteLater(); app.processEvents()
 # =====================================================================
 print("\n--- Section 44: Status Message Auto-Clear ---")
 
-_s44_path = str(Path(__file__).parent / "tools" / "ping.json")
+_s44_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s44_w = scaffold.MainWindow()
 _s44_w._load_tool_path(_s44_path)
 app.processEvents()
@@ -5164,7 +5191,7 @@ shutil.rmtree(_s46_tmpdir, ignore_errors=True)
 
 # 46v: End-to-end nmap autosave — boolean change triggers debounce and writes file
 _s46_nmap_w = scaffold.MainWindow()
-_s46_nmap_w._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+_s46_nmap_w._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 check(not _s46_nmap_w._autosave_timer.isActive(), "46v: debounce timer not active after fresh nmap load")
 check(_s46_nmap_w._default_form_snapshot is not None, "46w: snapshot set after nmap load")
@@ -5353,7 +5380,7 @@ check(_s48_force_idx > _s48_install_idx, "48k: --force comes after 'install'")
 check(_s48_cmd3[-1] == "myrole", "48l: positional last with scoped flag")
 
 # 48d: Single-word subcommands still work (regression check)
-_s48_git_path = str(Path(__file__).parent / "tools" / "git.json")
+_s48_git_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "git.json")
 _s48_w2 = scaffold.MainWindow()
 _s48_w2._load_tool_path(_s48_git_path)
 app.processEvents()
@@ -5549,7 +5576,7 @@ check(_hist_loaded2[0]["display"] == "true -v (second)", "49k: most recent entry
 check(_hist_loaded2[0]["exit_code"] == 1, "49k: second entry has exit_code 1")
 
 # 49l: History is per-tool (different tools have independent histories)
-window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 window._clear_history()
 _hist_nmap = window._load_history()
@@ -5577,7 +5604,7 @@ check(window._load_history() == [], "49n: _clear_history() removes all entries")
 
 # 49o: _clear_history() doesn't affect other tools' histories
 # Add history to nmap, clear minimal, verify nmap is unaffected
-window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 window._history_display = "nmap -sV"
 window._history_timestamp = time.time()
@@ -5588,7 +5615,7 @@ window._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"
 app.processEvents()
 window._clear_history()
 # Check nmap still has its entry
-window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 _hist_nmap_check = window._load_history()
 check(len(_hist_nmap_check) == 1, f"49o: nmap history unaffected by clearing minimal (got {len(_hist_nmap_check)})")
@@ -6080,7 +6107,7 @@ print("\n=== SECTION 52: Extra Flags Toggle Updates Command Preview ===")
 # =====================================================================
 
 # Load nmap for this test
-window._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 form = window.form
 
@@ -6159,7 +6186,7 @@ print("\n=== SECTION 54: Preset Picker Description Tooltips and Resizable Column
 # =====================================================================
 
 # Create test presets with descriptions
-window._load_tool_path(str(Path(__file__).parent / "tools" / "ping.json"))
+window._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
 app.processEvents()
 _54_dir = scaffold._presets_dir(window.data["tool"])
 _54_dir.mkdir(parents=True, exist_ok=True)
@@ -6684,9 +6711,12 @@ Path(_s60_tmpdir, "exploit").mkdir()
 _s60_exploit_schema = {"tool": "pwn_tool", "binary": "echo", "description": "An exploit tool", "arguments": []}
 Path(_s60_tmpdir, "exploit", "pwn_tool.json").write_text(json.dumps(_s60_exploit_schema))
 
-# Patch _tools_dir to point at our temp directory
+# Patch _tools_dir AND _bundled_tools_dir to isolate the temp directory.
+# Without the bundled-side patch, scan() merges in the real shipped tools.
 _s60_orig_tools_dir = scaffold._tools_dir
+_s60_orig_bundled_tools_dir = scaffold._bundled_tools_dir
 scaffold._tools_dir = lambda: Path(_s60_tmpdir)
+scaffold._bundled_tools_dir = lambda: Path(_s60_tmpdir) / "_no_bundled_for_test"
 
 _s60_win = scaffold.MainWindow()
 _s60_win._show_picker()
@@ -6792,6 +6822,7 @@ check(_s60_scan_path_item.text() == "recon/scan_tool.json", f"60l: subfolder too
 # Cleanup
 _s60_picker.tool_selected.disconnect()
 scaffold._tools_dir = _s60_orig_tools_dir
+scaffold._bundled_tools_dir = _s60_orig_bundled_tools_dir
 shutil.rmtree(_s60_tmpdir, ignore_errors=True)
 _s60_win.close()
 _s60_win.deleteLater()
@@ -6815,7 +6846,9 @@ _s61_exploit_schema = {"tool": "pwn_tool", "binary": "echo", "description": "An 
 Path(_s61_tmpdir, "exploit", "pwn_tool.json").write_text(json.dumps(_s61_exploit_schema))
 
 _s61_orig_tools_dir = scaffold._tools_dir
+_s61_orig_bundled_tools_dir = scaffold._bundled_tools_dir
 scaffold._tools_dir = lambda: Path(_s61_tmpdir)
+scaffold._bundled_tools_dir = lambda: Path(_s61_tmpdir) / "_no_bundled_for_test"
 _s61_win = scaffold.MainWindow()
 _s61_win._show_picker()
 app.processEvents()
@@ -6870,6 +6903,7 @@ check(not _s61_picker.table.isRowHidden(1), "61e: pwn_tool visible after expandi
 
 # Cleanup
 scaffold._tools_dir = _s61_orig_tools_dir
+scaffold._bundled_tools_dir = _s61_orig_bundled_tools_dir
 shutil.rmtree(_s61_tmpdir, ignore_errors=True)
 _s61_win.close()
 _s61_win.deleteLater()
@@ -6988,7 +7022,7 @@ check(_s62_dock._slots[1]["tool_path"] == "/another/tool.json", "62j: slot 1 rou
 check(_s62_dock._slots[1]["preset_path"] == "/another/preset.json", "62j: slot 1 round-trip preset_path")
 
 # 62k: Clicking a slot with a valid tool+preset calls _load_tool_path
-_s62_nmap_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s62_nmap_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 _s62_presets = scaffold._presets_dir("nmap")
 _s62_preset_files = list(_s62_presets.glob("*.json"))
 _s62_preset_path = str(_s62_preset_files[0]) if _s62_preset_files else None
@@ -8654,7 +8688,7 @@ check("'she said ''hi'''" in _s74c,
 print("\n=== SECTION 75: M4 — Extra Flags Validation Blocks Execution ===")
 # =====================================================================
 
-_s75_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s75_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 _s75_win = scaffold.MainWindow(tool_path=_s75_path)
 _s75_win.show()
 app.processEvents()
@@ -10149,8 +10183,8 @@ _s88_win = scaffold.MainWindow()
 _s88_win.show()
 app.processEvents()
 _s88_dock = _s88_win.cascade_dock
-_s88_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
-_s88_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s88_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
+_s88_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 
 # 88a: Positive case — snapshot preserves required value
 _s88_win._load_tool_path(_s88_nmap)
@@ -10330,7 +10364,7 @@ _s89_win = scaffold.MainWindow()
 _s89_win.show()
 app.processEvents()
 _s89_dock = _s89_win.cascade_dock
-_s89_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s89_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 
 # 89a: Fresh window — name is None, label shows "(unsaved)"
 check(_s89_dock._current_cascade_name is None,
@@ -10834,7 +10868,7 @@ scaffold._arrow_dir = _s93_old
 print("\n=== SECTION 94: Extra Flags Malformed Input — Preview Suppression ===")
 # =====================================================================
 
-_s94_path = str(Path(__file__).parent / "tools" / "nmap.json")
+_s94_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 _s94_win = scaffold.MainWindow(tool_path=_s94_path)
 _s94_win.show()
 app.processEvents()
@@ -11862,8 +11896,8 @@ print("\n=== SECTION 100: Ghost Widget Prevention ===")
 # widgets in the layout after clear/rebuild operations.
 
 # 100a — _build_form_view: no ghost widgets after switching tools
-_s100_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
-_s100_curl = str(Path(__file__).parent / "tools" / "curl.json")
+_s100_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
+_s100_curl = str(Path(__file__).parent / "scaffold_data" / "tools" / "curl.json")
 QSettings("Scaffold", "Scaffold").remove("cascade")
 _s100_win = scaffold.MainWindow()
 _s100_win.show()
@@ -12078,7 +12112,7 @@ _s101_dock2.show()
 app.processEvents()
 
 # Load nmap.json which has a required positional target
-_s101_nmap = str(Path(__file__).parent / "tools" / "nmap.json")
+_s101_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 _s101_win2._load_tool_path(_s101_nmap)
 app.processEvents()
 
@@ -12126,7 +12160,7 @@ _s101_win2.deleteLater()
 app.processEvents()
 
 # --- 101d: Timer stops in _on_error (sibling assertions for Section 41) ---
-_s101_ping = str(Path(__file__).parent / "tools" / "ping.json")
+_s101_ping = str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json")
 _s101_win4 = scaffold.MainWindow()
 _s101_win4._load_tool_path(_s101_ping)
 app.processEvents()
@@ -12402,7 +12436,9 @@ _s104_schema.write_text(json.dumps({
 }), encoding="utf-8")
 
 _s104_orig_tools_dir = scaffold._tools_dir
+_s104_orig_bundled_tools_dir = scaffold._bundled_tools_dir
 scaffold._tools_dir = lambda: _s104_tmpdir
+scaffold._bundled_tools_dir = lambda: _s104_tmpdir / "_no_bundled_for_test"
 
 _s104_win = scaffold.MainWindow()
 _s104_win.picker.scan()
@@ -12411,7 +12447,7 @@ app.processEvents()
 # Select the tool
 for _s104_tr, _s104_ei in enumerate(_s104_win.picker._row_map):
     if _s104_ei is not None:
-        _, _s104_d, _, _ = _s104_win.picker._entries[_s104_ei]
+        _, _s104_d, _, _, _ = _s104_win.picker._entries[_s104_ei]
         if _s104_d and _s104_d["tool"] == "test_tool_104":
             _s104_win.picker.table.selectRow(_s104_tr)
             break
@@ -12432,6 +12468,7 @@ check(not _s104_schema.exists(), "104b: file deleted after confirming delete")
 
 QMessageBox.question = _s104_orig_question
 scaffold._tools_dir = _s104_orig_tools_dir
+scaffold._bundled_tools_dir = _s104_orig_bundled_tools_dir
 _s104_win.close()
 _s104_win.deleteLater()
 app.processEvents()
@@ -15572,7 +15609,7 @@ app.processEvents()
 # =====================================================================
 print("\n--- Section 137: PRESET_PROMPT updated convention ---")
 
-_s137_prompt_path = Path(__file__).parent / "PRESET_PROMPT.txt"
+_s137_prompt_path = Path(__file__).parent / "scaffold_data" / "PRESET_PROMPT.txt"
 _s137_text = _s137_prompt_path.read_text(encoding="utf-8")
 
 # 137a: Contains new separator pattern
@@ -18744,9 +18781,11 @@ _s155_root_tool = {
 Path(os.path.join(_s155_tmpdir, "tool_155_root.json")).write_text(
     json.dumps(_s155_root_tool))
 
-# Monkeypatch _tools_dir to use the temp directory
+# Monkeypatch _tools_dir AND _bundled_tools_dir to isolate the temp directory
 _s155_orig_tools_dir = scaffold._tools_dir
+_s155_orig_bundled_tools_dir = scaffold._bundled_tools_dir
 scaffold._tools_dir = lambda: Path(_s155_tmpdir)
+scaffold._bundled_tools_dir = lambda: Path(_s155_tmpdir) / "_no_bundled_for_test"
 
 _s155_picker = scaffold.ToolPicker()
 _s155_picker.show()
@@ -18786,6 +18825,7 @@ else:
 scaffold.apply_theme(False)  # restore light mode
 app.processEvents()
 scaffold._tools_dir = _s155_orig_tools_dir
+scaffold._bundled_tools_dir = _s155_orig_bundled_tools_dir
 _s155_picker.close()
 _s155_picker.deleteLater()
 app.processEvents()
@@ -24771,7 +24811,7 @@ check(not hasattr(scaffold, "CHAIN_FINISHED"),
 # through self._field_key(), verify the helper still returns the expected
 # (scope, flag) tuple so the routing substitution remains a no-op.
 _s188_win = scaffold.MainWindow()
-_s188_win._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+_s188_win._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 _s188_form = _s188_win.form
 check(_s188_form._field_key("__global__", "--flag") == ("__global__", "--flag"),
@@ -25295,7 +25335,7 @@ check("_browse_directory(" not in _s193_inner_body,
 # 193l: end-to-end regression — loading nmap.json still produces working widgets
 # (belt-and-suspenders: confirms the real tool loading path still works)
 _s193_win = scaffold.MainWindow()
-_s193_win._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+_s193_win._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 # nmap has a --top-ports integer field — verify it still builds correctly
 _s193_tf = _s193_win.form
@@ -25438,7 +25478,7 @@ app.processEvents()
 # produces a working table with section-resize behavior (no crashes, no
 # exceptions on header interaction)
 _s194_win = scaffold.MainWindow()
-_s194_win._load_tool_path(str(Path(__file__).parent / "tools" / "nmap.json"))
+_s194_win._load_tool_path(str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json"))
 app.processEvents()
 # Open the preset picker (if possible) — its table uses _wire_last_column
 if hasattr(_s194_win, "_presets_action") or hasattr(_s194_win, "act_presets"):
@@ -25566,13 +25606,13 @@ check(isinstance(_s195_h1, str) and len(_s195_h1) > 0,
 # the current hash of the referenced tool schema. This is the drift
 # guard — if a tool schema changes after a default preset ships, the
 # cohort should catch it.
-_s195_defaults = Path(__file__).parent / "default_presets"
+_s195_defaults = Path(__file__).parent / "scaffold_data" / "default_presets"
 if _s195_defaults.is_dir():
     _s195_mismatches = []
     for _s195_tool_dir in _s195_defaults.iterdir():
         if not _s195_tool_dir.is_dir():
             continue
-        _s195_tool_path = Path(__file__).parent / "tools" / f"{_s195_tool_dir.name}.json"
+        _s195_tool_path = Path(__file__).parent / "scaffold_data" / "tools" / f"{_s195_tool_dir.name}.json"
         if not _s195_tool_path.exists():
             continue
         try:
@@ -25598,7 +25638,7 @@ if _s195_defaults.is_dir():
           f"195h: no shipped-preset _schema_hash drift against tool schemas "
           f"(mismatches: {_s195_mismatches})")
 else:
-    check(True, "195h: no default_presets/ directory — skipping cohort check")
+    check(True, "195h: no scaffold_data/default_presets/ directory — skipping cohort check")
 
 # ---------------------------------------------------------------------
 # 195i-k: Meta-length rejection regression guard (Item 8)
@@ -25697,10 +25737,10 @@ print("\n=== SECTION 197: subcommand preset round-trip ===")
 # The test is parameterized — each fixture is loaded, exercised with
 # subcommand switching, serialized, re-applied, and verified.
 _s197_fixtures = []
-_s197_docker_dir = Path(__file__).parent / "tools" / "docker_test"
+_s197_docker_dir = Path(__file__).parent / "scaffold_data" / "tools" / "docker_test"
 if _s197_docker_dir.is_dir():
     _s197_fixtures.extend(sorted(_s197_docker_dir.glob("*.json")))
-_s197_openclaw = Path(__file__).parent / "tools" / "openclaw.json"
+_s197_openclaw = Path(__file__).parent / "scaffold_data" / "tools" / "openclaw.json"
 if _s197_openclaw.exists():
     _s197_fixtures.append(_s197_openclaw)
 
@@ -27321,13 +27361,13 @@ _s202_assert_fail("202I.8", {"--debug": 1.5}, "--debug",
                   "expected bool or int (repeat count), got float")
 
 # ---------------------------------------------------------------------
-# J. Real shipped-preset round-trip — every default_presets/*.json
-# must validate cleanly against its tool's schema. This is the
+# J. Real shipped-preset round-trip — every scaffold_data/default_presets/
+# *.json must validate cleanly against its tool's schema. This is the
 # regression guard against breaking the bundled examples.
 # ---------------------------------------------------------------------
 _s202_root = Path(__file__).parent
-_s202_default_dir = _s202_root / "default_presets"
-_s202_tools_dir = _s202_root / "tools"
+_s202_default_dir = _s202_root / "scaffold_data" / "default_presets"
+_s202_tools_dir = _s202_root / "scaffold_data" / "tools"
 _s202_failures = []
 _s202_count = 0
 if _s202_default_dir.is_dir():
@@ -27640,8 +27680,8 @@ print("\n=== SECTION 204: v2.11.4 shipped-preset audit via activated path ===")
 # here even if §202J's unknown-key gate ever loosens.
 
 _s204_root = Path(__file__).parent
-_s204_default_dir = _s204_root / "default_presets"
-_s204_tools_dir = _s204_root / "tools"
+_s204_default_dir = _s204_root / "scaffold_data" / "default_presets"
+_s204_tools_dir = _s204_root / "scaffold_data" / "tools"
 _s204_failures = []
 _s204_count = 0
 
@@ -27720,23 +27760,23 @@ check(_s204_failures == [],
 
 
 # =====================================================================
-# Section 205 — v2.12.0 Phase 1: pin source-mode path resolution
+# Section 205 — v2.12.0 Phases 1-4: path resolution contract
 # =====================================================================
-print("\n=== SECTION 205: v2.12.0 source-mode path resolution baseline ===")
-# v2.12.0 makes scaffold pip-installable, which means swapping path
-# resolution between source mode (Path(__file__).parent) and installed
-# mode (scaffold_data/ in site-packages). This section pins the current
-# (source-mode) contract of every helper that touches the filesystem so
-# the upcoming refactor (Phase 2: extract _app_root; Phase 4: mode-switch
-# inside _app_root) cannot change observable source-mode behavior without
-# one of these checks failing. §50 already exercises portable mode in
-# depth; §205 focuses on the path-equivalence contract that Phase 2
-# hinges on.
+print("\n=== SECTION 205: v2.12.0 path resolution contract (source mode) ===")
+# v2.12.0 makes scaffold pip-installable. Phase 1 pinned the source-mode
+# contract; Phase 3 moved bundled files into scaffold_data/; Phase 4 split
+# resolution into _bundled_root() (read-only assets) and _user_data_root()
+# (writable user files), with mode detection auto-routing between source
+# and installed locations. This section pins source-mode behavior end-to-end
+# so future refactors cannot change observable behavior silently. Installed
+# mode is verified at the end of Session 3's local-install step — faking
+# site-packages here would require patching Path(__file__).resolve() which
+# is fragile.
 
 _s205_root = Path(scaffold.__file__).parent
 
 # ---------------------------------------------------------------------
-# A. _tools_dir() returns <parent>/tools/ and the directory exists
+# A. _tools_dir() returns <parent>/tools/ (user) and the directory exists
 # ---------------------------------------------------------------------
 _s205_tools = scaffold._tools_dir()
 check(_s205_tools == _s205_root / "tools",
@@ -27757,10 +27797,9 @@ check(_s205_presets.is_dir(),
       f"205B.2: presets dir exists after _presets_dir() call "
       f"(path: {_s205_presets})")
 # Bundled defaults must seed the user dir on first access (without
-# overwriting). This is the contract that survives the installed-mode
-# move: source mode reads bundled from <parent>/default_presets, installed
-# mode will read from scaffold_data/default_presets.
-_s205_default_nmap = _s205_root / "default_presets" / "nmap"
+# overwriting). After Phase 3, bundled defaults live in scaffold_data/
+# default_presets/, not <parent>/default_presets/.
+_s205_default_nmap = _s205_root / "scaffold_data" / "default_presets" / "nmap"
 if _s205_default_nmap.is_dir():
     _s205_default_files = {p.name for p in _s205_default_nmap.glob("*.json")}
     _s205_user_files = {p.name for p in _s205_presets.glob("*.json")}
@@ -27826,42 +27865,29 @@ check(not _s205_portable_ini.exists(),
       f"(exists={_s205_portable_ini.exists()})")
 
 # ---------------------------------------------------------------------
-# F. print_prompt() reads from <parent>/PROMPT.txt
+# F. print_prompt() reads from <bundled_root>/SCHEMA_PROMPT.txt
 # ---------------------------------------------------------------------
-# PROMPT.txt is not present in the dev tree (the file lives in the
-# repo root one level up). Create a temporary one to prove the path
-# resolution, then remove it.
-_s205_prompt_path = _s205_root / "PROMPT.txt"
-_s205_prompt_existed = _s205_prompt_path.exists()
-_s205_prompt_marker = "S205F_PROMPT_MARKER_xyzzy_unique"
-if not _s205_prompt_existed:
-    _s205_prompt_path.write_text(_s205_prompt_marker, encoding="utf-8")
+_s205_prompt_path = _s205_root / "scaffold_data" / "SCHEMA_PROMPT.txt"
+check(_s205_prompt_path.exists(),
+      f"205F.1: SCHEMA_PROMPT.txt exists at scaffold_data/SCHEMA_PROMPT.txt "
+      f"(path: {_s205_prompt_path})")
+_s205_buf = io.StringIO()
+_s205_orig_stdout = sys.stdout
+sys.stdout = _s205_buf
 try:
-    _s205_buf = io.StringIO()
-    _s205_orig_stdout = sys.stdout
-    sys.stdout = _s205_buf
-    try:
-        scaffold.print_prompt()
-    finally:
-        sys.stdout = _s205_orig_stdout
-    if _s205_prompt_existed:
-        _s205_expected = _s205_prompt_path.read_text(encoding="utf-8")
-        check(_s205_expected.strip() in _s205_buf.getvalue(),
-              "205F.1: print_prompt() reads PROMPT.txt content from <parent>")
-    else:
-        check(_s205_prompt_marker in _s205_buf.getvalue(),
-              f"205F.1: print_prompt() reads from <parent>/PROMPT.txt "
-              f"(stdout: {_s205_buf.getvalue()[:120]!r})")
+    scaffold.print_prompt()
 finally:
-    if not _s205_prompt_existed and _s205_prompt_path.exists():
-        _s205_prompt_path.unlink()
+    sys.stdout = _s205_orig_stdout
+_s205_prompt_text = _s205_prompt_path.read_text(encoding="utf-8")
+check(_s205_prompt_text.strip() in _s205_buf.getvalue(),
+      "205F.2: print_prompt() prints SCHEMA_PROMPT.txt content from scaffold_data/")
 
 # ---------------------------------------------------------------------
-# G. print_preset_prompt() reads from <parent>/PRESET_PROMPT.txt
+# G. print_preset_prompt() reads from <bundled_root>/PRESET_PROMPT.txt
 # ---------------------------------------------------------------------
-_s205_preset_prompt_path = _s205_root / "PRESET_PROMPT.txt"
+_s205_preset_prompt_path = _s205_root / "scaffold_data" / "PRESET_PROMPT.txt"
 check(_s205_preset_prompt_path.exists(),
-      f"205G.1: PRESET_PROMPT.txt exists at <parent>/PRESET_PROMPT.txt "
+      f"205G.1: PRESET_PROMPT.txt exists at scaffold_data/PRESET_PROMPT.txt "
       f"(path: {_s205_preset_prompt_path})")
 _s205_buf2 = io.StringIO()
 _s205_orig_stdout2 = sys.stdout
@@ -27873,7 +27899,117 @@ finally:
 _s205_preset_text = _s205_preset_prompt_path.read_text(encoding="utf-8")
 # strip() absorbs the trailing newline added by print()
 check(_s205_preset_text.strip() in _s205_buf2.getvalue(),
-      "205G.2: print_preset_prompt() prints PRESET_PROMPT.txt content from <parent>")
+      "205G.2: print_preset_prompt() prints PRESET_PROMPT.txt content from scaffold_data/")
+
+# ---------------------------------------------------------------------
+# H. Mode detection helpers
+# ---------------------------------------------------------------------
+# In source mode (no portable.txt, no site-packages in path),
+# _is_portable_mode() and _is_installed_mode() should both be False.
+check(scaffold._is_portable_mode() is False,
+      f"205H.1: _is_portable_mode() returns False without portable.txt "
+      f"(got {scaffold._is_portable_mode()!r})")
+check(scaffold._is_installed_mode() is False,
+      f"205H.2: _is_installed_mode() returns False in source mode "
+      f"(got {scaffold._is_installed_mode()!r})")
+
+# Touch portable.txt and re-check (only if no sentinel was already present
+# — guard same as section D/E above to avoid clobbering user state).
+_s205_portable_h = _s205_root / "portable.txt"
+if not _s205_portable_h.exists() and not (_s205_root / "scaffold.ini").exists():
+    _s205_portable_h.write_text("", encoding="utf-8")
+    try:
+        check(scaffold._is_portable_mode() is True,
+              f"205H.3: _is_portable_mode() returns True with portable.txt "
+              f"(got {scaffold._is_portable_mode()!r})")
+        # Portable mode overrides installed-mode detection
+        check(scaffold._is_installed_mode() is False,
+              f"205H.4: portable mode forces _is_installed_mode() False "
+              f"(got {scaffold._is_installed_mode()!r})")
+    finally:
+        if _s205_portable_h.exists():
+            _s205_portable_h.unlink()
+else:
+    check(True, "205H.3-4: skipped — portable sentinel already present")
+
+# ---------------------------------------------------------------------
+# I. Bundled root resolution
+# ---------------------------------------------------------------------
+_s205_bundled = scaffold._bundled_root()
+check(_s205_bundled == _s205_root / "scaffold_data",
+      f"205I.1: _bundled_root() returns <parent>/scaffold_data in source mode "
+      f"(got {_s205_bundled})")
+check((_s205_bundled / "tools").is_dir(),
+      f"205I.2: scaffold_data/tools/ exists after Phase 3 move "
+      f"(path: {_s205_bundled / 'tools'})")
+check((_s205_bundled / "default_presets").is_dir(),
+      f"205I.3: scaffold_data/default_presets/ exists after Phase 3 move "
+      f"(path: {_s205_bundled / 'default_presets'})")
+check((_s205_bundled / "SCHEMA_PROMPT.txt").exists(),
+      f"205I.4: SCHEMA_PROMPT.txt exists at bundled root "
+      f"(path: {_s205_bundled / 'SCHEMA_PROMPT.txt'})")
+check((_s205_bundled / "PRESET_PROMPT.txt").exists(),
+      f"205I.5: PRESET_PROMPT.txt exists at bundled root "
+      f"(path: {_s205_bundled / 'PRESET_PROMPT.txt'})")
+
+# ---------------------------------------------------------------------
+# J. User-data root resolution
+# ---------------------------------------------------------------------
+_s205_user = scaffold._user_data_root()
+check(_s205_user == _s205_root,
+      f"205J.1: _user_data_root() returns <parent> in source mode "
+      f"(got {_s205_user})")
+check(_s205_user / "presets" == _s205_presets.parent,
+      f"205J.2: _user_data_root()/presets matches _presets_dir parent "
+      f"(got {_s205_user / 'presets'} vs {_s205_presets.parent})")
+# _app_root() must remain a back-compat alias for _user_data_root()
+check(scaffold._app_root() == _s205_user,
+      f"205J.3: _app_root() aliases _user_data_root() "
+      f"(got {scaffold._app_root()})")
+
+# ---------------------------------------------------------------------
+# K. Bundled-tools dir + tool picker merge
+# ---------------------------------------------------------------------
+_s205_bundled_tools = scaffold._bundled_tools_dir()
+check(_s205_bundled_tools == _s205_bundled / "tools",
+      f"205K.1: _bundled_tools_dir() returns <bundled>/tools "
+      f"(got {_s205_bundled_tools})")
+check(_s205_bundled_tools.is_dir(),
+      f"205K.2: bundled tools dir exists "
+      f"(path: {_s205_bundled_tools})")
+# User tools dir is distinct from bundled tools dir (under user-data root)
+check(_s205_tools != _s205_bundled_tools,
+      f"205K.3: _tools_dir() and _bundled_tools_dir() are distinct "
+      f"(both: {_s205_tools})")
+
+# ---------------------------------------------------------------------
+# L. _resolve_app_relative resolver semantics
+# ---------------------------------------------------------------------
+# A bundled tool: 'tools/nmap.json' should resolve to the bundled path
+# (assuming the user dir does not have a shadowing copy).
+_s205_user_nmap = _s205_tools / "nmap.json"
+_s205_user_had_nmap = _s205_user_nmap.exists()
+if not _s205_user_had_nmap:
+    resolved = scaffold._resolve_app_relative("tools/nmap.json")
+    check(resolved is not None and resolved == _s205_bundled_tools / "nmap.json",
+          f"205L.1: 'tools/nmap.json' resolves to bundled when no user override "
+          f"(got {resolved})")
+else:
+    check(True, "205L.1: skipped — user has nmap.json override")
+
+# A nonexistent path returns None
+check(scaffold._resolve_app_relative("tools/_does_not_exist_xyzzy.json") is None,
+      "205L.2: _resolve_app_relative returns None for missing files")
+
+# An absolute path that exists is returned as-is
+_s205_abs_existing = str(_s205_bundled / "SCHEMA_PROMPT.txt")
+check(scaffold._resolve_app_relative(_s205_abs_existing) == Path(_s205_abs_existing),
+      f"205L.3: absolute existing path is returned unchanged "
+      f"(got {scaffold._resolve_app_relative(_s205_abs_existing)})")
+
+# An absolute path that does not exist returns None
+check(scaffold._resolve_app_relative("/nonexistent/path/does/not/exist.json") is None,
+      "205L.4: absolute nonexistent path returns None")
 
 
 # =====================================================================

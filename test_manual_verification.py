@@ -424,7 +424,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 print("\n=== TEST B1: Valid extra flags input (baseline) ===")
 # =====================================================================
 
-nmap_path = str(Path(__file__).parent / "tools" / "nmap.json")
+nmap_path = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 win3 = scaffold.MainWindow(tool_path=nmap_path)
 form3 = win3.form
 

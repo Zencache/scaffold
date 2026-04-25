@@ -994,7 +994,7 @@ def _elevation_label():
 # GUI renderer
 # ---------------------------------------------------------------------------
 
-from PySide6.QtCore import QEvent, QPoint, QProcess, QProcessEnvironment, QSettings, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QProcess, QProcessEnvironment, QSettings, QStandardPaths, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
@@ -2892,49 +2892,149 @@ def _monospace_font() -> QFont:
     return font
 
 
-def _app_root() -> Path:
-    """Return the application's root directory (where bundled files live).
+def _is_portable_mode() -> bool:
+    """True if portable.txt or scaffold.ini is next to scaffold.py.
 
-    In source mode, this is scaffold.py's directory. In installed mode
-    (Phase 4), this resolves to the scaffold_data/ package root.
+    Portable mode forces source-mode behavior even if the script is in a
+    site-packages-like location, so that fully-isolated installs (e.g. on
+    a USB stick) work correctly.
     """
+    script_dir = Path(__file__).parent
+    return (script_dir / "portable.txt").exists() or (script_dir / "scaffold.ini").exists()
+
+
+def _is_installed_mode() -> bool:
+    """True if scaffold is running from an installed package.
+
+    Detected by checking whether scaffold.py lives under site-packages
+    or dist-packages. Portable mode overrides this — if portable.txt is
+    present, we always treat as source mode regardless of script
+    location.
+    """
+    if _is_portable_mode():
+        return False
+    parts = Path(__file__).resolve().parts
+    return "site-packages" in parts or "dist-packages" in parts
+
+
+def _bundled_root() -> Path:
+    """Return the directory holding bundled files (tools/, default_presets/, prompts).
+
+    Source / portable mode: scaffold.py's directory has scaffold_data/ as
+    a sibling.
+
+    Installed mode: scaffold_data is a sibling Python package, resolved
+    via importlib.resources.
+
+    If installed-mode resolution fails for any reason, falls back to the
+    source-mode path. This makes the function safe to call during early
+    startup before mode detection is fully reliable.
+    """
+    if _is_installed_mode():
+        try:
+            import importlib.resources as ir
+            return Path(str(ir.files("scaffold_data")))
+        except (ModuleNotFoundError, FileNotFoundError, TypeError):
+            pass  # fall through
+    return Path(__file__).parent / "scaffold_data"
+
+
+def _user_data_root() -> Path:
+    """Return the writable user-data directory (presets/, cascades/, user tools/).
+
+    Source / portable mode: scaffold.py's parent directory (today's
+    behavior).
+
+    Installed mode: QStandardPaths.AppDataLocation/Scaffold/ — platform
+    standard application data location:
+      Linux:   ~/.local/share/Scaffold/
+      macOS:   ~/Library/Application Support/Scaffold/
+      Windows: %APPDATA%/Scaffold/
+
+    The directory is created if missing.
+    """
+    if _is_installed_mode():
+        loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        if loc:
+            d = Path(loc)
+            d.mkdir(parents=True, exist_ok=True)
+            return d
     return Path(__file__).parent
+
+
+def _app_root() -> Path:
+    """Return the user-data root (alias for _user_data_root).
+
+    Retained as a back-compat shim for call sites that resolve user-saved
+    file paths (cascade tools, cascade presets, user tool delete dialog).
+    For bundled read-only assets use _bundled_root() instead.
+    """
+    return _user_data_root()
+
+
+def _resolve_app_relative(rel_path: str) -> Path | None:
+    """Resolve a cascade-relative path against user-data first, then bundled.
+
+    Returns the first existing absolute Path, or None if neither exists.
+    Absolute paths are returned as-is without lookup.
+    """
+    p = Path(rel_path)
+    if p.is_absolute():
+        return p if p.exists() else None
+    user = _user_data_root() / rel_path
+    if user.exists():
+        return user
+    bundled = _bundled_root() / rel_path
+    if bundled.exists():
+        return bundled
+    return None
 
 
 def _create_settings() -> QSettings:
     """Return a QSettings using local INI file (portable) or system registry (default).
 
     If portable.txt or scaffold.ini exists next to this script, settings are stored
-    in scaffold.ini (INI format) for fully isolated portable operation.
+    in scaffold.ini (INI format) for fully isolated portable operation. Even in
+    installed mode we use native QSettings — settings are OS-managed, not stored
+    alongside user-data files.
     """
-    script_dir = _app_root()
-    if (script_dir / "portable.txt").exists() or (script_dir / "scaffold.ini").exists():
+    if _is_portable_mode():
+        script_dir = Path(__file__).parent
         return QSettings(str(script_dir / "scaffold.ini"), QSettings.Format.IniFormat)
     return QSettings("Scaffold", "Scaffold")
 
 
 def _tools_dir() -> Path:
-    """Return the tools/ directory next to this script, creating it if needed."""
-    d = _app_root() / "tools"
+    """Return the writable user tools/ directory, creating it if needed.
+
+    The picker reads from BOTH this directory and _bundled_tools_dir().
+    User-added schemas live here.
+    """
+    d = _user_data_root() / "tools"
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _bundled_tools_dir() -> Path:
+    """Return the read-only bundled tools/ directory."""
+    return _bundled_root() / "tools"
 
 
 def _presets_dir(tool_name: str) -> Path:
     """Return the presets/{tool_name}/ directory, creating it if needed.
 
     On first access for a tool, copies any bundled presets from
-    default_presets/{tool_name}/ into the user's preset directory
+    {bundled}/default_presets/{tool_name}/ into the user's preset directory
     (without overwriting existing files).
     """
-    d = _app_root() / "presets" / tool_name
+    d = _user_data_root() / "presets" / tool_name
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
     # Seed from bundled defaults (skip files the user already has)
-    defaults = _app_root() / "default_presets" / tool_name
+    defaults = _bundled_root() / "default_presets" / tool_name
     if defaults.is_dir():
         for src in defaults.glob("*.json"):
             dest = d / src.name
@@ -2944,11 +3044,11 @@ def _presets_dir(tool_name: str) -> Path:
 
 
 def _cascades_dir() -> Path:
-    """Return the cascades/ directory next to this script, creating it if needed."""
-    d = _app_root() / "cascades"
+    """Return the cascades/ directory in user data, creating it if needed."""
+    d = _user_data_root() / "cascades"
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -2988,12 +3088,14 @@ def _cascade_path_is_safe(base: Path, value: str) -> bool:
 def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str]]:
     """Return (missing_tools, missing_presets) for a cascade's referenced files.
 
-    Paths are resolved against the scaffold.py directory, matching
-    _import_cascade_data's resolver. Entries are the relative-path strings
-    as stored in the cascade (same form the user sees). Empty/None preset
-    or tool fields are treated as absent, not missing.
+    Paths are resolved via _resolve_app_relative (user dir first, then
+    bundled), matching _import_cascade_data's resolver. Entries are the
+    relative-path strings as stored in the cascade (same form the user
+    sees). Empty/None preset or tool fields are treated as absent, not
+    missing. The safety check is anchored at the user-data root so
+    cascade paths cannot escape via '..'.
     """
-    base = _app_root()
+    user_base = _user_data_root()
     missing_tools: list[str] = []
     missing_presets: list[str] = []
     for step in cascade_data.get("steps", []) or []:
@@ -3001,15 +3103,15 @@ def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str
             continue
         tool = step.get("tool")
         if tool:
-            if not _cascade_path_is_safe(base, tool):
+            if not _cascade_path_is_safe(user_base, tool):
                 missing_tools.append(tool)
-            elif not (base / tool).exists():
+            elif _resolve_app_relative(tool) is None:
                 missing_tools.append(tool)
         preset = step.get("preset")
         if preset:
-            if not _cascade_path_is_safe(base, preset):
+            if not _cascade_path_is_safe(user_base, preset):
                 missing_presets.append(preset)
-            elif not (base / preset).exists():
+            elif _resolve_app_relative(preset) is None:
                 missing_presets.append(preset)
     return missing_tools, missing_presets
 
@@ -3252,53 +3354,86 @@ class ToolPicker(QWidget):
         QWidget.setTabOrder(self.search_bar, self.table)
         self.scan()
 
-    def scan(self):
-        """Scan tools/ directory (including subdirectories) and populate the table."""
-        self._entries.clear()
-        tools_path = _tools_dir()
+    def _entry_folder(self, path: str, is_bundled: bool) -> str:
+        """Return the relative folder name for a tool path. '' for root tools."""
+        root = _bundled_tools_dir() if is_bundled else _tools_dir()
+        try:
+            folder = Path(path).parent.relative_to(root).as_posix()
+        except ValueError:
+            folder = ""
+        return "" if folder == "." else folder
 
-        for json_file in sorted(tools_path.rglob("*.json")):
-            try:
-                data = load_tool(str(json_file))
-                errors = validate_tool(data)
-                if errors:
-                    self._entries.append((str(json_file), None, "; ".join(errors), False))
-                else:
-                    data = normalize_tool(data)
-                    available = _binary_in_path(data["binary"])
-                    self._entries.append((str(json_file), data, None, available))
-            except RuntimeError as e:
-                self._entries.append((str(json_file), None, str(e), False))
+    def _entry_relpath(self, path: str, is_bundled: bool) -> str:
+        """Return the relative-to-tools-root path for display in the path column."""
+        root = _bundled_tools_dir() if is_bundled else _tools_dir()
+        try:
+            return Path(path).relative_to(root).as_posix()
+        except ValueError:
+            return Path(path).name
+
+    def scan(self):
+        """Scan user and bundled tools directories and populate the table.
+
+        User tools take precedence — if the same filename appears in both,
+        the bundled copy is hidden (the user's override wins).
+        """
+        self._entries.clear()
+        user_path = _tools_dir()
+        bundled_path = _bundled_tools_dir()
+
+        # Scan user tools first, record their filenames so bundled duplicates are skipped
+        user_files: list[Path] = sorted(user_path.rglob("*.json"))
+        user_names = {p.name for p in user_files}
+
+        for json_file in user_files:
+            self._add_scan_entry(json_file, is_bundled=False)
+
+        if bundled_path.exists():
+            for json_file in sorted(bundled_path.rglob("*.json")):
+                if json_file.name in user_names:
+                    continue
+                self._add_scan_entry(json_file, is_bundled=True)
 
         # Sort: folder groups first (alphabetically), then root tools.
         # Within each group: available first, then unavailable, then invalid — alphabetical within each.
         def _sort_key(entry):
-            _, data, error, available = entry
-            folder = Path(entry[0]).parent.relative_to(tools_path).as_posix()
-            folder = "" if folder == "." else folder
+            path, data, error, available, is_bundled = entry
+            folder = self._entry_folder(path, is_bundled)
             if error:
                 priority = 2  # invalid last
             elif available:
                 priority = 0  # available first
             else:
                 priority = 1  # unavailable middle
-            name = data["tool"].lower() if data else Path(entry[0]).name.lower()
+            name = data["tool"].lower() if data else Path(path).name.lower()
             return (0 if folder else 1, folder, priority, name)
 
         self._entries.sort(key=_sort_key)
         self._populate_table()
 
+    def _add_scan_entry(self, json_file: Path, *, is_bundled: bool) -> None:
+        """Validate and append a single tool file to self._entries."""
+        try:
+            data = load_tool(str(json_file))
+            errors = validate_tool(data)
+            if errors:
+                self._entries.append((str(json_file), None, "; ".join(errors), False, is_bundled))
+            else:
+                data = normalize_tool(data)
+                available = _binary_in_path(data["binary"])
+                self._entries.append((str(json_file), data, None, available, is_bundled))
+        except RuntimeError as e:
+            self._entries.append((str(json_file), None, str(e), False, is_bundled))
+
     def _populate_table(self) -> None:
         """Render self._entries into the tool-picker table."""
-        tools_path = _tools_dir()
         self._row_map = []  # parallel to table rows: int (index into _entries) or None (header)
 
         # Group entries by folder for header insertion
         folder_groups: list[tuple[str, list[int]]] = []  # (folder, [entry indices])
         current_folder: str | None = None
-        for idx, (path, _, _, _) in enumerate(self._entries):
-            folder = Path(path).parent.relative_to(tools_path).as_posix()
-            folder = "" if folder == "." else folder
+        for idx, (path, _, _, _, is_bundled) in enumerate(self._entries):
+            folder = self._entry_folder(path, is_bundled)
             if folder != current_folder:
                 folder_groups.append((folder, []))
                 current_folder = folder
@@ -3337,9 +3472,11 @@ class ToolPicker(QWidget):
                 table_row += 1
 
             for entry_idx in indices:
-                path, data, error, available = self._entries[entry_idx]
+                path, data, error, available, is_bundled = self._entries[entry_idx]
                 fname = Path(path).name
-                rel_path = Path(path).relative_to(tools_path).as_posix()
+                rel_path = self._entry_relpath(path, is_bundled)
+                if is_bundled:
+                    rel_path = f"{rel_path}  (bundled)"
 
                 # Status column
                 if error:
@@ -3416,7 +3553,6 @@ class ToolPicker(QWidget):
     def _on_filter(self, text: str) -> None:
         """Hide table rows that don't match the search text or are in collapsed folders."""
         query = text.strip().lower()
-        tools_path = _tools_dir()
         # First pass: determine visibility for tool rows; track header rows
         header_rows: list[int] = []  # table rows that are headers
         header_has_visible: dict[int, bool] = {}  # header_row -> any tool visible
@@ -3440,8 +3576,8 @@ class ToolPicker(QWidget):
                         break
             # Check collapse state
             path = self._entries[entry_idx][0]
-            folder = Path(path).parent.relative_to(tools_path).as_posix()
-            folder = "" if folder == "." else folder
+            is_bundled = self._entries[entry_idx][4]
+            folder = self._entry_folder(path, is_bundled)
             is_collapsed = folder in self._collapsed_folders
             self.table.setRowHidden(row, not matches_search or is_collapsed)
             if matches_search and current_header is not None and folder:
@@ -3549,10 +3685,13 @@ class ToolPicker(QWidget):
             self.open_btn.setEnabled(False)
             self.delete_btn.setEnabled(False)
             return
-        _, data, _, _ = self._entries[entry_idx]
+        _, data, _, _, is_bundled = self._entries[entry_idx]
         valid = data is not None
         self.open_btn.setEnabled(valid)
-        self.delete_btn.setEnabled(valid)
+        # Bundled tools are read-only — keep delete disabled so users get the right
+        # affordance up-front. Clicking when somehow enabled still surfaces a status
+        # message in _on_delete_tool as a backstop.
+        self.delete_btn.setEnabled(valid and not is_bundled)
 
     def _on_double_click(self, index) -> None:
         """Emit tool_selected for the double-clicked row if the tool is valid."""
@@ -3560,7 +3699,7 @@ class ToolPicker(QWidget):
         entry_idx = self._row_map[row] if row < len(self._row_map) else None
         if entry_idx is None:
             return
-        path, data, _, _ = self._entries[entry_idx]
+        path, data, _, _, _ = self._entries[entry_idx]
         if data is not None:
             self.tool_selected.emit(path)
 
@@ -3573,7 +3712,7 @@ class ToolPicker(QWidget):
         entry_idx = self._row_map[row] if row < len(self._row_map) else None
         if entry_idx is None:
             return
-        path, data, _, _ = self._entries[entry_idx]
+        path, data, _, _, _ = self._entries[entry_idx]
         if data is not None:
             self.tool_selected.emit(path)
 
@@ -3586,21 +3725,31 @@ class ToolPicker(QWidget):
         entry_idx = self._row_map[row] if row < len(self._row_map) else None
         if entry_idx is None:
             return
-        path_str, data, _, _ = self._entries[entry_idx]
+        path_str, data, _, _, _ = self._entries[entry_idx]
         if data is None:
             return
 
         tool_name = data["tool"]
         tool_path = Path(path_str).resolve()
         tools_dir = _tools_dir().resolve()
+        bundled_tools_dir = _bundled_tools_dir().resolve() if _bundled_tools_dir().exists() else None
 
-        # Safety: ensure the file is inside the tools directory
+        # Bundled tools are read-only — refuse delete and tell the user where to add custom schemas.
+        if bundled_tools_dir is not None and bundled_tools_dir in tool_path.parents:
+            mw = self.window()
+            if hasattr(mw, "statusBar"):
+                mw.statusBar().showMessage(
+                    f"Bundled tools are read-only. Drop your own *.json into {tools_dir} to add custom schemas."
+                )
+            return
+
+        # Safety: ensure the file is inside the user tools directory
         if tools_dir not in tool_path.parents:
             QMessageBox.warning(self, "Error", "File is not inside the tools directory.")
             return
 
         filename = tool_path.name
-        presets_base = _app_root() / "presets"
+        presets_base = _user_data_root() / "presets"
         preset_dir = presets_base / tool_name
         preset_files = list(preset_dir.glob("*.json")) if preset_dir.is_dir() else []
         has_presets = len(preset_files) > 0
@@ -4777,21 +4926,34 @@ class CascadePickerDialog(QDialog):
         self._populate_tree()
 
     def _populate_tree(self) -> None:
-        """Scan tools and presets, build the tree."""
+        """Scan user + bundled tools and presets, build the tree.
+
+        Mirrors ToolPicker.scan: user tools take precedence by filename
+        when both directories contain the same name.
+        """
         self.tree.clear()
-        tools_path = _tools_dir()
+        user_path = _tools_dir()
+        bundled_path = _bundled_tools_dir()
         entries = []
-        for json_file in sorted(tools_path.rglob("*.json")):
-            try:
-                data = load_tool(str(json_file))
-                errors = validate_tool(data)
-                if errors:
-                    continue
-                data = normalize_tool(data)
-                available = _binary_in_path(data["binary"])
-                entries.append((str(json_file), data, available))
-            except RuntimeError:
+        seen_names: set[str] = set()
+        for root, source in ((user_path, "user"), (bundled_path, "bundled")):
+            if not root.exists():
                 continue
+            for json_file in sorted(root.rglob("*.json")):
+                if source == "bundled" and json_file.name in seen_names:
+                    continue
+                try:
+                    data = load_tool(str(json_file))
+                    errors = validate_tool(data)
+                    if errors:
+                        continue
+                    data = normalize_tool(data)
+                    available = _binary_in_path(data["binary"])
+                    entries.append((str(json_file), data, available))
+                    if source == "user":
+                        seen_names.add(json_file.name)
+                except RuntimeError:
+                    continue
 
         # Sort: available first, then alphabetically
         entries.sort(key=lambda e: (0 if e[2] else 1, e[1]["tool"].lower()))
@@ -6702,23 +6864,30 @@ class CascadeSidebar(QDockWidget):
     # ------------------------------------------------------------------
 
     def _export_cascade_data(self, name: str, description: str = "") -> dict:
-        """Serialize current slots to the cascade file format."""
-        base = _app_root()
+        """Serialize current slots to the cascade file format.
+
+        Paths are relativized against the user-data root first, then the
+        bundled root. This produces portable cascade files: user tools end
+        up as `tools/foo.json` (resolvable in any install mode), bundled
+        tools as `tools/nmap.json` (resolvable via the bundled-fallback in
+        _resolve_app_relative). Falls back to the original absolute path
+        if neither root contains the file.
+        """
+        def _relativize(p: str) -> str:
+            abs_p = Path(p)
+            for base in (_user_data_root(), _bundled_root()):
+                try:
+                    return str(abs_p.relative_to(base))
+                except ValueError:
+                    continue
+            return p
+
         steps = []
         for slot in self._slots:
             if not slot.get("tool_path"):
                 continue
-            tool_rel = slot["tool_path"]
-            try:
-                tool_rel = str(Path(slot["tool_path"]).relative_to(base))
-            except ValueError:
-                pass
-            preset_rel = None
-            if slot.get("preset_path"):
-                try:
-                    preset_rel = str(Path(slot["preset_path"]).relative_to(base))
-                except ValueError:
-                    preset_rel = slot["preset_path"]
+            tool_rel = _relativize(slot["tool_path"])
+            preset_rel = _relativize(slot["preset_path"]) if slot.get("preset_path") else None
             steps.append({
                 "tool": tool_rel,
                 "preset": preset_rel,
@@ -6766,7 +6935,7 @@ class CascadeSidebar(QDockWidget):
             for cap in step.get("captures", []):
                 _validate_capture_entry(cap, cascade_vars)
 
-        base = _app_root()
+        user_base = _user_data_root()
 
         # Tear down existing slot widgets (hide + detach synchronously to
         # prevent ghost widgets on Linux where deleteLater timing differs)
@@ -6778,23 +6947,31 @@ class CascadeSidebar(QDockWidget):
         self._slot_buttons.clear()
         self._arrow_buttons.clear()
 
+        def _resolve_step_path(rel: str) -> str:
+            """Resolve a cascade step's relative path. Falls back to user-rooted
+            absolute path so missing files still surface in the slot UI."""
+            resolved = _resolve_app_relative(rel)
+            if resolved is not None:
+                return str(resolved)
+            return str(user_base / rel)
+
         # Build new slots from steps
         new_slots = []
         for step_idx, step in enumerate(steps, start=1):
             tool_value = step.get("tool")
-            if tool_value and not _cascade_path_is_safe(base, tool_value):
+            if tool_value and not _cascade_path_is_safe(user_base, tool_value):
                 raise ValueError(
                     f"Cascade step {step_idx} has an unsafe tool path: {tool_value!r} "
                     f"(paths cannot escape the scaffold directory via '..')"
                 )
             preset_value = step.get("preset")
-            if preset_value and not _cascade_path_is_safe(base, preset_value):
+            if preset_value and not _cascade_path_is_safe(user_base, preset_value):
                 raise ValueError(
                     f"Cascade step {step_idx} has an unsafe preset path: {preset_value!r} "
                     f"(paths cannot escape the scaffold directory via '..')"
                 )
-            tool_path = str(base / tool_value) if tool_value else None
-            preset_path = str(base / preset_value) if preset_value else None
+            tool_path = _resolve_step_path(tool_value) if tool_value else None
+            preset_path = _resolve_step_path(preset_value) if preset_value else None
             new_slots.append({
                 "tool_path": tool_path,
                 "preset_path": preset_path,
@@ -7002,10 +7179,9 @@ class CascadeSidebar(QDockWidget):
             return
 
         name = data.get("name", cascade_path.stem)
-        base = _app_root()
         missing = 0
         for step in data.get("steps", []):
-            if step.get("tool") and not (base / step["tool"]).exists():
+            if step.get("tool") and _resolve_app_relative(step["tool"]) is None:
                 missing += 1
         if missing:
             self._main_window.statusBar().showMessage(
@@ -8609,7 +8785,7 @@ class MainWindow(QMainWindow):
             "<p>Place new JSON schema files in the <code>tools/</code> folder. "
             "Schemas can be hand-written \u2014 schema.md documents the full "
             "format. An LLM is not required, it just makes the work faster: "
-            "PROMPT.txt contains a prompt that turns a tool's help text into "
+            "SCHEMA_PROMPT.txt contains a prompt that turns a tool's help text into "
             "a schema. Either way, validate the result with "
             "<code>python scaffold.py --validate path/to/tool.json</code>.</p>"
 
@@ -10815,15 +10991,15 @@ class MainWindow(QMainWindow):
 # ---------------------------------------------------------------------------
 
 def print_prompt() -> None:
-    """Print the LLM schema-generation prompt from PROMPT.txt to stdout."""
-    prompt_path = _app_root() / "PROMPT.txt"
+    """Print the LLM schema-generation prompt from SCHEMA_PROMPT.txt to stdout."""
+    prompt_path = _bundled_root() / "SCHEMA_PROMPT.txt"
     if not prompt_path.exists():
-        print("Error: PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
+        print("Error: SCHEMA_PROMPT.txt not found in scaffold_data/", file=sys.stderr)
         sys.exit(1)
     try:
         text = prompt_path.read_text(encoding="utf-8")
     except OSError as e:
-        print(f"Error reading PROMPT.txt: {e}", file=sys.stderr)
+        print(f"Error reading SCHEMA_PROMPT.txt: {e}", file=sys.stderr)
         sys.exit(1)
     try:
         print(text)
@@ -10834,9 +11010,9 @@ def print_prompt() -> None:
 
 def print_preset_prompt() -> None:
     """Print the LLM preset-generation prompt from PRESET_PROMPT.txt to stdout."""
-    prompt_path = _app_root() / "PRESET_PROMPT.txt"
+    prompt_path = _bundled_root() / "PRESET_PROMPT.txt"
     if not prompt_path.exists():
-        print("Error: PRESET_PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
+        print("Error: PRESET_PROMPT.txt not found in scaffold_data/", file=sys.stderr)
         sys.exit(1)
     try:
         text = prompt_path.read_text(encoding="utf-8")
