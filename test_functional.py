@@ -27625,6 +27625,101 @@ shutil.rmtree(_s203_preset_dir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 204 — v2.11.4 Topic C: shipped-preset regression guard via
+# the activated load path
+# =====================================================================
+print("\n=== SECTION 204: v2.11.4 shipped-preset audit via activated path ===")
+# §202J already runs validate_preset on every shipped preset against its
+# tool schema with default semantics (unknown keys are errors). §204 adds
+# the activated-path semantics gate (report_unknown_keys=False) which
+# matches what production callers do. The two together pin both the
+# strict cohort invariant (§202J: no unknown keys, no type errors) and
+# the production load behavior (§204: type errors caught even when the
+# unknown-key check is off). A future bad-preset commit that introduces
+# the rsync silent-bug shape (list value in a string field) gets caught
+# here even if §202J's unknown-key gate ever loosens.
+
+_s204_root = Path(__file__).parent
+_s204_default_dir = _s204_root / "default_presets"
+_s204_tools_dir = _s204_root / "tools"
+_s204_failures = []
+_s204_count = 0
+
+# Silent-bug pattern checks. Audit was clean at v2.11.4 ship; these run
+# every release as a permanent guard against future bad-preset commits
+# that pass type validation but render wrong (e.g. string field with a
+# value that looks like Python list repr).
+def _s204_silent_bug_check(preset, schema):
+    """Return list of '<pattern>: <key> -> <detail>' findings."""
+    findings = []
+    arg_lookup = {}
+    for arg in schema.get("arguments", []):
+        if isinstance(arg, dict) and "flag" in arg:
+            arg_lookup[("__global__", arg["flag"])] = arg
+    for sub in schema.get("subcommands") or []:
+        for arg in sub.get("arguments", []):
+            if isinstance(arg, dict) and "flag" in arg:
+                arg_lookup[(sub["name"], arg["flag"])] = arg
+    for key, value in preset.items():
+        if key.startswith("_"):
+            continue
+        if ":" in key:
+            scope, _, flag = key.partition(":")
+        else:
+            scope, flag = "__global__", key
+        arg = arg_lookup.get((scope, flag))
+        if arg is None:
+            continue
+        t = arg.get("type")
+        # String-like field with list-repr value
+        if t in ("string", "text", "file", "directory", "password") and \
+                isinstance(value, str) and \
+                value.startswith("[") and value.endswith("]"):
+            findings.append(f"string_list_repr: {key} -> {value!r}")
+        # Empty multi_enum (should be absent)
+        if t == "multi_enum" and isinstance(value, list) and len(value) == 0:
+            findings.append(f"empty_multi_enum: {key}")
+        # Whitespace padding on string-like field
+        if t in ("string", "text", "file", "directory", "password", "enum") and \
+                isinstance(value, str) and value != value.strip() and value.strip():
+            findings.append(f"whitespace_padding: {key} -> {value!r}")
+    return findings
+
+
+if _s204_default_dir.is_dir():
+    for _s204_preset_path in _s204_default_dir.rglob("*.json"):
+        _s204_count += 1
+        try:
+            _s204_preset_data = json.loads(_s204_preset_path.read_text(encoding="utf-8"))
+        except Exception as _s204_exc:
+            _s204_failures.append((_s204_preset_path, f"parse error: {_s204_exc}"))
+            continue
+        _s204_tool_name = _s204_preset_data.get("_tool") or _s204_preset_path.parent.name
+        _s204_tool_path = _s204_tools_dir / f"{_s204_tool_name}.json"
+        if not _s204_tool_path.exists():
+            _s204_failures.append((_s204_preset_path,
+                                   f"missing tool schema: {_s204_tool_name}"))
+            continue
+        _s204_tool = scaffold.normalize_tool(
+            json.loads(_s204_tool_path.read_text(encoding="utf-8")))
+        # Activated-path semantics — what production load callers see.
+        _s204_errs = scaffold.validate_preset(
+            _s204_preset_data, _s204_tool, report_unknown_keys=False)
+        if _s204_errs:
+            _s204_failures.append((_s204_preset_path, _s204_errs))
+        # Silent-bug pattern audit (would pass type validation but render wrong)
+        _s204_sb = _s204_silent_bug_check(_s204_preset_data, _s204_tool)
+        if _s204_sb:
+            _s204_failures.append((_s204_preset_path, _s204_sb))
+
+check(_s204_count > 0,
+      f"204A.1: at least one default preset checked (got {_s204_count})")
+check(_s204_failures == [],
+      f"204A.2: all {_s204_count} default presets pass activated-path "
+      f"validation and silent-bug audit (failures: {_s204_failures})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
