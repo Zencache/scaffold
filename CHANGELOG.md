@@ -4,6 +4,81 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.12.0] — 2026-04-25
+
+Pip-installable packaging. Scaffold can now be installed via
+`pip install git+https://github.com/Zencache/scaffold.git@v2.12.0`,
+which provides a `scaffold` shell command. After install, user data
+(presets, cascades, custom tool schemas) is stored in the platform's
+standard application data directory; bundled files ship as a read-only
+package within the wheel.
+
+### Added
+- `pyproject.toml` and console script entry: after install, `scaffold`
+  is available as a shell command on the user's PATH.
+- `scaffold_data/` directory holding bundled tool schemas, default
+  presets, and LLM prompts. Ships as a Python package alongside
+  `scaffold.py`.
+- User-added tool schemas: drop `*.json` files into the platform's
+  Scaffold app-data directory (Linux: `~/.local/share/Scaffold/tools/`,
+  macOS: `~/Library/Application Support/Scaffold/tools/`, Windows:
+  `%APPDATA%/Scaffold/tools/`) to make them appear in the picker
+  alongside bundled tools. The picker shows whether each tool is
+  bundled (read-only) or user-added (deletable).
+- Mode-detection helpers (`_is_portable_mode`, `_is_installed_mode`)
+  and a unified path-resolution layer (`_bundled_root`,
+  `_user_data_root`, `_bundled_tools_dir`, `_resolve_app_relative`)
+  that route to the correct filesystem location based on whether
+  Scaffold is running from source, pip-installed, or in portable
+  mode.
+
+### Changed
+- Bundled files (`tools/`, `default_presets/`, `SCHEMA_PROMPT.txt`,
+  `PRESET_PROMPT.txt`, `CASCADE_LLM_GENERATION_GUIDE.md`) moved into
+  `scaffold_data/`. The repo layout now separates code from bundled
+  data, matching standard Python packaging.
+- Tool picker merges user-added and bundled tools in one list, with
+  user-added tools taking name precedence (so a user-supplied
+  `nmap.json` overrides the bundled one).
+- Tool delete action only operates on user-added schemas. Attempting
+  to delete a bundled schema shows a status message indicating where
+  to drop a custom override instead.
+- Cascade-relative path resolution now tries the user data root first,
+  then the bundled root, so cascades that reference `tools/foo.json`
+  continue to work regardless of where the actual file lives.
+
+### Fixed
+- `print_prompt` was looking for `PROMPT.txt`, but the file is named
+  `SCHEMA_PROMPT.txt`. Latent since an earlier rename. Now reads from
+  the correct filename.
+- `_user_data_root()` in installed mode now reliably lands on
+  `<AppData>/Scaffold/`. `QStandardPaths.AppDataLocation` only auto-
+  appends `QCoreApplication.applicationName()` when it has been set,
+  but scaffold doesn't set the app name at startup, so the path was
+  collapsing to bare `%APPDATA%` (or platform equivalent). The
+  resolver now appends `Scaffold` when missing — idempotent if the
+  app name is set later. Caught during Phase 5 install verification.
+
+### Notes for users
+- Source-clone behavior is unchanged. If you've been running
+  `python scaffold.py` from a cloned repo, you don't need to do
+  anything differently.
+- Existing portable mode (placing `portable.txt` next to `scaffold.py`)
+  still works unchanged.
+- For pip-install users: your presets and cascades live in
+  `<AppData>/Scaffold/`, not in site-packages. They survive
+  uninstall/reinstall.
+
+#### Full suite results
+- **All 6 test suites pass: 3,617/3,617 assertions, 0 failures**
+  - Functional: 3,118/3,118 (+36, includes new §205 path resolution contract)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.11.4] — 2026-04-24
 
 Patch release: activate the v2.11.3 preset type rules at load callers,

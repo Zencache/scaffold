@@ -42,6 +42,60 @@ Single Python file, one dependency (PySide6), no telemetry, no network calls, fu
 
 ---
 
+## Installation
+
+### Quick install
+
+```bash
+pip install git+https://github.com/Zencache/scaffold.git@v2.12.0
+```
+
+This installs `scaffold` as a shell command. Launch the GUI:
+
+```bash
+scaffold
+```
+
+### Recommended for non-developers
+
+[pipx](https://pypa.github.io/pipx/) installs Python apps in isolated
+environments without conflicting with system Python:
+
+```bash
+pipx install git+https://github.com/Zencache/scaffold.git@v2.12.0
+```
+
+### From source (for development)
+
+```bash
+git clone https://github.com/Zencache/scaffold.git
+cd scaffold
+python scaffold.py
+```
+
+### Where files are stored
+
+After pip-installing, your data lives in the platform's standard
+application data directory:
+
+| Platform | Location |
+|----------|----------|
+| Linux    | `~/.local/share/Scaffold/` |
+| macOS    | `~/Library/Application Support/Scaffold/` |
+| Windows  | `%APPDATA%\Scaffold\` |
+
+Inside that directory you'll find `presets/`, `cascades/`, and `tools/`
+(for adding your own schemas). Drop a `*.json` schema into the `tools/`
+subdirectory and it appears in the picker the next time you launch.
+
+### Portable mode
+
+Place a `portable.txt` next to `scaffold.py` (source-clone only) to
+keep all settings and user data in the script directory. Useful for
+USB sticks or fully-isolated installs.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
