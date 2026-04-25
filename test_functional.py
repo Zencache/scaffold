@@ -27720,6 +27720,163 @@ check(_s204_failures == [],
 
 
 # =====================================================================
+# Section 205 — v2.12.0 Phase 1: pin source-mode path resolution
+# =====================================================================
+print("\n=== SECTION 205: v2.12.0 source-mode path resolution baseline ===")
+# v2.12.0 makes scaffold pip-installable, which means swapping path
+# resolution between source mode (Path(__file__).parent) and installed
+# mode (scaffold_data/ in site-packages). This section pins the current
+# (source-mode) contract of every helper that touches the filesystem so
+# the upcoming refactor (Phase 2: extract _app_root; Phase 4: mode-switch
+# inside _app_root) cannot change observable source-mode behavior without
+# one of these checks failing. §50 already exercises portable mode in
+# depth; §205 focuses on the path-equivalence contract that Phase 2
+# hinges on.
+
+_s205_root = Path(scaffold.__file__).parent
+
+# ---------------------------------------------------------------------
+# A. _tools_dir() returns <parent>/tools/ and the directory exists
+# ---------------------------------------------------------------------
+_s205_tools = scaffold._tools_dir()
+check(_s205_tools == _s205_root / "tools",
+      f"205A.1: _tools_dir() returns <parent>/tools "
+      f"(got {_s205_tools})")
+check(_s205_tools.is_dir(),
+      f"205A.2: tools dir exists after _tools_dir() call "
+      f"(path: {_s205_tools})")
+
+# ---------------------------------------------------------------------
+# B. _presets_dir(tool) returns <parent>/presets/<tool>/ and seeds defaults
+# ---------------------------------------------------------------------
+_s205_presets = scaffold._presets_dir("nmap")
+check(_s205_presets == _s205_root / "presets" / "nmap",
+      f"205B.1: _presets_dir('nmap') returns <parent>/presets/nmap "
+      f"(got {_s205_presets})")
+check(_s205_presets.is_dir(),
+      f"205B.2: presets dir exists after _presets_dir() call "
+      f"(path: {_s205_presets})")
+# Bundled defaults must seed the user dir on first access (without
+# overwriting). This is the contract that survives the installed-mode
+# move: source mode reads bundled from <parent>/default_presets, installed
+# mode will read from scaffold_data/default_presets.
+_s205_default_nmap = _s205_root / "default_presets" / "nmap"
+if _s205_default_nmap.is_dir():
+    _s205_default_files = {p.name for p in _s205_default_nmap.glob("*.json")}
+    _s205_user_files = {p.name for p in _s205_presets.glob("*.json")}
+    check(_s205_default_files.issubset(_s205_user_files),
+          f"205B.3: bundled defaults seeded into user preset dir "
+          f"(missing: {sorted(_s205_default_files - _s205_user_files)})")
+
+# ---------------------------------------------------------------------
+# C. _cascades_dir() returns <parent>/cascades/
+# ---------------------------------------------------------------------
+_s205_cascades = scaffold._cascades_dir()
+check(_s205_cascades == _s205_root / "cascades",
+      f"205C.1: _cascades_dir() returns <parent>/cascades "
+      f"(got {_s205_cascades})")
+check(_s205_cascades.is_dir(),
+      f"205C.2: cascades dir exists after _cascades_dir() call "
+      f"(path: {_s205_cascades})")
+
+# ---------------------------------------------------------------------
+# D. _create_settings() with no portable.txt returns native QSettings
+# ---------------------------------------------------------------------
+_s205_portable_txt = _s205_root / "portable.txt"
+_s205_portable_ini = _s205_root / "scaffold.ini"
+# Sanity guard — refuse to test if the dev tree already has these
+# sentinels (we'd risk clobbering user state). Mirrors §166.8's pattern.
+if _s205_portable_txt.exists() or _s205_portable_ini.exists():
+    check(True, "205D: skipped — portable sentinel already present")
+    check(True, "205E: skipped — portable sentinel already present")
+else:
+    _s205_native = scaffold._create_settings()
+    check(_s205_native.format() != QSettings.Format.IniFormat,
+          f"205D.1: _create_settings() returns native (non-INI) QSettings "
+          f"without portable.txt (got format {_s205_native.format()!r})")
+    check(_s205_native.organizationName() == "Scaffold",
+          f"205D.2: native QSettings uses 'Scaffold' organization "
+          f"(got {_s205_native.organizationName()!r})")
+
+    # -----------------------------------------------------------------
+    # E. _create_settings() with portable.txt returns INI at <parent>/scaffold.ini
+    # -----------------------------------------------------------------
+    _s205_portable_txt.write_text("", encoding="utf-8")
+    try:
+        _s205_portable = scaffold._create_settings()
+        check(_s205_portable.format() == QSettings.Format.IniFormat,
+              f"205E.1: _create_settings() returns INI QSettings with "
+              f"portable.txt (got format {_s205_portable.format()!r})")
+        check(os.path.normcase(_s205_portable.fileName()) ==
+              os.path.normcase(str(_s205_portable_ini)),
+              f"205E.2: INI file is at <parent>/scaffold.ini "
+              f"(got {_s205_portable.fileName()!r})")
+    finally:
+        if _s205_portable_txt.exists():
+            _s205_portable_txt.unlink()
+        if _s205_portable_ini.exists():
+            _s205_portable_ini.unlink()
+
+# Sanity: sentinels must be gone after E even if cleanup ran
+check(not _s205_portable_txt.exists(),
+      f"205-cleanup: portable.txt removed "
+      f"(exists={_s205_portable_txt.exists()})")
+check(not _s205_portable_ini.exists(),
+      f"205-cleanup: scaffold.ini removed "
+      f"(exists={_s205_portable_ini.exists()})")
+
+# ---------------------------------------------------------------------
+# F. print_prompt() reads from <parent>/PROMPT.txt
+# ---------------------------------------------------------------------
+# PROMPT.txt is not present in the dev tree (the file lives in the
+# repo root one level up). Create a temporary one to prove the path
+# resolution, then remove it.
+_s205_prompt_path = _s205_root / "PROMPT.txt"
+_s205_prompt_existed = _s205_prompt_path.exists()
+_s205_prompt_marker = "S205F_PROMPT_MARKER_xyzzy_unique"
+if not _s205_prompt_existed:
+    _s205_prompt_path.write_text(_s205_prompt_marker, encoding="utf-8")
+try:
+    _s205_buf = io.StringIO()
+    _s205_orig_stdout = sys.stdout
+    sys.stdout = _s205_buf
+    try:
+        scaffold.print_prompt()
+    finally:
+        sys.stdout = _s205_orig_stdout
+    if _s205_prompt_existed:
+        _s205_expected = _s205_prompt_path.read_text(encoding="utf-8")
+        check(_s205_expected.strip() in _s205_buf.getvalue(),
+              "205F.1: print_prompt() reads PROMPT.txt content from <parent>")
+    else:
+        check(_s205_prompt_marker in _s205_buf.getvalue(),
+              f"205F.1: print_prompt() reads from <parent>/PROMPT.txt "
+              f"(stdout: {_s205_buf.getvalue()[:120]!r})")
+finally:
+    if not _s205_prompt_existed and _s205_prompt_path.exists():
+        _s205_prompt_path.unlink()
+
+# ---------------------------------------------------------------------
+# G. print_preset_prompt() reads from <parent>/PRESET_PROMPT.txt
+# ---------------------------------------------------------------------
+_s205_preset_prompt_path = _s205_root / "PRESET_PROMPT.txt"
+check(_s205_preset_prompt_path.exists(),
+      f"205G.1: PRESET_PROMPT.txt exists at <parent>/PRESET_PROMPT.txt "
+      f"(path: {_s205_preset_prompt_path})")
+_s205_buf2 = io.StringIO()
+_s205_orig_stdout2 = sys.stdout
+sys.stdout = _s205_buf2
+try:
+    scaffold.print_preset_prompt()
+finally:
+    sys.stdout = _s205_orig_stdout2
+_s205_preset_text = _s205_preset_prompt_path.read_text(encoding="utf-8")
+# strip() absorbs the trailing newline added by print()
+check(_s205_preset_text.strip() in _s205_buf2.getvalue(),
+      "205G.2: print_preset_prompt() prints PRESET_PROMPT.txt content from <parent>")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
