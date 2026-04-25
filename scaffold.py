@@ -2892,13 +2892,22 @@ def _monospace_font() -> QFont:
     return font
 
 
+def _app_root() -> Path:
+    """Return the application's root directory (where bundled files live).
+
+    In source mode, this is scaffold.py's directory. In installed mode
+    (Phase 4), this resolves to the scaffold_data/ package root.
+    """
+    return Path(__file__).parent
+
+
 def _create_settings() -> QSettings:
     """Return a QSettings using local INI file (portable) or system registry (default).
 
     If portable.txt or scaffold.ini exists next to this script, settings are stored
     in scaffold.ini (INI format) for fully isolated portable operation.
     """
-    script_dir = Path(__file__).parent
+    script_dir = _app_root()
     if (script_dir / "portable.txt").exists() or (script_dir / "scaffold.ini").exists():
         return QSettings(str(script_dir / "scaffold.ini"), QSettings.Format.IniFormat)
     return QSettings("Scaffold", "Scaffold")
@@ -2906,7 +2915,7 @@ def _create_settings() -> QSettings:
 
 def _tools_dir() -> Path:
     """Return the tools/ directory next to this script, creating it if needed."""
-    d = Path(__file__).parent / "tools"
+    d = _app_root() / "tools"
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(exist_ok=True)
@@ -2920,12 +2929,12 @@ def _presets_dir(tool_name: str) -> Path:
     default_presets/{tool_name}/ into the user's preset directory
     (without overwriting existing files).
     """
-    d = Path(__file__).parent / "presets" / tool_name
+    d = _app_root() / "presets" / tool_name
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
     # Seed from bundled defaults (skip files the user already has)
-    defaults = Path(__file__).parent / "default_presets" / tool_name
+    defaults = _app_root() / "default_presets" / tool_name
     if defaults.is_dir():
         for src in defaults.glob("*.json"):
             dest = d / src.name
@@ -2936,7 +2945,7 @@ def _presets_dir(tool_name: str) -> Path:
 
 def _cascades_dir() -> Path:
     """Return the cascades/ directory next to this script, creating it if needed."""
-    d = Path(__file__).parent / "cascades"
+    d = _app_root() / "cascades"
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(exist_ok=True)
@@ -2984,7 +2993,7 @@ def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str
     as stored in the cascade (same form the user sees). Empty/None preset
     or tool fields are treated as absent, not missing.
     """
-    base = Path(__file__).parent
+    base = _app_root()
     missing_tools: list[str] = []
     missing_presets: list[str] = []
     for step in cascade_data.get("steps", []) or []:
@@ -3591,7 +3600,7 @@ class ToolPicker(QWidget):
             return
 
         filename = tool_path.name
-        presets_base = Path(__file__).parent / "presets"
+        presets_base = _app_root() / "presets"
         preset_dir = presets_base / tool_name
         preset_files = list(preset_dir.glob("*.json")) if preset_dir.is_dir() else []
         has_presets = len(preset_files) > 0
@@ -6694,7 +6703,7 @@ class CascadeSidebar(QDockWidget):
 
     def _export_cascade_data(self, name: str, description: str = "") -> dict:
         """Serialize current slots to the cascade file format."""
-        base = Path(__file__).parent
+        base = _app_root()
         steps = []
         for slot in self._slots:
             if not slot.get("tool_path"):
@@ -6757,7 +6766,7 @@ class CascadeSidebar(QDockWidget):
             for cap in step.get("captures", []):
                 _validate_capture_entry(cap, cascade_vars)
 
-        base = Path(__file__).parent
+        base = _app_root()
 
         # Tear down existing slot widgets (hide + detach synchronously to
         # prevent ghost widgets on Linux where deleteLater timing differs)
@@ -6993,7 +7002,7 @@ class CascadeSidebar(QDockWidget):
             return
 
         name = data.get("name", cascade_path.stem)
-        base = Path(__file__).parent
+        base = _app_root()
         missing = 0
         for step in data.get("steps", []):
             if step.get("tool") and not (base / step["tool"]).exists():
@@ -10807,7 +10816,7 @@ class MainWindow(QMainWindow):
 
 def print_prompt() -> None:
     """Print the LLM schema-generation prompt from PROMPT.txt to stdout."""
-    prompt_path = Path(__file__).parent / "PROMPT.txt"
+    prompt_path = _app_root() / "PROMPT.txt"
     if not prompt_path.exists():
         print("Error: PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
         sys.exit(1)
@@ -10825,7 +10834,7 @@ def print_prompt() -> None:
 
 def print_preset_prompt() -> None:
     """Print the LLM preset-generation prompt from PRESET_PROMPT.txt to stdout."""
-    prompt_path = Path(__file__).parent / "PRESET_PROMPT.txt"
+    prompt_path = _app_root() / "PRESET_PROMPT.txt"
     if not prompt_path.exists():
         print("Error: PRESET_PROMPT.txt not found alongside scaffold.py", file=sys.stderr)
         sys.exit(1)
