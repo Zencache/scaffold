@@ -26274,8 +26274,8 @@ if _s199_save_match:
 # ---------------------------------------------------------------------
 # G. Version bump
 # ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.2",
-      f"199G.1: __version__ == '2.11.2' (got {scaffold.__version__!r})")
+check(scaffold.__version__ == "2.11.3",
+      f"199G.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
 
 # Cleanup section 199
 _s199_win.close()
@@ -26815,8 +26815,8 @@ app.processEvents()
 # ---------------------------------------------------------------------
 # H. Version bump
 # ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.2",
-      f"200H.1: __version__ == '2.11.2' (got {scaffold.__version__!r})")
+check(scaffold.__version__ == "2.11.3",
+      f"200H.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
 
 
 # =====================================================================
@@ -27115,8 +27115,8 @@ app.processEvents()
 # ---------------------------------------------------------------------
 # J. Version bump
 # ---------------------------------------------------------------------
-check(scaffold.__version__ == "2.11.2",
-      f"201J.1: __version__ == '2.11.2' (got {scaffold.__version__!r})")
+check(scaffold.__version__ == "2.11.3",
+      f"201J.1: __version__ == '2.11.3' (got {scaffold.__version__!r})")
 
 # Cleanup section 201
 _s201_win.close()

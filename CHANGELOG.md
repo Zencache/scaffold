@@ -4,6 +4,41 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.11.3] — 2026-04-24
+
+Patch release: tighten preset validation to reject hand-crafted or
+LLM-generated presets that would otherwise produce silently-wrong form
+state via Python's type coercion quirks.
+
+### Fixed
+- **D2b: Preset validation now rejects boolean fields with non-bool
+  values** (e.g. `"--verbose": "false"` as a string). Previously,
+  `bool("false") == True` meant such presets silently checked the box
+  on load. Repeatable booleans (e.g. rsync `--verbose`, ssh `-v`) still
+  accept `int` because the QSpinBox repeat count is the legitimate
+  storage format for them.
+- **D2c: Preset validation now rejects multi_enum fields with non-list
+  values** (e.g. `"--ports": "80,443"` as a comma-separated string).
+  Previously, such values were silently treated as empty selection.
+- Per-key type enforcement now applies to all field types when a tool
+  schema is available at validation time. Without a schema, structural
+  validation is unchanged (backward compatible).
+- `default_presets/rsync/rsync_selective_copy_excludes.json` was
+  storing a list value for the `--exclude` string field, which the GUI
+  could never apply cleanly (`str(value)` on a list produced garbage).
+  Extra patterns now live in `_extra_flags`; the preset round-trips
+  correctly under the new rule.
+
+#### Full suite results
+- **All 6 test suites pass: 3,566/3,566 assertions, 0 failures**
+  - Functional: 3,067/3,067 (+73)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.11.2] — 2026-04-24
 
 Patch release: size-cap history entries to prevent Windows registry
