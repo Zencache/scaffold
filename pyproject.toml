@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scaffold-gui"
+version = "2.12.0"
+description = "Schema-driven GUI generator for any CLI tool"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Kev" }]
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.5",
+]
+keywords = ["cli", "gui", "wrapper", "schema", "pyside6", "qt", "security"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/Zencache/scaffold"
+Repository = "https://github.com/Zencache/scaffold"
+Changelog = "https://github.com/Zencache/scaffold/blob/main/CHANGELOG.md"
+
+[project.scripts]
+scaffold = "scaffold:main"
+
+[tool.setuptools]
+py-modules = ["scaffold"]
+
+[tool.setuptools.packages.find]
+include = ["scaffold_data*"]
+
+[tool.setuptools.package-data]
+scaffold_data = ["**/*.json", "**/*.txt", "**/*.md"]

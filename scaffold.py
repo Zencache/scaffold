@@ -2957,6 +2957,12 @@ def _user_data_root() -> Path:
         loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         if loc:
             d = Path(loc)
+            # AppDataLocation only auto-appends QCoreApplication.applicationName()
+            # when it has been set; scaffold doesn't set it at startup, so on a
+            # fresh process the path is the platform root (e.g. %APPDATA%) with
+            # no app suffix. Append "Scaffold" ourselves unless it's already there.
+            if d.name != "Scaffold":
+                d = d / "Scaffold"
             d.mkdir(parents=True, exist_ok=True)
             return d
     return Path(__file__).parent
