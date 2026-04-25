@@ -735,6 +735,61 @@ PRESET_META_KEY_TYPES: dict[str, tuple[type, ...]] = {
     "_description": (str,),
 }
 
+# Per-field type enforcement for preset values. Maps each scaffold field
+# type to the tuple of acceptable Python types for its preset value.
+# `bool` is excluded from `int`/`float` despite being a subclass because
+# Python's bool/int conflation produces silently-wrong form state on
+# preset load. None is always accepted (= "field unset"). The repeatable-
+# boolean exception (int repeat count) is handled inline in
+# _check_preset_value_type, not here.
+PRESET_FIELD_TYPE_RULES: dict[str, tuple[type, ...]] = {
+    "boolean":    (bool,),
+    "string":     (str,),
+    "text":       (str,),
+    "integer":    (int,),
+    "float":      (int, float),
+    "enum":       (str,),
+    "multi_enum": (list,),
+    "file":       (str,),
+    "directory":  (str,),
+    "password":   (str,),
+}
+
+
+def _check_preset_value_type(arg: dict, value) -> str | None:
+    """Validate a preset value against its declared scaffold field type.
+
+    Returns an error message string if the type is wrong, or None if the
+    value is acceptable. None values always pass (= "field unset").
+
+    Takes the full arg dict (not just the type string) so it can honour
+    the repeatable-boolean storage convention: serialize_values returns
+    the QSpinBox repeat count (int) for repeatable booleans, so int is
+    valid there even though the field type is "boolean".
+    """
+    if value is None:
+        return None
+    field_type = arg.get("type")
+    expected = PRESET_FIELD_TYPE_RULES.get(field_type)
+    if expected is None:
+        # Unknown field type — defer to general structural validation.
+        return None
+    # Repeatable booleans serialize as int (the repeat count from the
+    # adjacent QSpinBox); bool is also accepted for unrepeated values.
+    if field_type == "boolean" and arg.get("repeatable"):
+        if not isinstance(value, (bool, int)):
+            return f"expected bool or int (repeat count), got {type(value).__name__}"
+        return None
+    # Reject bool for integer/float fields. Python's isinstance(True, int)
+    # is True, but treating bool as numeric here would let `{"--count": True}`
+    # pass for an integer field, which is silently wrong.
+    if field_type in ("integer", "float") and isinstance(value, bool):
+        return f"expected {field_type}, got bool"
+    if not isinstance(value, expected):
+        expected_names = " or ".join(t.__name__ for t in expected)
+        return f"expected {expected_names}, got {type(value).__name__}"
+    return None
+
 
 def validate_preset(data, tool_data=None) -> list[str]:
     """Validate a preset dict. Returns a list of error strings (empty = valid).
@@ -824,22 +879,30 @@ def validate_preset(data, tool_data=None) -> list[str]:
                 f"Preset value for \"{key}\" too long ({len(value)} chars, limit {_PRESET_MAX_STRING_LEN})"
             )
 
-    # Optional: warn about unknown keys if tool_data is provided
+    # Optional: schema-aware checks if tool_data is provided. Two checks run
+    # here: unknown-key warnings (preset references a flag not in the schema)
+    # and per-key type enforcement (preset value's Python type doesn't match
+    # the schema's declared field type). Both run only when the structural
+    # checks above produced no errors, keeping diagnostics ordered.
     if tool_data is not None and not errors:
-        known_flags = set()
+        known_args: dict[str, dict] = {}
         for arg in tool_data.get("arguments", []):
-            if isinstance(arg, dict) and "flag" in arg:
-                known_flags.add(arg['flag'])
+            if isinstance(arg, dict) and "flag" in arg and "type" in arg:
+                known_args[arg["flag"]] = arg
         for sub in tool_data.get("subcommands", None) or []:
             for arg in sub.get("arguments", []):
-                if isinstance(arg, dict) and "flag" in arg:
-                    known_flags.add(f"{sub['name']}:{arg['flag']}")
+                if isinstance(arg, dict) and "flag" in arg and "type" in arg:
+                    known_args[f"{sub['name']}:{arg['flag']}"] = arg
 
         for key in data:
             if key.startswith("_") and ":" not in key:
                 continue
-            if key not in known_flags:
+            if key not in known_args:
                 errors.append(f"Unknown preset key \"{key}\" — not found in current schema (may be from an older version)")
+                continue
+            msg = _check_preset_value_type(known_args[key], data[key])
+            if msg is not None:
+                errors.append(f"Preset value for \"{key}\" has wrong type: {msg}")
 
     return errors
 

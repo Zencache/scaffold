@@ -27126,6 +27126,261 @@ shutil.rmtree(_s201_tmpdir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 202 — v2.11.3 D2b/D2c: per-key preset value type enforcement
+# =====================================================================
+print("\n=== SECTION 202: v2.11.3 per-key preset value type enforcement ===")
+
+# Schema covering every widget type plus a repeatable boolean for the
+# repeat-count exception. Hand-crafted (not loaded from disk) so tests
+# are self-contained.
+_s202_schema = scaffold.normalize_tool({
+    "tool": "s202_test",
+    "binary": "echo",
+    "description": "section 202 type-rule schema",
+    "arguments": [
+        {"name": "Verbose", "flag": "--verbose", "type": "boolean"},
+        {"name": "Debug", "flag": "--debug", "type": "boolean", "repeatable": True},
+        {"name": "Count", "flag": "--count", "type": "integer"},
+        {"name": "Ratio", "flag": "--ratio", "type": "float"},
+        {"name": "Mode", "flag": "--mode", "type": "enum",
+         "choices": ["a", "b"]},
+        {"name": "Ports", "flag": "--ports", "type": "multi_enum",
+         "choices": ["80", "443"]},
+        {"name": "Name", "flag": "--name", "type": "string"},
+        {"name": "Note", "flag": "--note", "type": "text"},
+        {"name": "Cfg", "flag": "--cfg", "type": "file"},
+        {"name": "Out", "flag": "--out", "type": "directory"},
+        {"name": "Pw", "flag": "--pw", "type": "password"},
+    ],
+    "subcommands": [
+        {"name": "scan", "description": "", "arguments": [
+            {"name": "Sub Ports", "flag": "--ports", "type": "multi_enum",
+             "choices": ["80", "443"]},
+            {"name": "Sub Verbose", "flag": "-v", "type": "boolean",
+             "repeatable": True},
+        ]},
+    ],
+})
+
+
+def _s202_assert_pass(label, preset):
+    """Assert that validate_preset(preset, _s202_schema) returns no errors."""
+    errs = scaffold.validate_preset(preset, _s202_schema)
+    check(errs == [], f"{label}: {preset} should pass (got {errs})")
+
+
+def _s202_assert_fail(label, preset, key, fragment):
+    """Assert validation produces a 'wrong type' error for *key* whose text contains *fragment*."""
+    errs = scaffold.validate_preset(preset, _s202_schema)
+    matching = [e for e in errs
+                if f'"{key}"' in e and "wrong type" in e and fragment in e]
+    check(len(matching) >= 1,
+          f"{label}: expected 'wrong type' error for {key!r} containing "
+          f"{fragment!r} (got {errs})")
+
+
+# ---------------------------------------------------------------------
+# A. Booleans (non-repeatable)
+# ---------------------------------------------------------------------
+_s202_assert_pass("202A.1", {"--verbose": True})
+_s202_assert_pass("202A.2", {"--verbose": False})
+_s202_assert_pass("202A.3", {"--verbose": None})
+_s202_assert_fail("202A.4", {"--verbose": "false"}, "--verbose", "expected bool, got str")
+_s202_assert_fail("202A.5", {"--verbose": "true"}, "--verbose", "expected bool, got str")
+_s202_assert_fail("202A.6", {"--verbose": 1}, "--verbose", "expected bool, got int")
+_s202_assert_fail("202A.7", {"--verbose": 0}, "--verbose", "expected bool, got int")
+_s202_assert_fail("202A.8", {"--verbose": 1.5}, "--verbose", "expected bool, got float")
+
+# ---------------------------------------------------------------------
+# B. Integers — D2b critical: bool excluded explicitly
+# ---------------------------------------------------------------------
+_s202_assert_pass("202B.1", {"--count": 5})
+_s202_assert_pass("202B.2", {"--count": 0})
+_s202_assert_pass("202B.3", {"--count": -3})
+_s202_assert_pass("202B.4", {"--count": None})
+_s202_assert_fail("202B.5", {"--count": True}, "--count", "expected integer, got bool")
+_s202_assert_fail("202B.6", {"--count": False}, "--count", "expected integer, got bool")
+_s202_assert_fail("202B.7", {"--count": "5"}, "--count", "expected int, got str")
+_s202_assert_fail("202B.8", {"--count": 5.0}, "--count", "expected int, got float")
+
+# ---------------------------------------------------------------------
+# C. Floats — bool excluded explicitly; int accepted
+# ---------------------------------------------------------------------
+_s202_assert_pass("202C.1", {"--ratio": 1.5})
+_s202_assert_pass("202C.2", {"--ratio": 1})
+_s202_assert_pass("202C.3", {"--ratio": 0})
+_s202_assert_pass("202C.4", {"--ratio": None})
+_s202_assert_fail("202C.5", {"--ratio": True}, "--ratio", "expected float, got bool")
+_s202_assert_fail("202C.6", {"--ratio": "1.5"}, "--ratio", "expected int or float, got str")
+
+# ---------------------------------------------------------------------
+# D. multi_enum — D2c critical: list required, not comma-string
+# ---------------------------------------------------------------------
+_s202_assert_pass("202D.1", {"--ports": ["80", "443"]})
+_s202_assert_pass("202D.2", {"--ports": []})
+_s202_assert_pass("202D.3", {"--ports": None})
+_s202_assert_fail("202D.4", {"--ports": "80,443"}, "--ports", "expected list, got str")
+# List elements must be strings — existing structural check fires before
+# the per-key type check (errors=False short-circuits the schema-aware
+# block), so the diagnostic comes from the older check; assert it fires.
+_s202_e_listelem = scaffold.validate_preset({"--ports": [80, 443]}, _s202_schema)
+check(any('--ports' in e and 'must be a string' in e for e in _s202_e_listelem),
+      f"202D.5: list-element non-string still flagged (got {_s202_e_listelem})")
+
+# ---------------------------------------------------------------------
+# E. enum / string / text / file / directory / password — str required
+# ---------------------------------------------------------------------
+_s202_assert_pass("202E.1", {"--mode": "a"})
+_s202_assert_fail("202E.2", {"--mode": 1}, "--mode", "expected str, got int")
+_s202_assert_pass("202E.3", {"--name": "foo"})
+_s202_assert_fail("202E.4", {"--name": 5}, "--name", "expected str, got int")
+_s202_assert_pass("202E.5", {"--note": "hello world"})
+_s202_assert_fail("202E.6", {"--note": True}, "--note", "expected str, got bool")
+_s202_assert_pass("202E.7", {"--cfg": "/tmp/foo"})
+_s202_assert_fail("202E.8", {"--cfg": 1.5}, "--cfg", "expected str, got float")
+_s202_assert_pass("202E.9", {"--out": "/tmp"})
+_s202_assert_fail("202E.10", {"--out": ["/tmp"]}, "--out", "expected str, got list")
+_s202_assert_pass("202E.11", {"--pw": "secret"})
+_s202_assert_fail("202E.12", {"--pw": 0}, "--pw", "expected str, got int")
+# None passes for every type
+_s202_assert_pass("202E.13", {"--mode": None})
+_s202_assert_pass("202E.14", {"--pw": None})
+
+# ---------------------------------------------------------------------
+# F. Backward compatibility — no tool_data means no per-key checks
+# ---------------------------------------------------------------------
+# These would all fail with tool_data — without it, structural validation
+# is unchanged so they pass.
+for _s202_bc_preset in [
+    {"--verbose": "false"},
+    {"--count": True},
+    {"--ports": "80,443"},
+    {"--name": 5},
+]:
+    _s202_bc_errs = scaffold.validate_preset(_s202_bc_preset)
+    check(_s202_bc_errs == [],
+          f"202F.1 ({_s202_bc_preset}): no per-key check without tool_data "
+          f"(got {_s202_bc_errs})")
+
+# Existing structural errors fire whether or not tool_data is passed
+_s202_oversize = "x" * (scaffold._PRESET_MAX_STRING_LEN + 1)
+_s202_struct_errs = scaffold.validate_preset({"--name": _s202_oversize})
+check(any("too long" in e for e in _s202_struct_errs),
+      f"202F.2: oversize string still flagged without tool_data "
+      f"(got {_s202_struct_errs})")
+_s202_struct_errs2 = scaffold.validate_preset({"--name": _s202_oversize}, _s202_schema)
+check(any("too long" in e for e in _s202_struct_errs2),
+      f"202F.3: oversize string still flagged with tool_data "
+      f"(got {_s202_struct_errs2})")
+# Unsupported type (nested dict) still rejected with or without tool_data
+_s202_nested = {"--name": {"nested": "dict"}}
+_s202_struct_errs3 = scaffold.validate_preset(_s202_nested)
+check(any("unsupported type" in e for e in _s202_struct_errs3),
+      f"202F.4: nested dict rejected without tool_data "
+      f"(got {_s202_struct_errs3})")
+
+# ---------------------------------------------------------------------
+# G. Unknown keys — existing message preserved; type check skipped
+# ---------------------------------------------------------------------
+_s202_unknown = scaffold.validate_preset({"--bogus": "x"}, _s202_schema)
+check(any('Unknown preset key "--bogus"' in e for e in _s202_unknown),
+      f"202G.1: unknown key still flagged (got {_s202_unknown})")
+# Unknown key produces ONE error, not also a type error
+check(len(_s202_unknown) == 1,
+      f"202G.2: unknown key produces exactly one error "
+      f"(got {len(_s202_unknown)}: {_s202_unknown})")
+# Bogus key plus a valid one — only the bogus key reports
+_s202_mixed = scaffold.validate_preset(
+    {"--bogus": "x", "--name": "good"}, _s202_schema)
+check(len(_s202_mixed) == 1 and "--bogus" in _s202_mixed[0],
+      f"202G.3: unknown-key error isolated to bad key "
+      f"(got {_s202_mixed})")
+
+# ---------------------------------------------------------------------
+# H. Subcommand-scoped keys
+# ---------------------------------------------------------------------
+_s202_assert_pass("202H.1", {"scan:--ports": ["80"]})
+_s202_assert_pass("202H.2", {"scan:--ports": []})
+_s202_assert_fail("202H.3", {"scan:--ports": "80"},
+                  "scan:--ports", "expected list, got str")
+# Repeatable boolean in subcommand scope
+_s202_assert_pass("202H.4", {"scan:-v": 3})
+_s202_assert_pass("202H.5", {"scan:-v": True})
+_s202_assert_fail("202H.6", {"scan:-v": "yes"},
+                  "scan:-v", "expected bool or int (repeat count), got str")
+
+# ---------------------------------------------------------------------
+# I. Repeatable boolean exception — int accepted as repeat count
+# ---------------------------------------------------------------------
+_s202_assert_pass("202I.1", {"--debug": True})
+_s202_assert_pass("202I.2", {"--debug": False})
+_s202_assert_pass("202I.3", {"--debug": 1})
+_s202_assert_pass("202I.4", {"--debug": 3})
+_s202_assert_pass("202I.5", {"--debug": 0})
+_s202_assert_pass("202I.6", {"--debug": None})
+_s202_assert_fail("202I.7", {"--debug": "true"}, "--debug",
+                  "expected bool or int (repeat count), got str")
+_s202_assert_fail("202I.8", {"--debug": 1.5}, "--debug",
+                  "expected bool or int (repeat count), got float")
+
+# ---------------------------------------------------------------------
+# J. Real shipped-preset round-trip — every default_presets/*.json
+# must validate cleanly against its tool's schema. This is the
+# regression guard against breaking the bundled examples.
+# ---------------------------------------------------------------------
+_s202_root = Path(__file__).parent
+_s202_default_dir = _s202_root / "default_presets"
+_s202_tools_dir = _s202_root / "tools"
+_s202_failures = []
+_s202_count = 0
+if _s202_default_dir.is_dir():
+    for _s202_preset_path in _s202_default_dir.rglob("*.json"):
+        _s202_count += 1
+        try:
+            _s202_preset_data = json.loads(_s202_preset_path.read_text(encoding="utf-8"))
+        except Exception as _s202_exc:
+            _s202_failures.append((_s202_preset_path, f"parse error: {_s202_exc}"))
+            continue
+        _s202_tool_name = _s202_preset_data.get("_tool") or _s202_preset_path.parent.name
+        _s202_tool_path = _s202_tools_dir / f"{_s202_tool_name}.json"
+        if not _s202_tool_path.exists():
+            _s202_failures.append((_s202_preset_path,
+                                   f"missing tool schema: {_s202_tool_name}"))
+            continue
+        _s202_tool = scaffold.normalize_tool(
+            json.loads(_s202_tool_path.read_text(encoding="utf-8")))
+        _s202_errs = scaffold.validate_preset(_s202_preset_data, _s202_tool)
+        if _s202_errs:
+            _s202_failures.append((_s202_preset_path, _s202_errs))
+check(_s202_count > 0,
+      f"202J.1: at least one default preset checked (got {_s202_count})")
+check(_s202_failures == [],
+      f"202J.2: all {_s202_count} default presets validate cleanly "
+      f"(failures: {_s202_failures})")
+
+# ---------------------------------------------------------------------
+# K. Helper-level smoke tests — _check_preset_value_type returns the
+# expected message format and None for valid input.
+# ---------------------------------------------------------------------
+check(callable(getattr(scaffold, "_check_preset_value_type", None)),
+      "202K.1: _check_preset_value_type is callable")
+check(hasattr(scaffold, "PRESET_FIELD_TYPE_RULES"),
+      "202K.2: PRESET_FIELD_TYPE_RULES dict exists")
+check(set(scaffold.PRESET_FIELD_TYPE_RULES.keys()) == {
+    "boolean", "string", "text", "integer", "float",
+    "enum", "multi_enum", "file", "directory", "password",
+}, f"202K.3: rule table covers all 10 widget types "
+   f"(got {sorted(scaffold.PRESET_FIELD_TYPE_RULES.keys())})")
+check(scaffold._check_preset_value_type({"type": "boolean"}, True) is None,
+      "202K.4: helper returns None for valid bool")
+check(scaffold._check_preset_value_type({"type": "boolean"}, None) is None,
+      "202K.5: helper returns None for None value")
+_s202_msg = scaffold._check_preset_value_type({"type": "integer"}, True)
+check(isinstance(_s202_msg, str) and "got bool" in _s202_msg,
+      f"202K.6: helper rejects bool for integer (got {_s202_msg!r})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
