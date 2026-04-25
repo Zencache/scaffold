@@ -158,7 +158,7 @@ def check(condition, name):
 # now is updating EXPECTED_VERSION here. Section-level tests should
 # verify section-level behavior, not the version constant.
 # =====================================================================
-EXPECTED_VERSION = "2.11.3"
+EXPECTED_VERSION = "2.11.4"
 check(scaffold.__version__ == EXPECTED_VERSION,
       f"version: scaffold.__version__ == {EXPECTED_VERSION!r} "
       f"(got {scaffold.__version__!r})")

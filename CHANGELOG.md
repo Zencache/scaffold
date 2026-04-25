@@ -4,6 +4,50 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.11.4] — 2026-04-24
+
+Patch release: activate the v2.11.3 preset type rules at load callers,
+audit shipped presets for silent-bug patterns, and consolidate version
+test assertions.
+
+### Added
+- v2.11.3's per-key preset type validation now runs on production
+  preset loads (was previously gated to test-only). Presets with type
+  mismatches (e.g. `"false"` for a boolean field, list value for a
+  string field) are now rejected at load with a user-visible error
+  rather than producing silently-wrong form state. Wired at three
+  callers: `_on_load_preset`, `_on_slot_clicked`, `_chain_advance`.
+- `validate_preset` gains a `report_unknown_keys` parameter (default
+  `True` for backward compat). Production load callers pass `False` so
+  the schema_hash mismatch path remains the canonical stale-preset
+  gate; legacy presets with renamed flags still load with the existing
+  hash-mismatch warning rather than being hard-rejected.
+
+### Changed
+- Test version assertions consolidated to a single canonical
+  `EXPECTED_VERSION` check at the top of `test_functional.py`.
+  Previously each release added a new per-section assertion (§199G.1,
+  §200H.1, §201J.1), requiring N-1 stale-string bumps per release.
+
+### Fixed
+- Audit of shipped default presets surfaced no further silent-bug
+  patterns beyond the v2.11.3 rsync finding. All 56 bundled preset
+  files (53 default_presets + 3 dev fixtures) pass both the activated-
+  load-path validation and a four-pattern silent-bug audit (string
+  field with list-repr value, boolean repeatable with int 0, empty
+  multi_enum, surrounding whitespace). §204 encodes this as a
+  permanent regression guard.
+
+#### Full suite results
+- **All 6 test suites pass: 3,581/3,581 assertions, 0 failures**
+  - Functional: 3,082/3,082 (+15)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.11.3] — 2026-04-24
 
 Patch release: tighten preset validation to reject hand-crafted or
