@@ -158,7 +158,7 @@ def check(condition, name):
 # now is updating EXPECTED_VERSION here. Section-level tests should
 # verify section-level behavior, not the version constant.
 # =====================================================================
-EXPECTED_VERSION = "2.12.0"
+EXPECTED_VERSION = "2.12.1"
 check(scaffold.__version__ == EXPECTED_VERSION,
       f"version: scaffold.__version__ == {EXPECTED_VERSION!r} "
       f"(got {scaffold.__version__!r})")
@@ -28010,6 +28010,263 @@ check(scaffold._resolve_app_relative(_s205_abs_existing) == Path(_s205_abs_exist
 # An absolute path that does not exist returns None
 check(scaffold._resolve_app_relative("/nonexistent/path/does/not/exist.json") is None,
       "205L.4: absolute nonexistent path returns None")
+
+
+# =====================================================================
+# Section 206 — File-format dispatch hardening (cascade load + dropEvent)
+# =====================================================================
+# Uses a fresh _s206_win like other late sections (177/178/199) — by this
+# point in the run the global `window`'s actions have been GC'd.
+print("\n--- Section 206: File-format dispatch hardening ---")
+
+_s206_tmpdir = Path(tempfile.mkdtemp(prefix="s206_"))
+_s206_win = scaffold.MainWindow()
+_s206_dock = _s206_win.cascade_dock
+
+# --- Fixture files for each _format value ---
+_s206_schema_data = {
+    "_format": "scaffold_schema",
+    "tool": "s206_minimal",
+    "binary": "true",
+    "description": "section-206 minimal tool",
+    "arguments": [
+        {"name": "Verbose", "flag": "-v", "type": "boolean"}
+    ],
+}
+_s206_schema_path = _s206_tmpdir / "s206_schema.json"
+_s206_schema_path.write_text(json.dumps(_s206_schema_data), encoding="utf-8")
+
+_s206_preset_data = {
+    "_format": "scaffold_preset",
+    "_tool": "s206_minimal",
+    "_subcommand": None,
+    "-v": True,
+}
+_s206_preset_path = _s206_tmpdir / "s206_preset.json"
+_s206_preset_path.write_text(json.dumps(_s206_preset_data), encoding="utf-8")
+
+# Cascade fixture references the bundled tests/test_minimal.json so the
+# dependency check resolves cleanly (no missing-deps prompt).
+_s206_cascade_data = {
+    "_format": "scaffold_cascade",
+    "name": "s206_cascade",
+    "steps": [
+        {"tool": "tests/test_minimal.json", "preset": None,
+         "delay": 0, "captures": []},
+    ],
+}
+_s206_cascade_path = _s206_tmpdir / "s206_cascade.json"
+_s206_cascade_path.write_text(json.dumps(_s206_cascade_data), encoding="utf-8")
+
+_s206_no_format_data = {
+    "tool": "s206_no_fmt",
+    "binary": "true",
+    "description": "no _format key",
+    "arguments": [{"name": "Foo", "flag": "-f", "type": "boolean"}],
+}
+_s206_no_format_path = _s206_tmpdir / "s206_no_format.json"
+_s206_no_format_path.write_text(json.dumps(_s206_no_format_data), encoding="utf-8")
+
+
+def _s206_reset_slots():
+    """Reset cascade slots to empty so the 'replace current steps' prompt does not fire."""
+    _s206_dock._slots = [
+        {"tool_path": None, "preset_path": None, "delay": 0, "captures": []}
+        for _ in range(scaffold.CASCADE_INITIAL_SLOTS)
+    ]
+
+
+# ---------------------------------------------------------------------
+# A. Helper extraction regression guard
+# ---------------------------------------------------------------------
+check(hasattr(scaffold.MainWindow, "_apply_preset_from_path"),
+      "206A.1: MainWindow._apply_preset_from_path helper exists")
+
+# Helper applies a fixture preset to an open tool form (short-circuits picker)
+_s206_win._load_tool_path(str(_s206_schema_path))
+app.processEvents()
+check(_s206_win.data is not None and _s206_win.data.get("tool") == "s206_minimal",
+      f"206A.2: schema fixture loads as s206_minimal "
+      f"(got {_s206_win.data and _s206_win.data.get('tool')!r})")
+_s206_win._apply_preset_from_path(str(_s206_preset_path))
+app.processEvents()
+_s206_field_a = _s206_win.form.fields.get(("__global__", "-v"))
+check(_s206_field_a is not None and _s206_field_a["widget"].isChecked(),
+      "206A.3: _apply_preset_from_path applies preset (-v=True)")
+
+
+# ---------------------------------------------------------------------
+# B. Fix 1: _on_load_cascade_list rejects non-cascade files
+# ---------------------------------------------------------------------
+# Mock CascadeListDialog so the format check is reached (no real dialog UI)
+_s206_orig_list_dialog = scaffold.CascadeListDialog
+_s206_load_path_holder = {"path": None}
+
+class _S206MockCascadeListDialog:
+    def __init__(self, mode="load", parent=None):
+        self._selected = _s206_load_path_holder["path"]
+    @property
+    def selected_path(self):
+        return self._selected
+    def exec(self):
+        return 1 if self._selected else 0
+
+scaffold.CascadeListDialog = _S206MockCascadeListDialog
+
+# Bypass missing-deps prompt for valid-cascade test (defensive)
+_s206_orig_prompt = scaffold._prompt_cascade_missing_deps
+scaffold._prompt_cascade_missing_deps = lambda parent, mt, mp: True
+
+# 206B.1: Schema file rejected
+_s206_reset_slots()
+_s206_load_path_holder["path"] = str(_s206_schema_path)
+with _patch_qmb("critical") as _s206_msgs_b1:
+    _s206_dock._on_load_cascade_list()
+    app.processEvents()
+check(any("not a valid Scaffold cascade file" in t for _, t in _s206_msgs_b1),
+      f"206B.1: schema file triggers cascade-format rejection (got {_s206_msgs_b1})")
+check(_s206_dock._slots[0].get("tool_path") is None,
+      "206B.1: schema-file rejection leaves slot 0 empty")
+
+# 206B.2: Preset file rejected
+_s206_reset_slots()
+_s206_load_path_holder["path"] = str(_s206_preset_path)
+with _patch_qmb("critical") as _s206_msgs_b2:
+    _s206_dock._on_load_cascade_list()
+    app.processEvents()
+check(any("not a valid Scaffold cascade file" in t for _, t in _s206_msgs_b2),
+      f"206B.2: preset file triggers cascade-format rejection (got {_s206_msgs_b2})")
+check(_s206_dock._slots[0].get("tool_path") is None,
+      "206B.2: preset-file rejection leaves slot 0 empty")
+
+# 206B.3: No _format key rejected
+_s206_reset_slots()
+_s206_load_path_holder["path"] = str(_s206_no_format_path)
+with _patch_qmb("critical") as _s206_msgs_b3:
+    _s206_dock._on_load_cascade_list()
+    app.processEvents()
+check(any("not a valid Scaffold cascade file" in t for _, t in _s206_msgs_b3),
+      f"206B.3: no-_format file triggers cascade-format rejection (got {_s206_msgs_b3})")
+check(_s206_dock._slots[0].get("tool_path") is None,
+      "206B.3: no-_format rejection leaves slot 0 empty")
+
+# 206B.4: Valid cascade still loads (regression guard)
+_s206_reset_slots()
+_s206_load_path_holder["path"] = str(_s206_cascade_path)
+with _patch_qmb("critical") as _s206_msgs_b4:
+    _s206_dock._on_load_cascade_list()
+    app.processEvents()
+check(len(_s206_msgs_b4) == 0,
+      f"206B.4: valid cascade does not trigger format-rejection dialog (got {_s206_msgs_b4})")
+check(_s206_dock._slots[0].get("tool_path") is not None,
+      f"206B.4: valid cascade populates slot 0 "
+      f"(got {_s206_dock._slots[0].get('tool_path')!r})")
+
+# Restore B-section monkeypatches
+scaffold.CascadeListDialog = _s206_orig_list_dialog
+scaffold._prompt_cascade_missing_deps = _s206_orig_prompt
+
+
+# ---------------------------------------------------------------------
+# C. Fix 2: dropEvent routes by _format
+# ---------------------------------------------------------------------
+class _S206MockMimeData:
+    def __init__(self, urls):
+        self._urls = urls
+    def hasUrls(self):
+        return bool(self._urls)
+    def urls(self):
+        return self._urls
+
+class _S206MockUrl:
+    def __init__(self, path):
+        self._path = path
+    def toLocalFile(self):
+        return self._path
+
+class _S206MockDropEvent:
+    def __init__(self, urls):
+        self._mime = _S206MockMimeData(urls)
+    def mimeData(self):
+        return self._mime
+
+def _s206_drop(path):
+    """Synthesize a drop event for a single .json file."""
+    _s206_win.dropEvent(_S206MockDropEvent([_S206MockUrl(str(path))]))
+    app.processEvents()
+
+# 206C.3 first — drop preset with no tool open. Run before tool reload
+# so we can clear window data and check the no-tool branch.
+_s206_saved_data = _s206_win.data
+_s206_win.data = None
+_s206_orig_info = QMessageBox.information
+_s206_info_calls = []
+
+def _s206_capture_info(parent, title, text, *args, **kwargs):
+    _s206_info_calls.append((str(title), str(text)))
+    return QMessageBox.StandardButton.Ok
+
+QMessageBox.information = staticmethod(_s206_capture_info)
+try:
+    _s206_drop(_s206_preset_path)
+finally:
+    QMessageBox.information = _s206_orig_info
+check(any("Open a tool first" in t for _, t in _s206_info_calls),
+      f"206C.3: dropped preset with no tool open shows info dialog "
+      f"(got {_s206_info_calls})")
+check(_s206_win.data is None,
+      "206C.3: dropped preset with no tool open does not load any tool")
+
+# Restore data so subsequent C tests run cleanly
+_s206_win.data = _s206_saved_data
+
+# 206C.1: Drop schema -> tool form loads
+_s206_drop(_s206_schema_path)
+check(_s206_win.stack.currentIndex() == 1,
+      "206C.1: drop schema -> form view active")
+check(_s206_win.data is not None and _s206_win.data.get("tool") == "s206_minimal",
+      f"206C.1: drop schema -> data loaded "
+      f"(got {_s206_win.data and _s206_win.data.get('tool')!r})")
+
+# 206C.2: Drop preset (with tool open) -> preset applies
+# Reset the form so we can detect the preset's effect
+_s206_win.form.reset_to_defaults()
+app.processEvents()
+_s206_field_pre = _s206_win.form.fields.get(("__global__", "-v"))
+check(_s206_field_pre is not None and not _s206_field_pre["widget"].isChecked(),
+      "206C.2: pre-drop -v is unchecked (form reset)")
+_s206_drop(_s206_preset_path)
+_s206_field_post = _s206_win.form.fields.get(("__global__", "-v"))
+check(_s206_field_post is not None and _s206_field_post["widget"].isChecked(),
+      "206C.2: dropped preset applied -v=True to open tool form")
+
+# 206C.4: Drop cascade -> cascade slots populated
+_s206_reset_slots()
+_s206_orig_prompt2 = scaffold._prompt_cascade_missing_deps
+scaffold._prompt_cascade_missing_deps = lambda parent, mt, mp: True
+try:
+    _s206_drop(_s206_cascade_path)
+finally:
+    scaffold._prompt_cascade_missing_deps = _s206_orig_prompt2
+check(_s206_dock._slots[0].get("tool_path") is not None,
+      f"206C.4: dropped cascade populates slot 0 "
+      f"(got {_s206_dock._slots[0].get('tool_path')!r})")
+
+# 206C.5: Drop no-_format file -> falls through to schema loader
+# (the "Missing Format Marker" warning is auto-accepted by test setup)
+_s206_drop(_s206_no_format_path)
+check(_s206_win.stack.currentIndex() == 1,
+      "206C.5: drop no-_format file falls through to schema loader, form view active")
+check(_s206_win.data is not None and _s206_win.data.get("tool") == "s206_no_fmt",
+      f"206C.5: drop no-_format file loads via fall-through "
+      f"(got {_s206_win.data and _s206_win.data.get('tool')!r})")
+
+
+# Cleanup section 206
+_s206_win.close()
+_s206_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s206_tmpdir, ignore_errors=True)
 
 
 # =====================================================================

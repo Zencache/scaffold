@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.12.0"
+__version__ = "2.12.1"
 
 import atexit
 import datetime
@@ -7172,11 +7172,18 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage(f"Error loading cascade: {e}")
             return
 
-        if isinstance(data, dict) and data.get("_format") == "scaffold_cascade":
-            missing_tools, missing_presets = _check_cascade_dependencies(data)
-            if missing_tools or missing_presets:
-                if not _prompt_cascade_missing_deps(self, missing_tools, missing_presets):
-                    return
+        if not isinstance(data, dict) or data.get("_format") != "scaffold_cascade":
+            QMessageBox.critical(
+                self, "Load Failed",
+                "This file is not a valid Scaffold cascade file.\n"
+                'Expected "_format": "scaffold_cascade".',
+            )
+            return
+
+        missing_tools, missing_presets = _check_cascade_dependencies(data)
+        if missing_tools or missing_presets:
+            if not _prompt_cascade_missing_deps(self, missing_tools, missing_presets):
+                return
 
         try:
             self._import_cascade_data(data)
@@ -9534,12 +9541,63 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def dropEvent(self, event: QDropEvent) -> None:
-        """Load the first .json file dropped onto the window."""
+        """Route the first dropped .json file to its handler based on _format."""
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if path.lower().endswith(".json"):
-                self._load_tool_path(path)
+            if not path.lower().endswith(".json"):
+                continue
+            try:
+                data = _read_user_json(path)
+            except RuntimeError as e:
+                self.statusBar().showMessage(f"Error loading file: {e}")
                 return
+            except (json.JSONDecodeError, OSError) as e:
+                self.statusBar().showMessage(f"Error loading file: {e}")
+                return
+            fmt = data.get("_format") if isinstance(data, dict) else None
+            if fmt == "scaffold_preset":
+                if self.data is None:
+                    QMessageBox.information(
+                        self, "Open a Tool First",
+                        "Open a tool first, then drop a preset to apply it.",
+                    )
+                    return
+                self._apply_preset_from_path(path)
+                return
+            if fmt == "scaffold_cascade":
+                dock = self.cascade_dock
+                has_any = any(s.get("tool_path") for s in dock._slots)
+                if has_any:
+                    answer = QMessageBox.question(
+                        self, "Load Cascade",
+                        "Loading a cascade will replace current steps. Continue?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    )
+                    if answer != QMessageBox.StandardButton.Yes:
+                        return
+                missing_tools, missing_presets = _check_cascade_dependencies(data)
+                if missing_tools or missing_presets:
+                    if not _prompt_cascade_missing_deps(self, missing_tools, missing_presets):
+                        return
+                try:
+                    dock._import_cascade_data(data)
+                except ValueError as e:
+                    self.statusBar().showMessage(f"Invalid cascade: {e}")
+                    return
+                name = data.get("name", Path(path).stem)
+                missing = 0
+                for step in data.get("steps", []):
+                    if step.get("tool") and _resolve_app_relative(step["tool"]) is None:
+                        missing += 1
+                if missing:
+                    self.statusBar().showMessage(
+                        f"Loaded cascade: {name} — {missing} tool(s) not found"
+                    )
+                else:
+                    self.statusBar().showMessage(f"Loaded cascade: {name}")
+                return
+            self._load_tool_path(path)
+            return
 
     # ------------------------------------------------------------------
     # Navigation
@@ -10019,7 +10077,16 @@ class MainWindow(QMainWindow):
         if not picker.exec() or not picker.selected_path:
             return
 
-        preset_path = Path(picker.selected_path)
+        self._apply_preset_from_path(picker.selected_path)
+
+    def _apply_preset_from_path(self, path: str) -> None:
+        """Validate and apply the preset file at `path` to the open tool form.
+
+        Caller must ensure self.data is not None — both call sites
+        (_on_load_preset, dropEvent) guard that before invoking.
+        """
+        assert self.data is not None
+        preset_path = Path(path)
         name = preset_path.stem
 
         # Size guard — preset size cap (MAX_PRESET_SIZE)

@@ -376,19 +376,26 @@ def _f12_extract_method(src, name):
     return "".join(lines[start:end])
 
 
-_load_body = _f12_extract_method(_scaffold_text, "_on_load_preset")
+# v2.12.1 extracted the validation pipeline into _apply_preset_from_path so
+# both _on_load_preset (picker path) and dropEvent route through one helper.
+# Concatenate the picker entry and the helper bodies so this static-scan
+# guard remains agnostic to where the format checks physically live.
+_load_body = (
+    _f12_extract_method(_scaffold_text, "_on_load_preset")
+    + _f12_extract_method(_scaffold_text, "_apply_preset_from_path")
+)
 _import_body = _f12_extract_method(_scaffold_text, "_on_import_preset")
 
-# 32. _on_load_preset prompts on missing _format (not silent anymore)
+# 32. UI preset-load path prompts on missing _format (not silent anymore)
 check(
     "Missing Format Marker" in _load_body and "Load anyway" in _load_body,
-    "32: _on_load_preset contains Missing Format Marker prompt with 'Load anyway'",
+    "32: preset-load path contains Missing Format Marker prompt with 'Load anyway'",
 )
 
-# 33. _on_load_preset still rejects wrong _format via QMessageBox.critical
+# 33. UI preset-load path still rejects wrong _format via QMessageBox.critical
 check(
     "Wrong File Format" in _load_body and "QMessageBox.critical" in _load_body,
-    "33: _on_load_preset contains Wrong File Format critical dialog",
+    "33: preset-load path contains Wrong File Format critical dialog",
 )
 
 # 34. Consistency — _on_import_preset's parallel behavior is still present
@@ -475,10 +482,10 @@ print("\n=== Preset Validation: F13 — UI preset size-gate uses MAX_PRESET_SIZE
 # back would reintroduce the 1 MB vs 2 MB asymmetry the audit caught
 # (cascade accepts a preset the UI rejects, same file).
 
-# 41. _on_load_preset body no longer references MAX_SCHEMA_SIZE
+# 41. UI preset-load path no longer references MAX_SCHEMA_SIZE
 check(
     "MAX_SCHEMA_SIZE" not in _load_body,
-    "41: _on_load_preset body does not reference MAX_SCHEMA_SIZE",
+    "41: preset-load path does not reference MAX_SCHEMA_SIZE",
 )
 
 # 42. _on_import_preset body no longer references MAX_SCHEMA_SIZE
@@ -487,10 +494,10 @@ check(
     "42: _on_import_preset body does not reference MAX_SCHEMA_SIZE",
 )
 
-# 43. _on_load_preset body uses MAX_PRESET_SIZE
+# 43. UI preset-load path uses MAX_PRESET_SIZE
 check(
     "MAX_PRESET_SIZE" in _load_body,
-    "43: _on_load_preset body references MAX_PRESET_SIZE",
+    "43: preset-load path references MAX_PRESET_SIZE",
 )
 
 # 44. _on_import_preset body uses MAX_PRESET_SIZE

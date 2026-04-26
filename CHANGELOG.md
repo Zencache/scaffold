@@ -4,6 +4,42 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.12.1] — 2026-04-25
+
+File-format dispatch hardening: cascade-load and drag-and-drop now
+route `.json` files by their `_format` marker instead of mis-handling
+them.
+
+### Fixed
+- `_on_load_cascade_list` now rejects files whose `_format` is not
+  `scaffold_cascade` with a critical dialog (matching the behavior of
+  `_on_import_cascade`). Previously, only the dependency-check pass
+  was gated on the format marker — non-cascade files slipped through
+  to `_import_cascade_data`, which raised a generic ValueError.
+- `dropEvent` now routes dropped `.json` files by their `_format`
+  marker: presets apply to the open tool form (or show an
+  informational dialog if no tool is open), cascades load through
+  the cascade-import pipeline, and schemas / unknown formats fall
+  through to `_load_tool_path`. Previously, every `.json` drop went
+  to the schema loader, which surfaced the "wrong format" rejection
+  for what should have been routine routing.
+
+### Changed
+- Extracted `_apply_preset_from_path` helper from `_on_load_preset`
+  to support routing dropped preset files through the same
+  validation pipeline (size guard, three-tier `_format` check,
+  `validate_preset`, tool-identity confirmation, `apply_values`,
+  schema-hash mismatch warning). `_on_load_preset` now opens the
+  picker and delegates to the helper. No user-visible behavior
+  change at the existing call site.
+
+### Tests
+- Section 206 covers cascade-load format rejection (schema/preset/
+  missing-marker), drag-and-drop dispatch by `_format` (schema,
+  preset with/without open tool, cascade, missing-marker fall-
+  through), and the helper-extraction regression guard.
+
+
 ## [v2.12.0] — 2026-04-25
 
 Pip-installable packaging. Scaffold can now be installed via

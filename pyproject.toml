@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scaffold-gui"
-version = "2.12.0"
+version = "2.12.1"
 description = "Schema-driven GUI generator for any CLI tool"
 readme = "README.md"
 license = { file = "LICENSE" }
