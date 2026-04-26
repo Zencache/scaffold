@@ -28524,6 +28524,11 @@ finally:
 # ---------------------------------------------------------------------
 _s207_settings.remove("picker/recent_tools")
 _s207_settings.remove("picker/welcome_dismissed")
+# Section 207 constructs three MainWindows; each implicitly reopens
+# session/last_tool on startup. Clear it so a kill mid-section can't leave
+# the next process startup blocked on a "Missing Format Marker" dialog
+# (test_functional patches the warning, smoke/manual runs don't).
+_s207_settings.remove("session/last_tool")
 _s207_settings.sync()
 _s207_win.close()
 _s207_win.deleteLater()
@@ -28853,6 +28858,14 @@ _s208_fdlg.deleteLater()
 _s208_dlg.close()
 _s208_dlg.deleteLater()
 _s208_win._clear_history()
+# Section 208's _load_tool_path(test_minimal.json) sets session/last_tool to
+# a fixture that lacks a `_format` marker. Leaving it there means the next
+# process startup (smoke, manual run, re-invocation of this suite) will
+# implicitly reopen it via MainWindow.__init__ and block on the "Missing
+# Format Marker" warning dialog — test_functional patches that warning,
+# smoke/manual runs do not. Clear it on teardown.
+_s208_win.settings.remove("session/last_tool")
+_s208_win.settings.sync()
 _s208_win.close()
 _s208_win.deleteLater()
 app.processEvents()
