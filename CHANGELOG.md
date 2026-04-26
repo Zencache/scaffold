@@ -4,6 +4,56 @@ All notable changes to Scaffold are documented here.
 
 
 
+## [v2.12.2] — 2026-04-26
+
+Picker quality-of-life: a "Recently used" section at the top of the
+tool picker, and a first-run welcome modal that orients new users.
+Both share the new `picker/*` QSettings namespace.
+
+### Added
+- "Recently used" virtual folder group at the top of the tool picker.
+  Shows up to the 5 most-recently-loaded tools in MRU order, populated
+  from the new `picker/recent_tools` QSettings key (JSON list, capped
+  at 5). Each successful tool load via `_load_tool_path` records the
+  path; failed loads, validation errors, and cancellations do not
+  pollute the list. The same tool may appear twice — once under
+  "Recently used", once in its real folder — by design. Stale paths
+  (entries that no longer match any scanned tool) are filtered out
+  silently. The section is omitted entirely when the recent list is
+  empty.
+- `WelcomeDialog`: a modal first-run dialog (480px fixed width)
+  introducing what Scaffold does and pointing users at their starting
+  options (pick a bundled tool, save a preset, toggle the Cascade dock
+  with `Ctrl+G`). Surfaces the resolved `tools/` path so users know
+  where to drop their own schemas. Includes a "Don't show again"
+  checkbox (default checked) wired to the new
+  `picker/welcome_dismissed` QSettings flag (`0` / `1`).
+
+### Changed
+- `ToolPicker._populate_table` now tracks a parallel `_row_folder`
+  list alongside `_row_map` so each row knows its visual section, not
+  just its underlying entry. This keeps per-section collapse and
+  search filtering correct when the same tool is rendered in both
+  "Recently used" and its real folder group.
+
+### Tests
+- Section 207 covers `_record_recent_tool` (persistence, dedupe, MRU
+  ordering, 5-entry cap, corrupt-JSON recovery), the
+  `_populate_table` rendering pass (header presence, empty-list
+  omission, stale-path filtering, duplicate display, visual-folder
+  tracking), and the `WelcomeDialog` lifecycle (instantiation,
+  checked-vs-unchecked dismissal, second-launch suppression vs.
+  first-launch trigger).
+- `MainWindow._suppress_welcome_dialog`: class-level test escape
+  hatch that bypasses the welcome-dialog timer entirely. Tests set
+  it to `True` at startup so MainWindow construction never blocks on
+  the modal. Section 207's 207C.6 / 207C.7 cases flip it off
+  locally to exercise the real `__init__` branch (and restore it on
+  exit). This avoids depending on QSettings persistence, which can
+  flip between registry and INI backends mid-suite when section 205
+  toggles portable mode.
+
+
 ## [v2.12.1] — 2026-04-25
 
 File-format dispatch hardening: cascade-load and drag-and-drop now

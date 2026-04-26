@@ -33,6 +33,9 @@ import scaffold
 # Auto-decline recovery prompts so stale recovery files don't block tests
 QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
 
+# Suppress the first-run welcome modal so tests don't block on QDialog.exec()
+scaffold.MainWindow._suppress_welcome_dialog = True
+
 
 def _cleanup_recovery_files():
     """Remove all Scaffold recovery files from temp directory."""

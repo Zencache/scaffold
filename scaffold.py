@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.12.1"
+__version__ = "2.12.2"
 
 import atexit
 import datetime
@@ -3434,6 +3434,7 @@ class ToolPicker(QWidget):
     def _populate_table(self) -> None:
         """Render self._entries into the tool-picker table."""
         self._row_map = []  # parallel to table rows: int (index into _entries) or None (header)
+        self._row_folder: list[str] = []  # parallel: visual folder name for each row (incl. headers)
 
         # Group entries by folder for header insertion
         folder_groups: list[tuple[str, list[int]]] = []  # (folder, [entry indices])
@@ -3445,8 +3446,25 @@ class ToolPicker(QWidget):
                 current_folder = folder
             folder_groups[-1][1].append(idx)
 
+        # Prepend "Recently used" virtual group (duplicate-display, MRU order).
+        # Stale paths and entries with no scanned match are dropped silently.
+        recent_indices: list[int] = []
+        raw_recent = _create_settings().value("picker/recent_tools", "")
+        if raw_recent:
+            try:
+                paths = json.loads(raw_recent)
+            except (json.JSONDecodeError, TypeError):
+                paths = []
+            if isinstance(paths, list):
+                path_to_idx = {entry[0]: i for i, entry in enumerate(self._entries)}
+                for p in paths:
+                    if isinstance(p, str) and p in path_to_idx:
+                        recent_indices.append(path_to_idx[p])
+        if recent_indices:
+            folder_groups.insert(0, ("Recently used", recent_indices))
+
         # Count total rows: tool rows + header rows (one per non-root folder group)
-        total_rows = len(self._entries)
+        total_rows = sum(len(indices) for _, indices in folder_groups)
         for folder, _indices in folder_groups:
             if folder:  # non-root folders get a header row
                 total_rows += 1
@@ -3475,6 +3493,7 @@ class ToolPicker(QWidget):
                         h_item.setForeground(header_fg)
                     self.table.setItem(table_row, col, h_item)
                 self._row_map.append(None)
+                self._row_folder.append(folder)
                 table_row += 1
 
             for entry_idx in indices:
@@ -3525,6 +3544,7 @@ class ToolPicker(QWidget):
                 self.table.setItem(table_row, 2, desc_item)
                 self.table.setItem(table_row, 3, path_item)
                 self._row_map.append(entry_idx)
+                self._row_folder.append(folder)
                 table_row += 1
 
         has_items = len(self._entries) > 0
@@ -3580,10 +3600,10 @@ class ToolPicker(QWidget):
                     if item and query in item.text().lower():
                         matches_search = True
                         break
-            # Check collapse state
-            path = self._entries[entry_idx][0]
-            is_bundled = self._entries[entry_idx][4]
-            folder = self._entry_folder(path, is_bundled)
+            # Check collapse state — use the visual folder (set during _populate_table),
+            # so a tool that appears under both "Recently used" and its real folder
+            # is hidden/shown per-section, not per-entry.
+            folder = self._row_folder[row] if row < len(self._row_folder) else ""
             is_collapsed = folder in self._collapsed_folders
             self.table.setRowHidden(row, not matches_search or is_collapsed)
             if matches_search and current_header is not None and folder:
@@ -5100,6 +5120,56 @@ class CascadePickerDialog(QDialog):
                     self._filter_next()
                 return True
         return super().eventFilter(obj, event)
+
+
+class WelcomeDialog(QDialog):
+    """First-run welcome modal explaining what Scaffold does and where to start."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Welcome to Scaffold")
+        self.setModal(True)
+        self.setFixedWidth(480)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(10)
+
+        tools_path = html.escape(str(_tools_dir().resolve()))
+        intro = QLabel(
+            "<p>Scaffold turns CLI tools into native GUI forms. Each tool is "
+            "described by a JSON schema; the form is generated automatically.</p>"
+            "<p>To get started:</p>"
+            "<ul>"
+            "<li>Pick a bundled tool from the picker</li>"
+            "<li>Save your current form as a preset for re-use</li>"
+            "<li>Chain tools sequentially via the Cascade dock "
+            "(<b>Ctrl+G</b> to toggle)</li>"
+            "</ul>"
+            "<p>Drop your own <code>*.json</code> schemas into:</p>"
+            f"<p><code>{tools_path}</code></p>"
+        )
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        intro.setWordWrap(True)
+        intro.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(intro)
+
+        self.dont_show_cb = QCheckBox("Don't show again")
+        self.dont_show_cb.setChecked(True)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.dont_show_cb)
+        btn_row.addStretch()
+        ok_btn = QPushButton("Got it")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    def accept(self) -> None:
+        if self.dont_show_cb.isChecked():
+            _create_settings().setValue("picker/welcome_dismissed", 1)
+        super().accept()
 
 
 # ---------------------------------------------------------------------------
@@ -8450,6 +8520,12 @@ class CascadeSidebar(QDockWidget):
 class MainWindow(QMainWindow):
     """Main application window managing the tool picker, form view, and process execution."""
 
+    # Class-level test escape hatch: when True, skip scheduling the first-run
+    # welcome dialog timer entirely. Tests set this to avoid blocking modals
+    # without depending on QSettings persistence (which can flip between
+    # registry and INI backends mid-test in portable-mode sections).
+    _suppress_welcome_dialog: bool = False
+
     def __init__(self, tool_path=None):
         super().__init__()
         self.data = None
@@ -8567,6 +8643,18 @@ class MainWindow(QMainWindow):
                 self._load_tool_path(last)
             else:
                 self._show_picker()
+
+        # First-run welcome: schedule after the window is fully painted.
+        # _maybe_show_welcome re-checks the flag at fire time.
+        if (not type(self)._suppress_welcome_dialog
+                and int(self.settings.value("picker/welcome_dismissed", 0) or 0) != 1):
+            QTimer.singleShot(0, self._maybe_show_welcome)
+
+    def _maybe_show_welcome(self) -> None:
+        """Show the WelcomeDialog if the dismissed flag is still false."""
+        if int(self.settings.value("picker/welcome_dismissed", 0) or 0) == 1:
+            return
+        WelcomeDialog(self).exec()
 
     def _build_menu(self) -> None:
         """Build the menu bar with File, Presets, and View menus."""
@@ -9629,6 +9717,22 @@ class MainWindow(QMainWindow):
             self.act_history.setEnabled(True)
             self.reset_btn.setEnabled(True)
 
+    def _record_recent_tool(self, path: str) -> None:
+        """Record a tool path as recently used (MRU, capped at 5)."""
+        raw = self.settings.value("picker/recent_tools", "")
+        recent: list[str] = []
+        if raw:
+            try:
+                loaded = json.loads(raw)
+                if isinstance(loaded, list):
+                    recent = [p for p in loaded if isinstance(p, str)]
+            except (json.JSONDecodeError, TypeError):
+                recent = []
+        recent = [p for p in recent if p != path]
+        recent.insert(0, path)
+        del recent[5:]
+        self.settings.setValue("picker/recent_tools", json.dumps(recent))
+
     def _load_tool_path(self, path: str) -> None:
         """Load, validate, and display the tool at path; show an error dialog on failure."""
         self._autosave_timer.stop()
@@ -9681,6 +9785,7 @@ class MainWindow(QMainWindow):
         self.tool_path = path
         self._build_form_view()
         self.stack.setCurrentIndex(1)
+        self._record_recent_tool(path)
         self.setWindowTitle(f"Scaffold \u2014 {data['tool']}")
         saved_timeout = int(self.settings.value(f"timeout/{data['tool']}", 0))
         self.timeout_spin.blockSignals(True)

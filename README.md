@@ -4,7 +4,7 @@ Scaffold — Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-10%2C300%2B-informational)
-![Tests](https://img.shields.io/badge/tests-3%2C112%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3%2C661%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
@@ -17,7 +17,7 @@ Scaffold turns command-line tools into native desktop GUIs. Most CLIs that take 
 
 If a CLI can be described, it can be clicked. When a tool fits the flag/positional/subcommand model and the schema captures its arguments precisely, Scaffold produces a form that's genuinely better than the CLI it wraps — every flag visible, every value typed, every constraint enforced at entry, and noticeably faster to use than typing the command by hand. A precise schema produces a precise form. For tools that fit the model cleanly, the GUI tends to become the preferred interface, not a fallback. Tools whose behavior depends on interactive state, environment detection, or stdin parsing are where the model strains — see [Limitations](#limitations).
 
-No shell invocation, by design. Every command runs through PySide6's QProcess with arguments passed as a list — no shell parsing, no string interpolation, no command string assembly. Shell metacharacters in schemas or user input are treated as literal strings because nothing ever interprets them as shell syntax. This isn't sanitization; it's the absence of an attack surface. A dedicated security test suite (231 assertions) covers the contract and you can run it yourself via `python test_security.py`. Output streams live into the app, the command history window records past runs, and any output can be copied or saved to disk.
+No shell invocation, by design. Every command runs through PySide6's QProcess with arguments passed as a list — no shell parsing, no string interpolation, no command string assembly. Shell metacharacters in schemas or user input are treated as literal strings because nothing ever interprets them as shell syntax. This isn't sanitization; it's the absence of an attack surface. A dedicated security test suite (243 assertions) covers the contract and you can run it yourself via `python test_security.py`. Output streams live into the app, the command history window records past runs, and any output can be copied or saved to disk.
 
 Scaffold works with many tools, not just well-known programs like nmap or ffmpeg. If your team has a custom deployment CLI, a database migration tool, or a build script with 30 flags nobody can remember, write a schema and your team gets a GUI. Massive tools with hundreds of flags (like curl's 271-argument schema) work too.
 
@@ -36,7 +36,7 @@ Single Python file, one dependency (PySide6), no telemetry, no network calls, fu
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (3,112 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
+> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (3,661 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
 >
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
@@ -47,7 +47,7 @@ Single Python file, one dependency (PySide6), no telemetry, no network calls, fu
 ### Quick install
 
 ```bash
-pip install git+https://github.com/kevlattice/scaffold.git@v2.12.1
+pip install git+https://github.com/kevlattice/scaffold.git@v2.12.2
 ```
 
 This installs `scaffold` as a shell command. Launch the GUI:
@@ -62,7 +62,7 @@ scaffold
 environments without conflicting with system Python:
 
 ```bash
-pipx install git+https://github.com/kevlattice/scaffold.git@v2.12.1
+pipx install git+https://github.com/kevlattice/scaffold.git@v2.12.2
 ```
 
 ### From source (for development)
@@ -432,7 +432,7 @@ Scaffold was built the way a real team would build software, just with an AI wri
 
 1. **Architecture first** — started with a design document defining the widget type system, schema format, and command assembly pipeline before any code was written
 2. **Staged deliverables** — the project was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, schema generation prompt
-3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,112 assertions across 6 suites) were written to validate each feature as it was delivered
+3. **Tests alongside features** — test cases were planned with each stage, not bolted on after. The test suites (3,661 assertions across 6 suites) were written to validate each feature as it was delivered
 4. **Code review cycles** — after the core was stable, the codebase went through multi-part review: cleanup, error handling audit, performance profiling, and linting
 5. **Iteration, not generation** — most features took multiple rounds of build-test-fix. The dark mode scrollbar fix alone went through QSS, QProxyStyle, and finally native `setColorScheme` before it worked correctly
 6. **Manual QA on every release** — every version was tested by hand on real tools before tagging

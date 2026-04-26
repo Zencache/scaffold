@@ -21,6 +21,9 @@ app = QApplication.instance() or QApplication(sys.argv)
 
 import scaffold
 
+# Suppress the first-run welcome modal so tests don't block on QDialog.exec()
+scaffold.MainWindow._suppress_welcome_dialog = True
+
 # Auto-accept missing _format warnings (test schemas intentionally lack _format)
 _original_qmb_warning = QMessageBox.warning
 

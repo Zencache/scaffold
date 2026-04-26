@@ -61,6 +61,10 @@ app = QApplication.instance() or QApplication(sys.argv)
 
 import scaffold
 
+# Suppress the first-run welcome modal so tests don't block on QDialog.exec().
+# Section 207 toggles this flag locally to exercise both branches.
+scaffold.MainWindow._suppress_welcome_dialog = True
+
 # Monkeypatch QMessageBox.warning to auto-accept "Missing Format Marker" dialogs
 # (test schemas intentionally lack _format to test the warning path)
 _original_qmb_warning = QMessageBox.warning
@@ -158,7 +162,7 @@ def check(condition, name):
 # now is updating EXPECTED_VERSION here. Section-level tests should
 # verify section-level behavior, not the version constant.
 # =====================================================================
-EXPECTED_VERSION = "2.12.1"
+EXPECTED_VERSION = "2.12.2"
 check(scaffold.__version__ == EXPECTED_VERSION,
       f"version: scaffold.__version__ == {EXPECTED_VERSION!r} "
       f"(got {scaffold.__version__!r})")
@@ -1803,21 +1807,23 @@ check(total_rows > 0, f"picker has {total_rows} rows before filtering")
 _all_visible = all(not picker.table.isRowHidden(r) for r in range(total_rows))
 check(_all_visible, "all rows visible initially")
 
-# Type "nmap" — only nmap row visible
+# Type "nmap" — only nmap rows visible (header rows like "Recently used"
+# may also stay visible because they have matching children; ignore them)
 picker.search_bar.setText("nmap")
 app.processEvents()
 _nmap_visible = 0
-_nmap_hidden = 0
+_non_nmap_tool_visible = 0
 for r in range(total_rows):
+    if picker._row_map[r] is None:
+        continue  # folder/recently-used header row — not a tool row
     item = picker.table.item(r, 1)
     if item and "nmap" in item.text().lower():
         if not picker.table.isRowHidden(r):
             _nmap_visible += 1
-    else:
-        if picker.table.isRowHidden(r):
-            _nmap_hidden += 1
+    elif not picker.table.isRowHidden(r):
+        _non_nmap_tool_visible += 1
 check(_nmap_visible >= 1, f"nmap row visible after filter 'nmap': {_nmap_visible}")
-check(_nmap_hidden == total_rows - _nmap_visible, f"non-nmap rows hidden: {_nmap_hidden}")
+check(_non_nmap_tool_visible == 0, f"non-nmap tool rows hidden: {_non_nmap_tool_visible}")
 
 # Clear search — all rows visible again
 picker.search_bar.clear()
@@ -28267,6 +28273,261 @@ _s206_win.close()
 _s206_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s206_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 207 — Picker quality-of-life: recently-used tools + welcome dialog
+# =====================================================================
+# Two onboarding additions that share the picker/* QSettings namespace:
+#  - picker/recent_tools (JSON list, MRU, capped at 5) drives a virtual
+#    "Recently used" group at the top of the picker table.
+#  - picker/welcome_dismissed (int 0/1) gates a first-run welcome modal.
+print("\n--- Section 207: Picker recently-used + welcome dialog ---")
+
+_s207_settings = scaffold._create_settings()
+# Clean any leftover state from prior runs so the section starts isolated
+_s207_settings.remove("picker/recent_tools")
+_s207_settings.remove("picker/welcome_dismissed")
+_s207_settings.sync()
+
+_s207_win = scaffold.MainWindow()
+app.processEvents()
+
+# ---------------------------------------------------------------------
+# A. _record_recent_tool: persistence, dedupe, cap
+# ---------------------------------------------------------------------
+_s207_win._record_recent_tool("/path/to/foo.json")
+_s207_raw = _s207_settings.value("picker/recent_tools", "")
+_s207_list = json.loads(_s207_raw) if _s207_raw else []
+check(_s207_list == ["/path/to/foo.json"],
+      f"207A.1: _record_recent_tool persists path to picker/recent_tools "
+      f"(got {_s207_list})")
+
+# Repeated same-path call dedupes (no duplicate entry)
+_s207_win._record_recent_tool("/path/to/foo.json")
+_s207_list = json.loads(_s207_settings.value("picker/recent_tools", "[]"))
+check(_s207_list == ["/path/to/foo.json"],
+      f"207A.2: repeat call dedupes (still single entry, got {_s207_list})")
+
+# Adding a different path puts it at the front (MRU order)
+_s207_win._record_recent_tool("/path/to/bar.json")
+_s207_list = json.loads(_s207_settings.value("picker/recent_tools", "[]"))
+check(_s207_list == ["/path/to/bar.json", "/path/to/foo.json"],
+      f"207A.3: new path inserted at front (MRU order, got {_s207_list})")
+
+# Re-recording an existing path moves it to the front, doesn't duplicate
+_s207_win._record_recent_tool("/path/to/foo.json")
+_s207_list = json.loads(_s207_settings.value("picker/recent_tools", "[]"))
+check(_s207_list == ["/path/to/foo.json", "/path/to/bar.json"],
+      f"207A.4: re-recording moves to front without duplication (got {_s207_list})")
+
+# Cap at 5: adding a 6th evicts the oldest
+_s207_settings.remove("picker/recent_tools")
+for i in range(6):
+    _s207_win._record_recent_tool(f"/p/tool{i}.json")
+_s207_list = json.loads(_s207_settings.value("picker/recent_tools", "[]"))
+check(len(_s207_list) == 5,
+      f"207A.5: list capped at 5 entries (got {len(_s207_list)}: {_s207_list})")
+check(_s207_list[0] == "/p/tool5.json" and _s207_list[-1] == "/p/tool1.json",
+      f"207A.6: oldest entry evicted, newest at front (got {_s207_list})")
+
+# Corrupt JSON in QSettings is treated as an empty list and overwritten cleanly
+_s207_settings.setValue("picker/recent_tools", "{not valid json")
+_s207_win._record_recent_tool("/path/to/recovered.json")
+_s207_list = json.loads(_s207_settings.value("picker/recent_tools", "[]"))
+check(_s207_list == ["/path/to/recovered.json"],
+      f"207A.7: corrupt-JSON QSettings recovers gracefully (got {_s207_list})")
+
+
+# ---------------------------------------------------------------------
+# B. _populate_table renders "Recently used" virtual section
+# ---------------------------------------------------------------------
+_s207_picker = _s207_win.picker
+_s207_picker.scan()  # ensure entries reflect current state
+app.processEvents()
+
+# Empty list → no "Recently used" header in the table
+_s207_settings.remove("picker/recent_tools")
+_s207_picker._populate_table()
+_s207_header_texts_empty = []
+for r in range(_s207_picker.table.rowCount()):
+    if _s207_picker._row_map[r] is None:
+        item = _s207_picker.table.item(r, 1)
+        if item:
+            _s207_header_texts_empty.append(item.text())
+check(not any("Recently used" in t for t in _s207_header_texts_empty),
+      f"207B.1: empty list omits 'Recently used' header "
+      f"(got headers {_s207_header_texts_empty})")
+
+# Pick a real entry from the picker's scan to populate the recent list
+_s207_real_entries = [e for e in _s207_picker._entries if e[1] is not None]
+if not _s207_real_entries:
+    check(False, "207B.skip: no real tools available to test recent-tools rendering")
+else:
+    _s207_pick_path = _s207_real_entries[0][0]
+    _s207_settings.setValue("picker/recent_tools",
+                            json.dumps([_s207_pick_path]))
+    _s207_picker._populate_table()
+
+    # Find the "Recently used" header row and verify it sits at the very top
+    _s207_recent_header_row = None
+    for r in range(_s207_picker.table.rowCount()):
+        if _s207_picker._row_map[r] is None:
+            item = _s207_picker.table.item(r, 1)
+            if item and "Recently used" in item.text():
+                _s207_recent_header_row = r
+                break
+    check(_s207_recent_header_row == 0,
+          f"207B.2: 'Recently used' header is the first row "
+          f"(got row {_s207_recent_header_row})")
+
+    # The first non-header row after the recent header is the recorded tool
+    _s207_first_tool_row = None
+    if _s207_recent_header_row is not None:
+        for r in range(_s207_recent_header_row + 1, _s207_picker.table.rowCount()):
+            if _s207_picker._row_map[r] is not None:
+                _s207_first_tool_row = r
+                break
+    _s207_first_idx = (_s207_picker._row_map[_s207_first_tool_row]
+                       if _s207_first_tool_row is not None else None)
+    _s207_first_path = (_s207_picker._entries[_s207_first_idx][0]
+                        if _s207_first_idx is not None else None)
+    check(_s207_first_path == _s207_pick_path,
+          f"207B.3: row under 'Recently used' is the recorded tool "
+          f"(got {_s207_first_path!r}, expected {_s207_pick_path!r})")
+
+    # The same tool also appears once in its real folder group → duplicate
+    # display intended. Count rows that map back to that entry index.
+    _s207_dupe_count = sum(1 for r in range(_s207_picker.table.rowCount())
+                           if _s207_picker._row_map[r] == _s207_first_idx)
+    check(_s207_dupe_count == 2,
+          f"207B.4: recently-used tool appears in both Recent and its "
+          f"real folder group (got {_s207_dupe_count} occurrences)")
+
+    # _row_folder reports the visual section, not the underlying real folder
+    check(_s207_picker._row_folder[_s207_first_tool_row] == "Recently used",
+          f"207B.5: _row_folder[recent tool row] == 'Recently used' "
+          f"(got {_s207_picker._row_folder[_s207_first_tool_row]!r})")
+
+# Stale path (not in scanned entries) is filtered out silently — no header
+_s207_settings.setValue("picker/recent_tools",
+                        json.dumps(["/does/not/exist/ghost.json"]))
+_s207_picker._populate_table()
+_s207_header_texts_stale = []
+for r in range(_s207_picker.table.rowCount()):
+    if _s207_picker._row_map[r] is None:
+        item = _s207_picker.table.item(r, 1)
+        if item:
+            _s207_header_texts_stale.append(item.text())
+check(not any("Recently used" in t for t in _s207_header_texts_stale),
+      f"207B.6: stale-only list omits 'Recently used' header "
+      f"(got headers {_s207_header_texts_stale})")
+
+
+# ---------------------------------------------------------------------
+# C. WelcomeDialog: instantiation, dismissal flag, second-launch suppression
+# ---------------------------------------------------------------------
+_s207_settings.remove("picker/welcome_dismissed")
+_s207_settings.sync()
+
+_s207_dlg = scaffold.WelcomeDialog()
+check(_s207_dlg is not None, "207C.1: WelcomeDialog instantiates without error")
+check(_s207_dlg.isModal(), "207C.2: WelcomeDialog is modal")
+check(_s207_dlg.dont_show_cb.isChecked(),
+      "207C.3: 'Don't show again' is checked by default")
+
+# Accepting with checkbox checked sets the flag
+_s207_dlg.accept()
+_s207_flag = int(_s207_settings.value("picker/welcome_dismissed", 0) or 0)
+check(_s207_flag == 1,
+      f"207C.4: accept() with checkbox checked sets flag to 1 (got {_s207_flag})")
+
+# Reset and accept with checkbox unchecked → flag stays unset
+_s207_settings.remove("picker/welcome_dismissed")
+_s207_settings.sync()
+_s207_dlg2 = scaffold.WelcomeDialog()
+_s207_dlg2.dont_show_cb.setChecked(False)
+_s207_dlg2.accept()
+_s207_flag2 = int(_s207_settings.value("picker/welcome_dismissed", 0) or 0)
+check(_s207_flag2 == 0,
+      f"207C.5: accept() with checkbox unchecked leaves flag unset "
+      f"(got {_s207_flag2})")
+
+# 207C.6 / 207C.7 exercise the actual __init__ branch (QSettings flag check),
+# so flip the test-only suppress attribute off for both cases. Restore it on
+# exit so later teardown stays safe.
+_s207_orig_suppress = scaffold.MainWindow._suppress_welcome_dialog
+scaffold.MainWindow._suppress_welcome_dialog = False
+
+# Second MainWindow with flag set does NOT instantiate WelcomeDialog
+_s207_settings.setValue("picker/welcome_dismissed", 1)
+_s207_settings.sync()
+_s207_dlg_calls = []
+_s207_orig_dlg = scaffold.WelcomeDialog
+
+class _S207RecordingDialog:
+    def __init__(self, parent=None):
+        _s207_dlg_calls.append("instantiated")
+    def exec(self):
+        _s207_dlg_calls.append("exec")
+        return 0
+
+scaffold.WelcomeDialog = _S207RecordingDialog
+try:
+    _s207_win2 = scaffold.MainWindow()
+    app.processEvents()
+    # Drive any pending QTimer.singleShot(0, ...) callbacks
+    for _ in range(3):
+        app.processEvents()
+    check(_s207_dlg_calls == [],
+          f"207C.6: MainWindow with welcome_dismissed=1 does not show dialog "
+          f"(got calls {_s207_dlg_calls})")
+finally:
+    scaffold.WelcomeDialog = _s207_orig_dlg
+    _s207_win2.close()
+    _s207_win2.deleteLater()
+    app.processEvents()
+
+# First-launch case: with flag unset, MainWindow DOES schedule the dialog
+_s207_settings.remove("picker/welcome_dismissed")
+_s207_settings.sync()
+_s207_dlg_calls2: list[str] = []
+
+class _S207RecordingDialog2:
+    def __init__(self, parent=None):
+        _s207_dlg_calls2.append("instantiated")
+    def exec(self):
+        _s207_dlg_calls2.append("exec")
+        return 0
+
+scaffold.WelcomeDialog = _S207RecordingDialog2
+try:
+    _s207_win3 = scaffold.MainWindow()
+    app.processEvents()
+    for _ in range(3):
+        app.processEvents()
+    check("instantiated" in _s207_dlg_calls2,
+          f"207C.7: MainWindow with welcome_dismissed unset shows dialog "
+          f"(got {_s207_dlg_calls2})")
+finally:
+    scaffold.WelcomeDialog = _s207_orig_dlg
+    _s207_win3.close()
+    _s207_win3.deleteLater()
+    app.processEvents()
+    # Restore the test-only suppress flag so later code (and teardown) doesn't
+    # accidentally schedule a real WelcomeDialog timer.
+    scaffold.MainWindow._suppress_welcome_dialog = _s207_orig_suppress
+
+
+# ---------------------------------------------------------------------
+# Cleanup section 207
+# ---------------------------------------------------------------------
+_s207_settings.remove("picker/recent_tools")
+_s207_settings.remove("picker/welcome_dismissed")
+_s207_settings.sync()
+_s207_win.close()
+_s207_win.deleteLater()
+app.processEvents()
 
 
 # =====================================================================
