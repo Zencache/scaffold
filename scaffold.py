@@ -4241,8 +4241,8 @@ class HistoryDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Exit", "Command", "Time", "Age"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Exit", "Command", "Notes", "Time", "Age"])
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setCascadingSectionResizes(True)
         self.table.horizontalHeader().setMinimumSectionSize(50)
@@ -4255,15 +4255,21 @@ class HistoryDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Interactive
         )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Interactive
+        )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setColumnWidth(0, 50)
+        self.table.setColumnWidth(2, 150)
         _wire_last_column(self, self.table)
         _orig_resize = self.table.resizeEvent
         self.table.resizeEvent = lambda e: (_orig_resize(e), _fit_last_column(self.table))
         self.table.doubleClicked.connect(self._on_double_click)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.table, 1)
 
         # Empty-state label (shown when history is empty)
@@ -4339,6 +4345,13 @@ class HistoryDialog(QDialog):
                 )
             self.table.setItem(row, 1, cmd_item)
 
+            # Notes column
+            notes = entry.get("notes", "") or ""
+            notes_item = QTableWidgetItem(notes)
+            if notes:
+                notes_item.setToolTip(notes)
+            self.table.setItem(row, 2, notes_item)
+
             # Time column — "Mar 31, 14:23"
             ts = entry.get("timestamp", 0)
             try:
@@ -4346,7 +4359,7 @@ class HistoryDialog(QDialog):
                 time_str = dt.strftime("%b %d, %H:%M")
             except (OSError, ValueError):
                 time_str = "?"
-            self.table.setItem(row, 2, QTableWidgetItem(time_str))
+            self.table.setItem(row, 3, QTableWidgetItem(time_str))
 
             # Age column — relative time
             age_secs = max(0, now - ts)
@@ -4358,9 +4371,9 @@ class HistoryDialog(QDialog):
                 age_str = f"{int(age_secs // 3600)}h ago"
             else:
                 age_str = f"{int(age_secs // 86400)}d ago"
-            self.table.setItem(row, 3, QTableWidgetItem(age_str))
+            self.table.setItem(row, 4, QTableWidgetItem(age_str))
 
-        self.table.resizeColumnToContents(2)
+        self.table.resizeColumnToContents(3)
         _fit_last_column(self.table)
 
         empty = len(self.history) == 0
@@ -4411,12 +4424,64 @@ class HistoryDialog(QDialog):
             self.reject()
 
     def _on_filter(self, text: str) -> None:
-        """Hide rows that don't match the search text (case-insensitive substring)."""
+        """Hide rows that don't match the search text (case-insensitive substring).
+
+        Searches the Command column (1) and the Notes column (2).
+        """
         needle = text.lower()
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 1)  # Command column
-            display = item.text().lower() if item else ""
-            self.table.setRowHidden(row, bool(needle) and needle not in display)
+            cmd_item = self.table.item(row, 1)
+            notes_item = self.table.item(row, 2)
+            cmd_text = cmd_item.text().lower() if cmd_item else ""
+            notes_text = notes_item.text().lower() if notes_item else ""
+            match = (needle in cmd_text) or (needle in notes_text)
+            self.table.setRowHidden(row, bool(needle) and not match)
+
+    def _on_context_menu(self, pos) -> None:
+        """Show right-click context menu with the Edit Notes action."""
+        row = self.table.rowAt(pos.y())
+        if row < 0 or row >= len(self.history):
+            return
+        menu = QMenu(self.table)
+        menu.addAction("Edit notes…", lambda: self._edit_notes(row))
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _edit_notes(self, row: int) -> None:
+        """Open a modal dialog to edit the notes for the given row."""
+        if row < 0 or row >= len(self.history):
+            return
+        entry = self.history[row]
+        current = entry.get("notes", "") or ""
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Notes")
+        dlg.resize(400, 200)
+        d_layout = QVBoxLayout(dlg)
+        editor = QPlainTextEdit(dlg)
+        editor.setPlainText(current)
+        d_layout.addWidget(editor, 1)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        ok_btn = QPushButton("OK", dlg)
+        cancel_btn = QPushButton("Cancel", dlg)
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        d_layout.addLayout(btn_row)
+        dlg._notes_editor = editor  # expose for tests
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_notes = editor.toPlainText()
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_update_history_notes"):
+            parent._update_history_notes(entry.get("timestamp"), new_notes)
+        entry["notes"] = new_notes
+        new_item = QTableWidgetItem(new_notes)
+        if new_notes:
+            new_item.setToolTip(new_notes)
+        self.table.setItem(row, 2, new_item)
 
     def eventFilter(self, obj, event):
         if obj is self.search_bar and event.type() == event.Type.KeyPress:
@@ -10974,6 +11039,7 @@ class MainWindow(QMainWindow):
             "preset_data": self._history_preset,
             "crashed": crashed,
             "error": error,
+            "notes": "",
         }
         history = self._load_history()
         entry = _enforce_history_entry_size(entry)
@@ -10989,6 +11055,26 @@ class MainWindow(QMainWindow):
         if self.data is None:
             return
         self.settings.remove(f"history/{self.data['tool']}")
+
+    def _update_history_notes(self, timestamp, notes: str) -> bool:
+        """Update the notes field of the history entry matching *timestamp*.
+
+        Returns True if an entry was found and updated, False otherwise.
+        Persists the change to QSettings via the same key/format used by
+        ``_record_history_entry``. The match is by exact timestamp value
+        (a per-run unique identifier within a tool's history).
+        """
+        if self.data is None:
+            return False
+        history = self._load_history()
+        for entry in history:
+            if entry.get("timestamp") == timestamp:
+                entry["notes"] = notes
+                self.settings.setValue(
+                    f"history/{self.data['tool']}", json.dumps(history)
+                )
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Cascade history (storage layer)

@@ -52,7 +52,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMenu, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer, QPoint
 from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent, QPalette
 from PySide6.QtTest import QTest
@@ -5557,7 +5557,7 @@ check(len(_hist_loaded) == 1, f"49e: _load_history() has 1 entry (got {len(_hist
 
 # 49f: Entry has correct keys
 _hist_entry = _hist_loaded[0]
-_hist_expected_keys = {"display", "exit_code", "timestamp", "preset_data", "crashed", "error"}
+_hist_expected_keys = {"display", "exit_code", "timestamp", "preset_data", "crashed", "error", "notes"}
 check(set(_hist_entry.keys()) == _hist_expected_keys, f"49f: entry has correct keys: {set(_hist_entry.keys())}")
 
 # 49g: Entry display string contains the binary name
@@ -5631,13 +5631,13 @@ window._clear_history()  # cleanup
 check(hasattr(scaffold, "HistoryDialog"), "49p: HistoryDialog class exists")
 check(issubclass(scaffold.HistoryDialog, scaffold.QDialog), "49p: HistoryDialog is a QDialog subclass")
 
-# 49q: HistoryDialog table has 4 columns
+# 49q: HistoryDialog table has 5 columns (Exit, Command, Notes, Time, Age)
 _hist_test_data = [
     {"display": "true -v", "exit_code": 0, "timestamp": time.time(), "preset_data": {}},
     {"display": "true", "exit_code": 1, "timestamp": time.time() - 3600, "preset_data": {}},
 ]
 _hist_dlg = scaffold.HistoryDialog("test", _hist_test_data, parent=window)
-check(_hist_dlg.table.columnCount() == 4, f"49q: HistoryDialog table has 4 columns (got {_hist_dlg.table.columnCount()})")
+check(_hist_dlg.table.columnCount() == 5, f"49q: HistoryDialog table has 5 columns (got {_hist_dlg.table.columnCount()})")
 
 # 49r: HistoryDialog populates table rows from history data
 check(_hist_dlg.table.rowCount() == 2, f"49r: table has 2 rows (got {_hist_dlg.table.rowCount()})")
@@ -28527,6 +28527,334 @@ _s207_settings.remove("picker/welcome_dismissed")
 _s207_settings.sync()
 _s207_win.close()
 _s207_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 208 — Per-history-entry Notes annotation
+# =====================================================================
+# Adds a fifth "Notes" column to HistoryDialog (between Command and Time)
+# with a right-click "Edit notes…" affordance. Notes are stored on the
+# history entry dict under the "notes" key, persist via QSettings, and
+# participate in the dialog's filter bar.
+print("\n--- Section 208: History Notes Annotation ---")
+
+_s208_win = scaffold.MainWindow()
+app.processEvents()
+_s208_win._load_tool_path(str(Path(__file__).parent / "tests" / "test_minimal.json"))
+app.processEvents()
+_s208_tool = _s208_win.data["tool"]
+_s208_win._clear_history()
+
+# ---------------------------------------------------------------------
+# A. Data layer
+# ---------------------------------------------------------------------
+
+# 208A.1: New entries default notes to ""
+_s208_ts1 = time.time()
+_s208_win._history_display = "true --first"
+_s208_win._history_preset = {}
+_s208_win._history_timestamp = _s208_ts1
+_s208_win._record_history_entry(0)
+_s208_loaded = _s208_win._load_history()
+check(len(_s208_loaded) == 1, f"208A.1a: 1 entry recorded (got {len(_s208_loaded)})")
+check(_s208_loaded[0].get("notes") == "",
+      f"208A.1b: new entry defaults notes to '' (got {_s208_loaded[0].get('notes')!r})")
+
+# 208A.2: _update_history_notes modifies the right entry by timestamp
+_s208_ts2 = _s208_ts1 + 1
+_s208_win._history_display = "true --second"
+_s208_win._history_preset = {}
+_s208_win._history_timestamp = _s208_ts2
+_s208_win._record_history_entry(0)
+_s208_result = _s208_win._update_history_notes(_s208_ts1, "first run note")
+check(_s208_result is True,
+      f"208A.2a: _update_history_notes returns True on match (got {_s208_result!r})")
+_s208_after = _s208_win._load_history()
+_s208_first = next(e for e in _s208_after if e.get("timestamp") == _s208_ts1)
+_s208_second = next(e for e in _s208_after if e.get("timestamp") == _s208_ts2)
+check(_s208_first.get("notes") == "first run note",
+      f"208A.2b: target entry's notes updated (got {_s208_first.get('notes')!r})")
+check(_s208_second.get("notes") == "",
+      f"208A.2c: other entry's notes untouched (got {_s208_second.get('notes')!r})")
+
+# 208A.3: persists to QSettings (round-trip via _load_history)
+_s208_raw = _s208_win.settings.value(f"history/{_s208_tool}", "[]")
+_s208_parsed = json.loads(_s208_raw) if isinstance(_s208_raw, str) else _s208_raw
+_s208_first_raw = next(e for e in _s208_parsed if e.get("timestamp") == _s208_ts1)
+check(_s208_first_raw.get("notes") == "first run note",
+      f"208A.3: notes persisted to QSettings raw value (got {_s208_first_raw.get('notes')!r})")
+
+# 208A.4: returns False when timestamp not found (no-op)
+_s208_before = _s208_win._load_history()
+_s208_miss = _s208_win._update_history_notes(99999.0, "should not stick")
+check(_s208_miss is False,
+      f"208A.4a: _update_history_notes returns False on miss (got {_s208_miss!r})")
+_s208_unchanged = _s208_win._load_history()
+check(_s208_before == _s208_unchanged,
+      "208A.4b: history unchanged after no-op _update_history_notes")
+
+# ---------------------------------------------------------------------
+# B. HistoryDialog rendering
+# ---------------------------------------------------------------------
+
+# 208B.1: HistoryDialog renders 5-column table with expected headers
+_s208_dlg = scaffold.HistoryDialog("test", _s208_win._load_history(), parent=_s208_win)
+_s208_dlg.show()  # required so QTableWidget.rowAt() can map y -> row
+app.processEvents()
+check(_s208_dlg.table.columnCount() == 5,
+      f"208B.1a: HistoryDialog has 5 columns (got {_s208_dlg.table.columnCount()})")
+_s208_headers = [_s208_dlg.table.horizontalHeaderItem(i).text()
+                 for i in range(_s208_dlg.table.columnCount())]
+check(_s208_headers == ["Exit", "Command", "Notes", "Time", "Age"],
+      f"208B.1b: header labels are Exit/Command/Notes/Time/Age (got {_s208_headers})")
+
+# 208B.2: HistoryDialog renders empty Notes for legacy entries (no `notes` key)
+_s208_legacy_data = [
+    {"display": "old cmd", "exit_code": 0, "timestamp": time.time(), "preset_data": {}},
+]
+_s208_legacy_dlg = scaffold.HistoryDialog("test_legacy", _s208_legacy_data, parent=_s208_win)
+_s208_legacy_notes_item = _s208_legacy_dlg.table.item(0, 2)
+check(_s208_legacy_notes_item is not None and _s208_legacy_notes_item.text() == "",
+      f"208B.2: legacy entry without notes key renders empty Notes cell "
+      f"(got {_s208_legacy_notes_item.text() if _s208_legacy_notes_item else None!r})")
+_s208_legacy_dlg.deleteLater()
+
+# 208B.3: HistoryDialog populates Notes column from entry's notes value
+_s208_data_b3 = [
+    {"display": "ran A", "exit_code": 0, "timestamp": time.time(),
+     "preset_data": {}, "notes": "prod box"},
+    {"display": "ran B", "exit_code": 0, "timestamp": time.time() - 5,
+     "preset_data": {}, "notes": "lab vm"},
+]
+_s208_b3_dlg = scaffold.HistoryDialog("test_b3", _s208_data_b3, parent=_s208_win)
+_s208_n0 = _s208_b3_dlg.table.item(0, 2)
+_s208_n1 = _s208_b3_dlg.table.item(1, 2)
+check(_s208_n0 is not None and _s208_n0.text() == "prod box",
+      f"208B.3a: row 0 Notes cell shows 'prod box' "
+      f"(got {_s208_n0.text() if _s208_n0 else None!r})")
+check(_s208_n1 is not None and _s208_n1.text() == "lab vm",
+      f"208B.3b: row 1 Notes cell shows 'lab vm' "
+      f"(got {_s208_n1.text() if _s208_n1 else None!r})")
+# Tooltip mirrors the notes text so elided rendering still surfaces full content
+check(_s208_n0.toolTip() == "prod box",
+      f"208B.3c: Notes tooltip mirrors text (got {_s208_n0.toolTip()!r})")
+_s208_b3_dlg.deleteLater()
+
+# Time/Age columns shifted to 3/4 — sanity check that they still render
+_s208_time_item = _s208_dlg.table.item(0, 3)
+_s208_age_item = _s208_dlg.table.item(0, 4)
+check(_s208_time_item is not None and _s208_time_item.text() != "",
+      "208B.4a: Time column at index 3 renders non-empty text")
+check(_s208_age_item is not None and "ago" in _s208_age_item.text(),
+      f"208B.4b: Age column at index 4 renders relative time "
+      f"(got {_s208_age_item.text() if _s208_age_item else None!r})")
+
+# ---------------------------------------------------------------------
+# C. Edit flow
+# ---------------------------------------------------------------------
+
+# 208C.1: Right-click context menu lists "Edit notes…" action.
+# QMenu.exec is a Qt C++ method — assigning to QMenu.exec at the class
+# level does NOT intercept instance calls in PySide6 (instance methods
+# are bound at construction time). Instead we capture menus by patching
+# QMenu.__init__ to record instances, then close any open popup via
+# QTimer.singleShot so the real exec() returns instead of blocking.
+_s208_menus_seen: list = []
+_s208_orig_menu_init = QMenu.__init__
+
+def _s208_track_init(self, *a, **kw):
+    _s208_orig_menu_init(self, *a, **kw)
+    _s208_menus_seen.append(self)
+    # menu.exec() blocks even on offscreen Qt unless something closes it.
+    # aboutToShow fires once the popup is visible — schedule a close on
+    # the next event-loop tick so exec() returns cleanly.
+    self.aboutToShow.connect(lambda m=self: QTimer.singleShot(0, m.close))
+
+# Compute a viewport-Y that maps to row 0. rowViewportPosition gives the
+# row's top edge in viewport coordinates; add half the row height to land
+# inside the row. Using a hard-coded QPoint(10, 10) is brittle: depending
+# on geometry init order it can land on the header strip or above the
+# first row, where rowAt() returns -1.
+_s208_row0_y = (_s208_dlg.table.rowViewportPosition(0)
+                + _s208_dlg.table.rowHeight(0) // 2)
+QMenu.__init__ = _s208_track_init
+try:
+    _s208_dlg._on_context_menu(QPoint(10, _s208_row0_y))
+finally:
+    QMenu.__init__ = _s208_orig_menu_init
+
+check(len(_s208_menus_seen) == 1,
+      f"208C.1a: _on_context_menu constructs exactly one QMenu "
+      f"(got {len(_s208_menus_seen)}; row0_y={_s208_row0_y}, "
+      f"rowAt={_s208_dlg.table.rowAt(_s208_row0_y)})")
+_s208_action_texts = ([a.text() for a in _s208_menus_seen[0].actions()]
+                      if _s208_menus_seen else [])
+check(any("Edit notes" in t for t in _s208_action_texts),
+      f"208C.1b: context menu contains 'Edit notes…' action "
+      f"(got {_s208_action_texts})")
+
+# Invalid row (-1) returns without constructing a menu
+_s208_menus_seen.clear()
+QMenu.__init__ = _s208_track_init
+try:
+    # rowAt() returns -1 for a y outside any row; pick a huge negative y
+    _s208_dlg._on_context_menu(QPoint(10, -100))
+finally:
+    QMenu.__init__ = _s208_orig_menu_init
+check(_s208_menus_seen == [],
+      f"208C.1c: invalid row suppresses the menu (got {len(_s208_menus_seen)} menus)")
+
+# 208C.2: Edit dialog instantiates with current notes pre-filled.
+# Same C++-method-binding gotcha as QMenu.exec — patch QDialog.__init__
+# to track instances, then drive the dialog (set text, accept/reject)
+# via QTimer once it's about to show. The dialog exposes _notes_editor
+# as a debug hook so the test can mutate the editor's text.
+_s208_seen_dlgs: list = []
+_s208_orig_dialog_init = QDialog.__init__
+
+# row 0 of _s208_dlg corresponds to the most recent recorded entry
+_s208_first_entry_ts = _s208_dlg.history[0].get("timestamp")
+# Seed the in-memory entry's notes so we can confirm pre-fill
+_s208_dlg.history[0]["notes"] = "preexisting"
+# Also persist so the QSettings round-trip is meaningful for 208C.3
+_s208_win._update_history_notes(_s208_first_entry_ts, "preexisting")
+# Re-populate the table so the Notes cell starts at "preexisting"
+_s208_dlg._populate()
+
+def _s208_track_accept_init(self, *a, **kw):
+    _s208_orig_dialog_init(self, *a, **kw)
+    # Only catch the "Edit Notes" dialog, not unrelated QDialog instances.
+    # windowTitle is set by _edit_notes immediately after construction, so
+    # we hook via a one-shot QTimer that runs after the constructor returns
+    # and the title is set.
+    def _maybe_drive():
+        if self.windowTitle() == "Edit Notes" and self not in _s208_seen_dlgs:
+            _s208_seen_dlgs.append(self)
+            if hasattr(self, "_notes_editor"):
+                self._notes_editor.setPlainText("updated note")
+            self.accept()
+    QTimer.singleShot(0, _maybe_drive)
+
+QDialog.__init__ = _s208_track_accept_init
+try:
+    _s208_dlg._edit_notes(0)
+finally:
+    QDialog.__init__ = _s208_orig_dialog_init
+
+check(len(_s208_seen_dlgs) == 1,
+      f"208C.2a: _edit_notes opens exactly one Edit-Notes dialog "
+      f"(got {len(_s208_seen_dlgs)})")
+_s208_edit_dlg = _s208_seen_dlgs[0] if _s208_seen_dlgs else None
+check(_s208_edit_dlg is not None and hasattr(_s208_edit_dlg, "_notes_editor"),
+      "208C.2b: edit dialog exposes _notes_editor attribute for tests")
+check(_s208_edit_dlg is not None and _s208_edit_dlg.windowTitle() == "Edit Notes",
+      f"208C.2c: edit dialog title is 'Edit Notes' "
+      f"(got {_s208_edit_dlg.windowTitle() if _s208_edit_dlg else None!r})")
+
+# 208C.3: Accepting updates the cell and persists to QSettings
+_s208_cell = _s208_dlg.table.item(0, 2)
+check(_s208_cell is not None and _s208_cell.text() == "updated note",
+      f"208C.3a: Notes cell updated to 'updated note' "
+      f"(got {_s208_cell.text() if _s208_cell else None!r})")
+_s208_persisted = _s208_win._load_history()
+_s208_persisted_first = next(
+    e for e in _s208_persisted if e.get("timestamp") == _s208_first_entry_ts
+)
+check(_s208_persisted_first.get("notes") == "updated note",
+      f"208C.3b: notes persisted to QSettings (got {_s208_persisted_first.get('notes')!r})")
+
+# 208C.4: Cancelling leaves cell + QSettings unchanged
+_s208_seen_dlgs.clear()
+
+def _s208_track_reject_init(self, *a, **kw):
+    _s208_orig_dialog_init(self, *a, **kw)
+    def _maybe_drive():
+        if self.windowTitle() == "Edit Notes" and self not in _s208_seen_dlgs:
+            _s208_seen_dlgs.append(self)
+            if hasattr(self, "_notes_editor"):
+                self._notes_editor.setPlainText("DO NOT SAVE")
+            self.reject()
+    QTimer.singleShot(0, _maybe_drive)
+
+QDialog.__init__ = _s208_track_reject_init
+try:
+    _s208_dlg._edit_notes(0)
+finally:
+    QDialog.__init__ = _s208_orig_dialog_init
+
+_s208_cell_after = _s208_dlg.table.item(0, 2)
+check(_s208_cell_after is not None and _s208_cell_after.text() == "updated note",
+      f"208C.4a: cancel leaves cell text unchanged "
+      f"(got {_s208_cell_after.text() if _s208_cell_after else None!r})")
+_s208_persisted2 = _s208_win._load_history()
+_s208_persisted2_first = next(
+    e for e in _s208_persisted2 if e.get("timestamp") == _s208_first_entry_ts
+)
+check(_s208_persisted2_first.get("notes") == "updated note",
+      f"208C.4b: cancel does not write to QSettings "
+      f"(got {_s208_persisted2_first.get('notes')!r})")
+
+# ---------------------------------------------------------------------
+# D. Filter
+# ---------------------------------------------------------------------
+
+# 208D.1/2: Filter substring-matches against Notes content
+_s208_filter_data = [
+    {"display": "ran nmap", "exit_code": 0, "timestamp": time.time(),
+     "preset_data": {}, "notes": "prod box"},
+    {"display": "ran curl", "exit_code": 0, "timestamp": time.time() - 1,
+     "preset_data": {}, "notes": "lab vm"},
+    {"display": "ran ping", "exit_code": 0, "timestamp": time.time() - 2,
+     "preset_data": {}, "notes": ""},
+]
+_s208_fdlg = scaffold.HistoryDialog("test_filter", _s208_filter_data, parent=_s208_win)
+_s208_fdlg.show()
+app.processEvents()
+
+# Initial: all 3 visible
+_s208_visible = sum(1 for r in range(3) if not _s208_fdlg.table.isRowHidden(r))
+check(_s208_visible == 3,
+      f"208D.0: all 3 rows visible initially (got {_s208_visible})")
+
+# Positive: 'prod' matches Notes column only (no display contains 'prod')
+_s208_fdlg.search_bar.setText("prod")
+app.processEvents()
+_s208_prod_visible = [r for r in range(3) if not _s208_fdlg.table.isRowHidden(r)]
+check(_s208_prod_visible == [0],
+      f"208D.1: 'prod' filter (Notes-only match) shows row 0 only "
+      f"(got {_s208_prod_visible})")
+
+# Case-insensitive Notes match
+_s208_fdlg.search_bar.setText("LAB")
+app.processEvents()
+_s208_lab_visible = [r for r in range(3) if not _s208_fdlg.table.isRowHidden(r)]
+check(_s208_lab_visible == [1],
+      f"208D.2: 'LAB' (uppercase) filter matches Notes case-insensitively "
+      f"(got {_s208_lab_visible})")
+
+# Negative: needle that matches neither display nor notes hides all
+_s208_fdlg.search_bar.setText("zzz-no-match")
+app.processEvents()
+_s208_none_visible = sum(1 for r in range(3) if not _s208_fdlg.table.isRowHidden(r))
+check(_s208_none_visible == 0,
+      f"208D.3: needle matching nothing hides all rows (got {_s208_none_visible})")
+
+# Sanity: command column still matches (regression guard for the merged predicate)
+_s208_fdlg.search_bar.setText("nmap")
+app.processEvents()
+_s208_nmap_visible = [r for r in range(3) if not _s208_fdlg.table.isRowHidden(r)]
+check(_s208_nmap_visible == [0],
+      f"208D.4: command-column substring still matches "
+      f"(got {_s208_nmap_visible})")
+
+_s208_fdlg.close()
+_s208_fdlg.deleteLater()
+_s208_dlg.close()
+_s208_dlg.deleteLater()
+_s208_win._clear_history()
+_s208_win.close()
+_s208_win.deleteLater()
 app.processEvents()
 
 
