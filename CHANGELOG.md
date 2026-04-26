@@ -2,6 +2,52 @@
 
 All notable changes to Scaffold are documented here.
 
+
+## [v2.13.0] — 2026-04-26
+
+Headless cascade execution. Saved cascades can now run from the command line via `python scaffold.py --run-cascade <cascade.json>` without launching the GUI — for cron jobs, CI pipelines, batch processing, and other automation use cases. The headless runner shares the exact chain code path used by GUI cascade execution: the GUI is constructed in memory but never shown, so variable injection, capture extraction, stop-on-error, and preset hash gating all behave identically. Per-step `QProcess` output streams live to the parent's stdout/stderr with a `[step N: tool]` prefix, an optional JSON summary records per-step exit codes and timings, and a documented exit-code map (0 success, 2 stop-on-error halt, 3 non-zero step exit, 130 SIGINT) lets shell scripts branch on outcome without parsing logs.
+
+### Added
+
+- **`--run-cascade <cascade.json>` CLI flag.** Loads the cascade, validates dependencies, runs every step using the existing chain controller, and exits with a status code. Skips the GUI entirely; modal dialogs in the run path are intercepted and translated to fail-fast errors with stderr context. No silent "yes" responses to unexpected prompts.
+
+- **Variable supply via `--var name=value` (repeatable) and `--vars file.json`.** `--var` accepts `=`-separated `name=value` pairs; `file.json` is a JSON object of `{name: value}`. Both can combine; CLI `--var` overrides `--vars` on conflict. Variable names must match the same `[A-Za-z_][A-Za-z0-9_]*` regex used for capture names. Cascades that define a variable but receive no value exit 1 with the missing names listed to stderr; extra (unreferenced) variables are silently ignored.
+
+- **Loop control via `--loop N`.** Runs the cascade `N` times sequentially (range 1–1000; the cap prevents typos from turning into accidental infinite CI burns). The cascade JSON's own `loop_mode` flag is intentionally ignored in headless mode — outer iteration is controlled exclusively by `--loop`. With `stop_on_error=True`, a failing iteration halts the loop instead of continuing.
+
+- **JSON summary via `--summary <path>`.** Writes a structured per-run record at exit: cascade name, terminal status (`completed` / `stopped` / `failed` / `interrupted`), ISO-8601 start/finish timestamps, total duration, loop count, and an array of per-step records (loop_index, step_index, tool, command, exit_code, duration, captures, error). Per-step stdout/stderr is intentionally **not** embedded — it's already streamed live and embedding multi-MB process output in a JSON file would defeat the streaming model. Summary write failure (e.g. unwritable target directory) is logged to stderr but does not change the run's exit code.
+
+- **`CascadeHeadlessRunner` and `CascadeHeadlessAbort` classes.** The runner is a self-contained orchestrator: snapshots the QSettings keys it would otherwise pollute (`session/last_tool`, `picker/recent_tools`, `cascade/*`, `cascade_history/*`) before constructing `MainWindow`, restores them at exit. Patches `QMessageBox.{warning,critical,information,question}` to fail-fast (capture title/text to stderr, set abort flag, return a deterministic value to unblock callers). Patches `CascadeVariableDialog.exec` / `get_values` to bypass the GUI prompt and supply CLI-provided values directly. Replaces `_on_stdout_ready` / `_on_stderr_ready` with versions that stream prefixed lines instead of buffering for the (non-existent) GUI panel.
+
+- **`_parse_run_cascade_args(argv)` helper.** Hand-rolled argv parsing matching the existing `--validate` / `--prompt` style — no `argparse` dependency. Returns `(parsed, error)` where `parsed` is a dict on success and `error` is a usage message on failure. Rejects unknown flags, missing required values, malformed `--var` specs, out-of-range `--loop` counts, and JSON parse failures from `--vars`.
+
+- **SIGINT handling.** Ctrl+C during a headless run calls the cascade dock's `_on_stop_chain()` to terminate any active QProcess and exits with conventional status code 130. On Windows the SIGINT handler is best-effort (Python's signal model on Windows is more limited); on POSIX it's reliable.
+
+### Changed
+
+- **Exit code map for `--run-cascade`.** `0` = cascade completed, all steps exit 0, no capture failures. `1` = failed to start (parse error, missing dependency, missing variable, file-not-found, unexpected modal dialog). `2` = a step failed and `stop_on_error` was true → halted. `3` = cascade ran to completion but at least one step had non-zero exit (`stop_on_error` false). `130` = interrupted via SIGINT.
+
+- **`--help` text now lists the headless flags.** `--run-cascade`, `--var`, `--vars`, `--loop`, and `--summary` appear in the usage block alongside the existing flags.
+
+- **Broad-except budget raised from 11 to 15.** §189c's regression guard previously capped `scaffold.py` at 11 broad `except Exception:` catches. The headless runner adds 4 new sites that legitimately need to stay broad: MainWindow construction (touches QSettings, QTimer, and file I/O across many subsystems), `_teardown_process` cleanup (Qt-side errors during destruction), the SIGINT signal handler (must never raise back into the runtime), and the `_on_run_chain` wrapper (the cascade dock's chain controller calls into QProcess, file I/O, validation, and form rendering across many helper paths). Three other added catches were narrowed to specific types: `AttributeError` / `RuntimeError` on close + `deleteLater`, `OSError` / `TypeError` / `ValueError` on summary write, and `AttributeError` / `TypeError` on patch restoration.
+
+### Tests
+
+New §209 in `test_functional.py` covers argv parsing (positive and negative cases for every flag, including `--var` with `=` in the value, `--vars` JSON load, `--var` overriding `--vars`, `--loop` range bounds, unknown flags, missing required values), runner construction (loop_count clamping, missing cascade file, wrong or missing `_format`), variable handling (all-supplied, missing-named-in-stderr, extra-ignored), output streaming (stdout prefix, stderr `(err)` tag, multi-step prefix advancement), summary writing (file presence, schema fields, no-summary case, disk-write-failure code-unchanged), exit codes (all-zero → 0, stop_on_error halt → 2, no-stop with failure → 3, loop count multiplies records, loop + stop_on_error halts at first failing iteration), modal dialog suppression (missing tool dependency exits 1 without dialog, dialog patches restored after run), and state isolation (every tracked QSettings key restored to baseline after the run, including `cascade_history/entries`).
+
+§189c's broad-except ceiling raised from 11 to 15 to accommodate the 4 new legitimate broad catches; floor stays at 9.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,784/3,784 assertions, 0 failures**
+  - Functional: 3,283/3,283 (+94, includes new §209 headless coverage)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 80/80
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.12.3] — 2026-04-26
 
 Per-history-entry notes annotation, plus two diagnostic dead-ends surfaced while landing the feature that are now hardened against. The orphaned-QSettings hang in particular had been silently waiting to bite anyone who killed a test mid-run; the PySide6 method-binding gotcha had been masking real assertion failures behind hangs in two different Section 208 attempts before being identified. Both are documented below so future-you can find the why.

@@ -19,7 +19,7 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.12.3"
+__version__ = "2.13.0"
 
 import atexit
 import datetime
@@ -994,7 +994,7 @@ def _elevation_label():
 # GUI renderer
 # ---------------------------------------------------------------------------
 
-from PySide6.QtCore import QEvent, QPoint, QProcess, QProcessEnvironment, QSettings, QStandardPaths, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, QPoint, QProcess, QProcessEnvironment, QSettings, QStandardPaths, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
@@ -4965,6 +4965,655 @@ class CascadeHistoryDialog(QDialog):
                     self.search_bar.clear()
                     return True
         return super().eventFilter(obj, event)
+
+
+# ---------------------------------------------------------------------------
+# Cascade headless runner (CLI --run-cascade entry point)
+# ---------------------------------------------------------------------------
+
+
+class CascadeHeadlessAbort(Exception):
+    """Raised when a headless cascade run must abort due to a fatal modal-dialog scenario."""
+
+
+_HEADLESS_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class CascadeHeadlessRunner:
+    """Run a saved cascade from the command line without showing the GUI.
+
+    Hosts a hidden ``MainWindow`` so the existing cascade execution path
+    (``CascadeSidebar._on_run_chain`` and friends) runs unchanged. Modal
+    dialogs and history writes are patched out for the duration of the
+    run; per-step ``QProcess`` output is streamed to the parent's
+    ``stdout``/``stderr`` line-by-line with a ``[step N: tool]`` prefix.
+    Returns an exit code per the documented spec (0/1/2/3/130).
+    """
+
+    # QSettings keys that headless runs would otherwise mutate as a side
+    # effect of constructing MainWindow + running cascade steps.  Snapshot
+    # at run start and restore at run end so a headless invocation cannot
+    # disturb user state (session/last_tool, recent tools, cascade slots,
+    # cascade history, etc.).
+    _SETTINGS_KEYS_TO_PRESERVE = (
+        "session/last_tool",
+        "picker/recent_tools",
+        "cascade/slots",
+        "cascade/loop_mode",
+        "cascade/stop_on_error",
+        "cascade/variables",
+        "cascade/current_name",
+        "cascade/visible",
+        "cascade_history/entries",
+        "cascade_history/_version",
+    )
+
+    def __init__(
+        self,
+        cascade_path: str,
+        variables: dict | None = None,
+        loop_count: int = 1,
+        summary_path: str | None = None,
+    ) -> None:
+        self.cascade_path = str(cascade_path)
+        self.variables: dict = dict(variables or {})
+        self.loop_count = max(1, int(loop_count))
+        self.summary_path = str(summary_path) if summary_path else None
+
+        self._main_window = None
+        self._aborted = False
+        self._abort_reason: str | None = None
+        self._sigint = False
+        self._has_nonzero_exit = False
+        self._cascade_name = ""
+        self._cascade_stop_on_error = False
+        self._started_at: float | None = None
+        self._finished_at: float | None = None
+        self._final_status: str | None = None
+        self._stdout_buf = ""
+        self._stderr_buf = ""
+        self._step_records: list[dict] = []
+        self._current_loop_index = 0
+        # restoration list for class-level patches
+        self._patches: list[tuple] = []
+        self._settings_snapshot: dict | None = None
+        # populated by patched _append_cascade_run / _update_cascade_run
+        self._captured_runs: list[dict] = []
+
+    # -- entry point -------------------------------------------------------
+
+    def run(self) -> int:
+        app = QApplication.instance() or QApplication(sys.argv[:1])
+
+        self._snapshot_settings()
+
+        prev_suppress = MainWindow._suppress_welcome_dialog
+        MainWindow._suppress_welcome_dialog = True
+        try:
+            try:
+                self._main_window = MainWindow()
+            # broadly defensive — MainWindow construction touches QSettings, QTimer, file
+            # I/O during recovery checks; any failure here aborts headless boot rather
+            # than crashing.
+            except Exception as exc:
+                print(
+                    f"scaffold: failed to construct MainWindow: {exc}",
+                    file=sys.stderr,
+                )
+                self._restore_settings()
+                return 1
+        finally:
+            MainWindow._suppress_welcome_dialog = prev_suppress
+
+        try:
+            return self._run_inner(app)
+        finally:
+            self._uninstall_patches()
+            try:
+                if self._main_window is not None:
+                    self._main_window._teardown_process()
+            # broadly defensive — teardown is best-effort cleanup; an error here cannot
+            # be reported to the caller and must not change the exit code.
+            except Exception:
+                pass
+            try:
+                if self._main_window is not None:
+                    self._main_window.close()
+                    self._main_window.deleteLater()
+            except (AttributeError, RuntimeError):
+                pass
+            self._restore_settings()
+
+    # -- inner run ---------------------------------------------------------
+
+    def _run_inner(self, app) -> int:
+        mw = self._main_window
+
+        try:
+            data = _read_user_json(self.cascade_path)
+        except (RuntimeError, OSError, json.JSONDecodeError) as exc:
+            print(
+                f"scaffold: failed to read cascade {self.cascade_path}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+
+        if not isinstance(data, dict) or data.get("_format") != "scaffold_cascade":
+            fmt = data.get("_format") if isinstance(data, dict) else None
+            print(
+                f"scaffold: not a valid cascade file "
+                f"(expected '_format':'scaffold_cascade', got {fmt!r})",
+                file=sys.stderr,
+            )
+            return 1
+
+        self._cascade_name = data.get("name") or Path(self.cascade_path).stem
+        self._cascade_stop_on_error = bool(data.get("stop_on_error", False))
+
+        missing_tools, missing_presets = _check_cascade_dependencies(data)
+        if missing_tools or missing_presets:
+            lines = ["scaffold: cascade has missing dependencies:"]
+            for t in missing_tools:
+                lines.append(f"  missing tool: {t}")
+            for p in missing_presets:
+                lines.append(f"  missing preset: {p}")
+            print("\n".join(lines), file=sys.stderr)
+            return 1
+
+        cascade_vars = [v for v in data.get("variables", []) if isinstance(v, dict)]
+        required_flags = [v.get("flag", "") for v in cascade_vars if v.get("flag")]
+        missing_flags = [f for f in required_flags if f not in self.variables]
+        if missing_flags:
+            print(
+                f"scaffold: missing required cascade variables: "
+                f"{', '.join(missing_flags)}",
+                file=sys.stderr,
+            )
+            return 1
+
+        self._install_patches()
+        self._install_streaming_hooks()
+
+        try:
+            mw.cascade_dock._import_cascade_data(data)
+        except (ValueError, KeyError, TypeError, RuntimeError) as exc:
+            print(f"scaffold: invalid cascade data: {exc}", file=sys.stderr)
+            return 1
+
+        # The cascade's loop_enabled is intentionally ignored in headless mode;
+        # outer loop count is controlled exclusively via --loop.
+        mw.cascade_dock._loop_enabled = False
+
+        old_sigint = None
+        try:
+            old_sigint = signal.signal(signal.SIGINT, self._on_sigint)
+        # signal.signal raises ValueError if not in main thread; OSError on some platforms.
+        except (ValueError, OSError):
+            pass
+
+        self._started_at = time.time()
+
+        try:
+            for loop_idx in range(self.loop_count):
+                if self._sigint or self._aborted:
+                    break
+                self._current_loop_index = loop_idx
+
+                started = self._run_one_iteration()
+                if not started:
+                    break
+
+                finish = mw.cascade_dock._cascade_finish_status
+                if finish:
+                    self._final_status = finish
+                if finish == "error_halted" and self._cascade_stop_on_error:
+                    break
+                if self._sigint or self._aborted:
+                    break
+        finally:
+            if old_sigint is not None:
+                try:
+                    signal.signal(signal.SIGINT, old_sigint)
+                except (ValueError, OSError):
+                    pass
+            self._finished_at = time.time()
+
+        if self._sigint:
+            final_status = "interrupted"
+            exit_code = 130
+        elif self._aborted:
+            final_status = "failed"
+            exit_code = 1
+        elif self._final_status == "error_halted" and self._cascade_stop_on_error:
+            final_status = "stopped"
+            exit_code = 2
+        elif self._has_nonzero_exit:
+            final_status = "completed"
+            exit_code = 3
+        else:
+            final_status = "completed"
+            exit_code = 0
+
+        if self.summary_path:
+            try:
+                self._write_summary(final_status)
+            except (OSError, TypeError, ValueError) as exc:
+                print(
+                    f"scaffold: failed to write summary {self.summary_path}: {exc}",
+                    file=sys.stderr,
+                )
+
+        return exit_code
+
+    # -- settings snapshot/restore ----------------------------------------
+
+    def _snapshot_settings(self) -> None:
+        s = _create_settings()
+        snap: dict = {}
+        for key in self._SETTINGS_KEYS_TO_PRESERVE:
+            snap[key] = (s.value(key, None), s.contains(key))
+        self._settings_snapshot = snap
+
+    def _restore_settings(self) -> None:
+        if self._settings_snapshot is None:
+            return
+        s = _create_settings()
+        for key, (value, existed) in self._settings_snapshot.items():
+            if existed:
+                s.setValue(key, value)
+            else:
+                s.remove(key)
+        s.sync()
+        self._settings_snapshot = None
+
+    # -- signal handler ---------------------------------------------------
+
+    def _on_sigint(self, signum, frame) -> None:
+        self._sigint = True
+        try:
+            if self._main_window is not None:
+                self._main_window.cascade_dock._on_stop_chain()
+        # broadly defensive — signal handler must never raise; chain teardown errors
+        # are deferred to normal cleanup.
+        except Exception:
+            pass
+
+    # -- patches -----------------------------------------------------------
+
+    def _install_patches(self) -> None:
+        runner = self
+        supplied = dict(self.variables)
+
+        original_exec = CascadeVariableDialog.exec
+        original_get_values = CascadeVariableDialog.get_values
+
+        def patched_exec(_self):
+            return QDialog.DialogCode.Accepted
+
+        def patched_get_values(_self):
+            return dict(supplied)
+
+        CascadeVariableDialog.exec = patched_exec
+        CascadeVariableDialog.get_values = patched_get_values
+        self._patches.append((CascadeVariableDialog, "exec", original_exec))
+        self._patches.append((CascadeVariableDialog, "get_values", original_get_values))
+
+        for level in ("warning", "critical", "information", "question"):
+            original = getattr(QMessageBox, level)
+            self._patches.append((QMessageBox, level, original))
+
+        def make_patch(level: str):
+            def patched(*args, **kwargs):
+                title = args[1] if len(args) > 1 else kwargs.get("title", "")
+                text = args[2] if len(args) > 2 else kwargs.get("text", "")
+                print(
+                    f"scaffold: cascade aborted by modal dialog "
+                    f"({level}): {title} — {text}",
+                    file=sys.stderr,
+                )
+                runner._aborted = True
+                runner._abort_reason = f"{level}: {title}"
+                if level == "question":
+                    return QMessageBox.StandardButton.No
+                return QMessageBox.StandardButton.Ok
+            return patched
+
+        for level in ("warning", "critical", "information", "question"):
+            setattr(QMessageBox, level, make_patch(level))
+
+        mw = self._main_window
+        # Instance-level patches: suppress QSettings writes from history and slot
+        # persistence, and capture per-run step data through _update_cascade_run
+        # (which the cascade dock calls with the full step list right before
+        # _chain_cleanup nulls _cascade_steps).  These are restored implicitly
+        # when the MainWindow is destroyed at end of run.
+        self._captured_runs: list[dict] = []
+
+        def patched_append(entry):
+            if isinstance(entry, dict) and entry.get("id"):
+                self._captured_runs.append({
+                    "id": entry["id"],
+                    "loop_index": self._current_loop_index,
+                    "steps": [],
+                })
+
+        def patched_update(run_id, updates):
+            if not run_id or not isinstance(updates, dict):
+                return
+            for run in self._captured_runs:
+                if run["id"] == run_id:
+                    if "steps" in updates:
+                        run["steps"] = [dict(s) for s in (updates["steps"] or [])]
+                    break
+
+        mw._append_cascade_run = patched_append
+        mw._update_cascade_run = patched_update
+        mw.cascade_dock._save_cascade = lambda: None
+
+    def _uninstall_patches(self) -> None:
+        for target, attr, original in self._patches:
+            try:
+                setattr(target, attr, original)
+            except (AttributeError, TypeError):
+                pass
+        self._patches = []
+
+    # -- streaming ---------------------------------------------------------
+
+    def _install_streaming_hooks(self) -> None:
+        mw = self._main_window
+        runner = self
+
+        def patched_stdout_ready():
+            proc = mw.process
+            if proc is None:
+                return
+            text = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
+            mw._last_run_stdout += text
+            runner._stream("stdout", text)
+
+        def patched_stderr_ready():
+            proc = mw.process
+            if proc is None:
+                return
+            text = bytes(proc.readAllStandardError()).decode("utf-8", errors="replace")
+            mw._last_run_stderr += text
+            runner._stream("stderr", text)
+
+        mw._on_stdout_ready = patched_stdout_ready
+        mw._on_stderr_ready = patched_stderr_ready
+
+        original_on_finished = mw._on_finished
+
+        def patched_on_finished(exit_code, exit_status):
+            runner._flush_partial_lines()
+            original_on_finished(exit_code, exit_status)
+
+        mw._on_finished = patched_on_finished
+
+    def _line_prefix(self) -> str | None:
+        if self._main_window is None:
+            return None
+        dock = self._main_window.cascade_dock
+        if not (0 <= dock._chain_current < len(dock._chain_queue)):
+            return None
+        slot_idx = dock._chain_queue[dock._chain_current]
+        if not (0 <= slot_idx < len(dock._slots)):
+            return None
+        slot = dock._slots[slot_idx]
+        tp = slot.get("tool_path")
+        tool_name = Path(tp).stem if tp else "?"
+        return f"[step {dock._chain_current + 1}: {tool_name}]"
+
+    def _stream(self, which: str, text: str) -> None:
+        prefix = self._line_prefix()
+        if prefix is None:
+            return
+        if which == "stdout":
+            self._stdout_buf += text
+            stream = sys.stdout
+            tag = ""
+            buf_attr = "_stdout_buf"
+        else:
+            self._stderr_buf += text
+            stream = sys.stderr
+            tag = "(err) "
+            buf_attr = "_stderr_buf"
+        buf = getattr(self, buf_attr)
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            stream.write(f"{prefix} {tag}{line}\n")
+        setattr(self, buf_attr, buf)
+        stream.flush()
+
+    def _flush_partial_lines(self) -> None:
+        prefix = self._line_prefix()
+        if prefix is None:
+            self._stdout_buf = ""
+            self._stderr_buf = ""
+            return
+        if self._stdout_buf:
+            sys.stdout.write(f"{prefix} {self._stdout_buf}\n")
+            sys.stdout.flush()
+            self._stdout_buf = ""
+        if self._stderr_buf:
+            sys.stderr.write(f"{prefix} (err) {self._stderr_buf}\n")
+            sys.stderr.flush()
+            self._stderr_buf = ""
+
+    # -- iteration ---------------------------------------------------------
+
+    def _run_one_iteration(self) -> bool:
+        """Run a single cascade pass; block until ``_chain_state == CHAIN_IDLE``.
+
+        Returns False if the run aborted before starting (e.g. modal-dialog
+        fail-fast); True otherwise (including normal completion and stop_on_error).
+        """
+        mw = self._main_window
+        dock = mw.cascade_dock
+
+        dock._chain_state = CHAIN_IDLE
+        dock._chain_paused = False
+        dock._cascade_finish_status = None
+        dock._cascade_steps = []
+        dock._cascade_run_id = None
+
+        loop = QEventLoop()
+        timer = QTimer()
+        timer.setInterval(50)
+
+        def tick():
+            if (dock._chain_state == CHAIN_IDLE
+                    or self._sigint
+                    or self._aborted):
+                timer.stop()
+                loop.quit()
+
+        timer.timeout.connect(tick)
+
+        try:
+            try:
+                dock._on_run_chain()
+            except CascadeHeadlessAbort as exc:
+                self._aborted = True
+                self._abort_reason = str(exc)
+                return False
+        # broadly defensive — _on_run_chain → _chain_advance → _chain_execute_current
+        # touches QProcess, file I/O, validation; any unexpected error class aborts
+        # the run rather than leaving Qt in a half-started state.
+        except Exception as exc:
+            print(
+                f"scaffold: cascade run failed to start: {exc}",
+                file=sys.stderr,
+            )
+            self._aborted = True
+            return False
+
+        # If _on_run_chain returned without entering an active state (e.g. the
+        # cascade has no valid steps) the dock is already idle; skip the wait
+        # and proceed to bookkeeping.
+        if dock._chain_state != CHAIN_IDLE:
+            timer.start()
+            loop.exec()
+            timer.stop()
+
+        self._collect_step_records()
+        return True
+
+    def _collect_step_records(self) -> None:
+        # Drain captured runs into our per-step records and reset the buffer
+        # so the next iteration starts clean.  _captured_runs is fed by the
+        # patched _append_cascade_run / _update_cascade_run on the MainWindow.
+        for run in self._captured_runs:
+            loop_idx = run.get("loop_index", 0)
+            for step in run.get("steps", []):
+                started = step.get("started_at") or 0.0
+                finished = step.get("finished_at") or 0.0
+                duration = finished - started if (started and finished) else 0.0
+                rec = {
+                    "loop_index": loop_idx,
+                    "step_index": step.get("index", -1),
+                    "tool": step.get("tool_name", ""),
+                    "command": step.get("command", "") or "",
+                    "exit_code": step.get("exit_code"),
+                    "duration_seconds": duration,
+                    "captures": dict(step.get("captures", {}) or {}),
+                    "error": step.get("error"),
+                }
+                self._step_records.append(rec)
+                ec = step.get("exit_code")
+                if ec is not None and ec != 0:
+                    self._has_nonzero_exit = True
+                if step.get("error"):
+                    self._has_nonzero_exit = True
+        self._captured_runs = []
+
+    # -- summary -----------------------------------------------------------
+
+    def _write_summary(self, final_status: str) -> None:
+        def _iso(t):
+            if not t:
+                return None
+            return datetime.datetime.fromtimestamp(
+                t, tz=datetime.timezone.utc
+            ).isoformat()
+
+        duration = 0.0
+        if self._started_at and self._finished_at:
+            duration = self._finished_at - self._started_at
+
+        summary = {
+            "cascade": self._cascade_name,
+            "status": final_status,
+            "started_at": _iso(self._started_at),
+            "finished_at": _iso(self._finished_at),
+            "duration_seconds": duration,
+            "loop_count": self.loop_count,
+            "steps": self._step_records,
+        }
+        Path(self.summary_path).write_text(
+            json.dumps(summary, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
+    """Parse ``--run-cascade`` and friends out of *argv*.
+
+    Returns ``(parsed, error)``: on success ``parsed`` is a dict with keys
+    ``cascade_path`` (str), ``variables`` (dict), ``loop_count`` (int),
+    ``summary_path`` (str | None); ``error`` is ``None``. On failure
+    ``parsed`` is ``{}`` and ``error`` is a usage message suitable for
+    printing to stderr.
+    """
+    cascade_path: str | None = None
+    variables: dict[str, str] = {}
+    file_vars: dict[str, str] = {}
+    loop_count = 1
+    summary_path: str | None = None
+
+    KNOWN = {"--run-cascade", "--var", "--vars", "--loop", "--summary"}
+    i = 0
+    # Skip everything before --run-cascade (already validated by caller)
+    while i < len(argv) and argv[i] != "--run-cascade":
+        i += 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--run-cascade":
+            if i + 1 >= len(argv):
+                return {}, "--run-cascade requires a path argument"
+            cascade_path = argv[i + 1]
+            i += 2
+        elif a == "--var":
+            if i + 1 >= len(argv):
+                return {}, "--var requires NAME=VALUE"
+            spec = argv[i + 1]
+            if "=" not in spec:
+                return {}, f"--var requires NAME=VALUE format (got {spec!r})"
+            name, _, value = spec.partition("=")
+            if not name:
+                return {}, "--var name cannot be empty"
+            if not _HEADLESS_VAR_NAME_RE.match(name):
+                return {}, (
+                    f"--var name {name!r} is invalid "
+                    f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                )
+            variables[name] = value
+            i += 2
+        elif a == "--vars":
+            if i + 1 >= len(argv):
+                return {}, "--vars requires a JSON file path"
+            try:
+                loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                return {}, f"--vars failed to read {argv[i + 1]!r}: {exc}"
+            if not isinstance(loaded, dict):
+                return {}, f"--vars file must contain a JSON object (got {type(loaded).__name__})"
+            for k, v in loaded.items():
+                if not isinstance(k, str) or not _HEADLESS_VAR_NAME_RE.match(k):
+                    return {}, (
+                        f"--vars contains invalid name {k!r} "
+                        f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                    )
+                file_vars[k] = "" if v is None else str(v)
+            i += 2
+        elif a == "--loop":
+            if i + 1 >= len(argv):
+                return {}, "--loop requires an integer argument"
+            try:
+                n = int(argv[i + 1])
+            except ValueError:
+                return {}, f"--loop requires an integer (got {argv[i + 1]!r})"
+            if n < 1 or n > 1000:
+                return {}, f"--loop must be in range 1..1000 (got {n})"
+            loop_count = n
+            i += 2
+        elif a == "--summary":
+            if i + 1 >= len(argv):
+                return {}, "--summary requires a path argument"
+            summary_path = argv[i + 1]
+            i += 2
+        elif a.startswith("--"):
+            return {}, f"unknown flag {a!r}"
+        else:
+            return {}, f"unexpected positional argument {a!r}"
+
+    if not cascade_path:
+        return {}, "--run-cascade requires a path argument"
+
+    # Merge: --vars first, then --var overrides on conflict
+    merged = dict(file_vars)
+    merged.update(variables)
+
+    return (
+        {
+            "cascade_path": cascade_path,
+            "variables": merged,
+            "loop_count": loop_count,
+            "summary_path": summary_path,
+        },
+        None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -11311,6 +11960,12 @@ def main() -> None:
             "  python scaffold.py --version              Show version and exit\n"
             "  python scaffold.py --help                 Show this help and exit\n"
             "\n"
+            "  python scaffold.py --run-cascade <cascade.json>  Run a saved cascade headlessly\n"
+            "                     [--var name=value]              Supply a variable (repeatable)\n"
+            "                     [--vars file.json]              Load variables from JSON file\n"
+            "                     [--loop N]                      Run the cascade N times (1-1000)\n"
+            "                     [--summary path]                Write JSON summary to path\n"
+            "\n"
             "Portable mode:  Place portable.txt next to scaffold.py to store settings locally\n"
         )
         sys.exit(0)
@@ -11350,6 +12005,25 @@ def main() -> None:
                 arg_count += len(sub.get("arguments", []))
             print(f"Valid: {data['tool']} ({arg_count} arguments, {sub_count} subcommands)")
             sys.exit(0)
+
+    if "--run-cascade" in sys.argv:
+        parsed, err = _parse_run_cascade_args(sys.argv[1:])
+        if err is not None:
+            print(f"Usage error: {err}", file=sys.stderr)
+            print(
+                "  python scaffold.py --run-cascade <cascade.json>\n"
+                "                     [--var name=value] [--vars file.json]\n"
+                "                     [--loop N] [--summary path]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        runner = CascadeHeadlessRunner(
+            cascade_path=parsed["cascade_path"],
+            variables=parsed["variables"],
+            loop_count=parsed["loop_count"],
+            summary_path=parsed["summary_path"],
+        )
+        sys.exit(runner.run())
 
     # GUI launch
     app = QApplication(sys.argv)

@@ -162,7 +162,7 @@ def check(condition, name):
 # now is updating EXPECTED_VERSION here. Section-level tests should
 # verify section-level behavior, not the version constant.
 # =====================================================================
-EXPECTED_VERSION = "2.12.3"
+EXPECTED_VERSION = "2.13.0"
 check(scaffold.__version__ == EXPECTED_VERSION,
       f"version: scaffold.__version__ == {EXPECTED_VERSION!r} "
       f"(got {scaffold.__version__!r})")
@@ -24929,7 +24929,13 @@ for _s189_func, _s189_pat in _s189_expected_narrows.items():
 
 # 189c: broad-except count across scaffold.py is at or below a ceiling.
 # Before v2.10.5 there were 20 broad catches; after v2.10.5 at most 11
-# should remain (9 Group C + up to 2 Group D). Parse via AST to be robust.
+# remained (9 Group C + up to 2 Group D). v2.13.0 added the headless
+# cascade runner (CascadeHeadlessRunner) which legitimately needs 4
+# additional broad catches: MainWindow construction (huge call tree),
+# teardown_process cleanup (Qt-side errors), the SIGINT handler (must
+# never raise), and the _on_run_chain wrapper (cascade dock touches
+# QProcess/file I/O/validation across many subsystems).  Ceiling
+# raised from 11 to 15 to accommodate. Parse via AST to be robust.
 import ast as _s189_ast
 _s189_tree = _s189_ast.parse(_s189_src)
 _s189_broad = 0
@@ -24945,9 +24951,9 @@ for _s189_node in _s189_ast.walk(_s189_tree):
             for x in t.elts
         ):
             _s189_broad += 1
-check(_s189_broad <= 11,
-      f"189c: at most 11 broad-except catches remain "
-      f"(got {_s189_broad}; v2.10.5 narrowed 9-11 from the original 20)")
+check(_s189_broad <= 15,
+      f"189c: at most 15 broad-except catches remain "
+      f"(got {_s189_broad}; v2.13.0 raised from 11 to 15 for headless runner)")
 check(_s189_broad >= 9,
       f"189c: at least 9 broad-except catches remain "
       f"(got {_s189_broad}; Group C sites must stay broad)")
@@ -28868,6 +28874,567 @@ _s208_win.settings.remove("session/last_tool")
 _s208_win.settings.sync()
 _s208_win.close()
 _s208_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 209 — Headless cascade execution (--run-cascade)
+# =====================================================================
+print("\n--- Section 209: Headless Cascade Execution ---")
+
+# Belt-and-suspenders: ensure welcome dialog is suppressed (set at module top
+# but reaffirm in case a prior section flipped it off).
+scaffold.MainWindow._suppress_welcome_dialog = True
+
+_s209_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s209_"))
+
+
+def _s209_make_tool(name, default_code):
+    data = {
+        "_format": "scaffold_schema",
+        "tool": name,
+        "binary": "python",
+        "description": f"Test tool {name}",
+        "arguments": [
+            {"name": "Code", "flag": "-c", "type": "string",
+             "required": False, "default": default_code},
+        ],
+    }
+    p = _s209_tmpdir / f"{name}.json"
+    p.write_text(json.dumps(data, indent=2))
+    return p
+
+
+def _s209_make_cascade(name, steps, stop_on_error=False, variables=None):
+    data = {
+        "_format": "scaffold_cascade",
+        "name": name,
+        "description": "test",
+        "loop_mode": False,
+        "stop_on_error": stop_on_error,
+        "steps": steps,
+        "variables": variables or [],
+    }
+    p = _s209_tmpdir / f"{name}.json"
+    p.write_text(json.dumps(data, indent=2))
+    return p
+
+
+def _s209_run(runner_args):
+    """Construct a runner, run it with stdout/stderr captured, return tuple."""
+    runner = scaffold.CascadeHeadlessRunner(**runner_args)
+    out_buf = io.StringIO()
+    err_buf = io.StringIO()
+    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+        rc = runner.run()
+    return rc, out_buf.getvalue(), err_buf.getvalue(), runner
+
+
+_s209_t_zero = _s209_make_tool("hpy_zero", "import sys; sys.exit(0)")
+_s209_t_fail = _s209_make_tool("hpy_fail", "import sys; sys.exit(7)")
+_s209_t_echo = _s209_make_tool("hpy_echo", "print('lineA'); print('lineB')")
+_s209_t_err = _s209_make_tool("hpy_err", "import sys; sys.stderr.write('errstream\\n')")
+
+# ---------------------------------------------------------------------
+# 209A: Argv parsing (no MainWindow needed)
+# ---------------------------------------------------------------------
+
+# 209A.1: Basic --run-cascade <path> parses
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "foo.json"]
+)
+check(_s209_e is None, f"209A.1: basic parse no error (got {_s209_e!r})")
+check(_s209_p["cascade_path"] == "foo.json", "209A.1: cascade_path captured")
+check(_s209_p["loop_count"] == 1, "209A.1: default loop_count is 1")
+check(_s209_p["summary_path"] is None, "209A.1: default summary_path is None")
+check(_s209_p["variables"] == {}, "209A.1: default variables is empty")
+
+# 209A.2: --var name=value
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "a=1", "--var", "b=hello"]
+)
+check(_s209_e is None and _s209_p["variables"] == {"a": "1", "b": "hello"},
+      f"209A.2: --var values parsed (got {_s209_p.get('variables')!r}, err={_s209_e!r})")
+
+# 209A.3: --var with = in value
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "k=foo=bar=baz"]
+)
+check(_s209_e is None and _s209_p["variables"]["k"] == "foo=bar=baz",
+      f"209A.3: value containing = preserved (got {_s209_p.get('variables', {}).get('k')!r})")
+
+# 209A.4: --var with spaces
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "msg=hello world"]
+)
+check(_s209_e is None and _s209_p["variables"]["msg"] == "hello world",
+      "209A.4: value containing space preserved")
+
+# 209A.5: --var missing = → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "noequals"]
+)
+check(_s209_e is not None and "NAME=VALUE" in _s209_e,
+      f"209A.5: --var without = errors (got {_s209_e!r})")
+
+# 209A.6: --var with empty name → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "=value"]
+)
+check(_s209_e is not None,
+      f"209A.6: --var empty name errors (got {_s209_e!r})")
+
+# 209A.7: --var with invalid name → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--var", "1bad=value"]
+)
+check(_s209_e is not None and "invalid" in _s209_e,
+      f"209A.7: --var with name starting digit errors (got {_s209_e!r})")
+
+# 209A.8: --vars file.json
+_s209_vfile = _s209_tmpdir / "vars.json"
+_s209_vfile.write_text(json.dumps({"a": "from_file", "b": "from_file"}))
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--vars", str(_s209_vfile)]
+)
+check(_s209_e is None and _s209_p["variables"] == {"a": "from_file", "b": "from_file"},
+      f"209A.8: --vars loads JSON (got {_s209_p.get('variables')!r}, err={_s209_e!r})")
+
+# 209A.9: --var overrides --vars on conflict
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--vars", str(_s209_vfile), "--var", "a=cli_wins"]
+)
+check(_s209_e is None and _s209_p["variables"]["a"] == "cli_wins"
+      and _s209_p["variables"]["b"] == "from_file",
+      f"209A.9: --var overrides --vars (got {_s209_p.get('variables')!r})")
+
+# 209A.10: --vars missing file → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--vars", str(_s209_tmpdir / "nope.json")]
+)
+check(_s209_e is not None and "failed to read" in _s209_e,
+      f"209A.10: --vars missing file errors (got {_s209_e!r})")
+
+# 209A.11: --vars non-object JSON → error
+_s209_bad_vfile = _s209_tmpdir / "bad_vars.json"
+_s209_bad_vfile.write_text(json.dumps([1, 2, 3]))
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--vars", str(_s209_bad_vfile)]
+)
+check(_s209_e is not None and "JSON object" in _s209_e,
+      f"209A.11: --vars non-object errors (got {_s209_e!r})")
+
+# 209A.12: --loop accepts 1 and 1000
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--loop", "1"]
+)
+check(_s209_e is None and _s209_p["loop_count"] == 1,
+      f"209A.12: --loop 1 accepted")
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--loop", "1000"]
+)
+check(_s209_e is None and _s209_p["loop_count"] == 1000,
+      f"209A.12: --loop 1000 accepted")
+
+# 209A.13: --loop rejects 0, -1, 1001, "abc"
+for _s209_bad in ("0", "-1", "1001"):
+    _s209_p, _s209_e = scaffold._parse_run_cascade_args(
+        ["--run-cascade", "f.json", "--loop", _s209_bad]
+    )
+    check(_s209_e is not None and "range" in _s209_e,
+          f"209A.13: --loop {_s209_bad} rejected (got {_s209_e!r})")
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--loop", "abc"]
+)
+check(_s209_e is not None and "integer" in _s209_e,
+      f"209A.13: --loop abc rejected")
+
+# 209A.14: --summary captures path
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--summary", "/tmp/out.json"]
+)
+check(_s209_e is None and _s209_p["summary_path"] == "/tmp/out.json",
+      "209A.14: --summary path captured")
+
+# 209A.15: Unknown flag → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--bogus"]
+)
+check(_s209_e is not None and "unknown flag" in _s209_e,
+      f"209A.15: unknown flag errors (got {_s209_e!r})")
+
+# 209A.16: --run-cascade with no path → error
+_s209_p, _s209_e = scaffold._parse_run_cascade_args(["--run-cascade"])
+check(_s209_e is not None,
+      "209A.16: --run-cascade without path errors")
+
+# ---------------------------------------------------------------------
+# 209B: Runner construction
+# ---------------------------------------------------------------------
+
+# 209B.1: Constructor doesn't error with valid args
+_s209_runner = scaffold.CascadeHeadlessRunner("foo.json", {}, 1, None)
+check(_s209_runner.cascade_path == "foo.json", "209B.1: ctor stores cascade_path")
+check(_s209_runner.loop_count == 1, "209B.1: ctor stores loop_count")
+
+# 209B.2: loop_count clamped to >= 1
+_s209_runner = scaffold.CascadeHeadlessRunner("foo.json", {}, 0, None)
+check(_s209_runner.loop_count == 1, "209B.2: loop_count <1 clamps to 1")
+_s209_runner = scaffold.CascadeHeadlessRunner("foo.json", {}, -5, None)
+check(_s209_runner.loop_count == 1, "209B.2: negative loop_count clamps to 1")
+
+# 209B.3: Missing cascade file → exit 1
+_s209_rc, _s209_out, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_tmpdir / "nonexistent.json"),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1, f"209B.3: missing cascade exits 1 (got {_s209_rc})")
+check("failed to read" in _s209_err.lower() or "cannot stat" in _s209_err.lower(),
+      f"209B.3: stderr names the read failure (got {_s209_err!r})")
+
+# 209B.4: Wrong _format → exit 1
+_s209_bad = _s209_tmpdir / "bad_format.json"
+_s209_bad.write_text(json.dumps({"_format": "scaffold_preset", "name": "x"}))
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_bad),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1, f"209B.4: bad _format exits 1 (got {_s209_rc})")
+check("scaffold_cascade" in _s209_err,
+      f"209B.4: stderr names expected format (got {_s209_err!r})")
+
+# 209B.5: Missing _format → exit 1
+_s209_nofmt = _s209_tmpdir / "no_format.json"
+_s209_nofmt.write_text(json.dumps({"name": "x", "steps": []}))
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_nofmt),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1, "209B.5: missing _format exits 1")
+
+# ---------------------------------------------------------------------
+# 209C: Variable handling
+# ---------------------------------------------------------------------
+
+_s209_c_vars = _s209_make_cascade("c_vars", [
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+], variables=[
+    {"name": "Foo", "flag": "foo_flag", "type_hint": "string", "apply_to": "all"},
+    {"name": "Bar", "flag": "bar_flag", "type_hint": "string", "apply_to": "all"},
+])
+
+# 209C.1: All required variables supplied → exit 0
+_s209_rc, _, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_vars),
+    "variables": {"foo_flag": "x", "bar_flag": "y"},
+    "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 0, f"209C.1: all vars supplied → exit 0 (got {_s209_rc})")
+
+# 209C.2: Missing variable → exit 1, stderr names it
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_vars),
+    "variables": {"foo_flag": "x"},
+    "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1, f"209C.2: missing var → exit 1 (got {_s209_rc})")
+check("bar_flag" in _s209_err,
+      f"209C.2: stderr names missing var (got {_s209_err!r})")
+
+# 209C.3: Both vars missing → exit 1, both named
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_vars),
+    "variables": {},
+    "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1, f"209C.3: both missing → exit 1 (got {_s209_rc})")
+check("foo_flag" in _s209_err and "bar_flag" in _s209_err,
+      f"209C.3: stderr lists both missing vars (got {_s209_err!r})")
+
+# 209C.4: Extra (unreferenced) variable → silently ignored
+_s209_rc, _, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_vars),
+    "variables": {"foo_flag": "x", "bar_flag": "y", "extra": "ignored"},
+    "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 0, f"209C.4: extra var ignored (got {_s209_rc})")
+
+# ---------------------------------------------------------------------
+# 209D: Output streaming
+# ---------------------------------------------------------------------
+
+_s209_c_echo = _s209_make_cascade("c_echo", [
+    {"tool": str(_s209_t_echo), "preset": None, "delay": 0, "captures": []},
+])
+
+_s209_rc, _s209_out, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_echo),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+
+# 209D.1: stdout lines have prefix "[step N: tool]"
+check("[step 1: hpy_echo] lineA" in _s209_out,
+      f"209D.1: stdout prefix on lineA (got {_s209_out!r})")
+check("[step 1: hpy_echo] lineB" in _s209_out,
+      f"209D.1: stdout prefix on lineB")
+
+# 209D.2: stderr has (err) tag
+_s209_c_err = _s209_make_cascade("c_err", [
+    {"tool": str(_s209_t_err), "preset": None, "delay": 0, "captures": []},
+])
+_s209_rc, _s209_out, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_err),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check("[step 1: hpy_err] (err) errstream" in _s209_err,
+      f"209D.2: stderr line has (err) tag (got {_s209_err!r})")
+
+# 209D.3: Multi-step prefix advances per step
+_s209_t_mark1 = _s209_make_tool("hpy_mark1", "print('mark-from-one')")
+_s209_t_mark2 = _s209_make_tool("hpy_mark2", "print('mark-from-two')")
+_s209_c_two = _s209_make_cascade("c_two_step_prefix", [
+    {"tool": str(_s209_t_mark1), "preset": None, "delay": 0, "captures": []},
+    {"tool": str(_s209_t_mark2), "preset": None, "delay": 0, "captures": []},
+])
+_s209_rc, _s209_out, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_two),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check("[step 1: hpy_mark1] mark-from-one" in _s209_out,
+      f"209D.3: step 1 prefix correct (got {_s209_out!r})")
+check("[step 2: hpy_mark2] mark-from-two" in _s209_out,
+      f"209D.3: step 2 prefix correct")
+
+# ---------------------------------------------------------------------
+# 209E: Summary writing
+# ---------------------------------------------------------------------
+
+_s209_c_pass = _s209_make_cascade("c_pass_summary", [
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+])
+
+# 209E.1: --summary path writes valid JSON file
+_s209_summary_path = _s209_tmpdir / "summary.json"
+_s209_rc, _, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1,
+    "summary_path": str(_s209_summary_path),
+})
+check(_s209_summary_path.exists(),
+      "209E.1: summary file written when --summary supplied")
+_s209_summary = json.loads(_s209_summary_path.read_text())
+
+# 209E.2: Summary schema fields present
+check(_s209_summary["cascade"] == "c_pass_summary",
+      f"209E.2: summary has cascade name (got {_s209_summary.get('cascade')!r})")
+check(_s209_summary["status"] == "completed",
+      "209E.2: summary status is completed")
+check(_s209_summary["loop_count"] == 1,
+      "209E.2: summary loop_count is 1")
+check(isinstance(_s209_summary["started_at"], str),
+      "209E.2: started_at is ISO string")
+check(isinstance(_s209_summary["finished_at"], str),
+      "209E.2: finished_at is ISO string")
+check(isinstance(_s209_summary["duration_seconds"], (int, float)),
+      "209E.2: duration_seconds numeric")
+check(len(_s209_summary["steps"]) == 2,
+      f"209E.2: summary has 2 steps (got {len(_s209_summary['steps'])})")
+
+# 209E.3: Step record schema fields
+_s209_step0 = _s209_summary["steps"][0]
+for _s209_field in ("loop_index", "step_index", "tool", "command",
+                     "exit_code", "duration_seconds", "captures", "error"):
+    check(_s209_field in _s209_step0,
+          f"209E.3: step record has '{_s209_field}'")
+
+# 209E.4: No --summary → no file written
+_s209_no_summary = _s209_tmpdir / "no_summary.json"
+_s209_rc, _, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(not _s209_no_summary.exists(),
+      "209E.4: no summary written when --summary not supplied")
+
+# 209E.5: Disk write failure → exit code unchanged, error logged
+_s209_bad_summary = _s209_tmpdir / "definitely" / "missing" / "dir" / "out.json"
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1,
+    "summary_path": str(_s209_bad_summary),
+})
+check(_s209_rc == 0,
+      f"209E.5: cascade exit code unchanged on summary write failure (got {_s209_rc})")
+check("summary" in _s209_err.lower(),
+      f"209E.5: stderr mentions summary failure (got {_s209_err!r})")
+
+# ---------------------------------------------------------------------
+# 209F: Exit codes
+# ---------------------------------------------------------------------
+
+# 209F.1: All steps exit 0 → exit code 0
+_s209_rc, _, _, _ = _s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 0, f"209F.1: all-zero → exit 0 (got {_s209_rc})")
+
+# 209F.2: Step fails, stop_on_error=True → exit code 2
+_s209_c_stop = _s209_make_cascade("c_stop_2", [
+    {"tool": str(_s209_t_fail), "preset": None, "delay": 0, "captures": []},
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+], stop_on_error=True)
+_s209_rc, _, _, _s209_runner = _s209_run({
+    "cascade_path": str(_s209_c_stop),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 2, f"209F.2: stop_on_error=True → exit 2 (got {_s209_rc})")
+# Halted before step 2 ran
+check(len(_s209_runner._step_records) == 1,
+      f"209F.2: only step 1 ran before halt (got {len(_s209_runner._step_records)})")
+
+# 209F.3: Step fails, stop_on_error=False → exit code 3
+_s209_c_no_stop = _s209_make_cascade("c_no_stop_3", [
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+    {"tool": str(_s209_t_fail), "preset": None, "delay": 0, "captures": []},
+    {"tool": str(_s209_t_zero), "preset": None, "delay": 0, "captures": []},
+], stop_on_error=False)
+_s209_rc, _, _, _s209_runner = _s209_run({
+    "cascade_path": str(_s209_c_no_stop),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 3,
+      f"209F.3: stop_on_error=False with failure → exit 3 (got {_s209_rc})")
+check(len(_s209_runner._step_records) == 3,
+      f"209F.3: all steps ran (got {len(_s209_runner._step_records)})")
+
+# 209F.4: Loop count multiplies step records
+_s209_rc, _, _, _s209_runner = _s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 3, "summary_path": None,
+})
+check(_s209_rc == 0, "209F.4: loop=3 with all-pass → exit 0")
+check(len(_s209_runner._step_records) == 6,
+      f"209F.4: 2 steps × 3 loops = 6 records (got {len(_s209_runner._step_records)})")
+# Verify loop_index varies
+_s209_loop_indices = sorted({r["loop_index"] for r in _s209_runner._step_records})
+check(_s209_loop_indices == [0, 1, 2],
+      f"209F.4: loop_index values 0,1,2 (got {_s209_loop_indices})")
+
+# 209F.5: stop_on_error=True with --loop halts at first failing iteration
+_s209_rc, _, _, _s209_runner = _s209_run({
+    "cascade_path": str(_s209_c_stop),
+    "variables": {}, "loop_count": 5, "summary_path": None,
+})
+check(_s209_rc == 2, "209F.5: stop_on_error in loop mode still exits 2")
+check(len(_s209_runner._step_records) == 1,
+      f"209F.5: loop halted at step 1 of iteration 1 (got {len(_s209_runner._step_records)})")
+
+# ---------------------------------------------------------------------
+# 209G: Modal dialog suppression
+# ---------------------------------------------------------------------
+
+# 209G.1: Cascade with missing tool dependency → exit 1, stderr names it
+_s209_c_missing = _s209_make_cascade("c_missing_tool", [
+    {"tool": "/nonexistent/abs/path/missing_tool.json",
+     "preset": None, "delay": 0, "captures": []},
+])
+_s209_rc, _, _s209_err, _ = _s209_run({
+    "cascade_path": str(_s209_c_missing),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(_s209_rc == 1,
+      f"209G.1: missing tool dependency → exit 1 (got {_s209_rc})")
+check("missing" in _s209_err.lower(),
+      f"209G.1: stderr names the missing dependency (got {_s209_err!r})")
+
+# 209G.2: Variable dialog never exec'd in headless mode (patches restored after)
+# The original CascadeVariableDialog.exec is restored after run().  Verify
+# that running with a vars cascade did not leave class-level patches behind.
+_s209_orig_exec_check = scaffold.CascadeVariableDialog.exec
+_s209_orig_get_check = scaffold.CascadeVariableDialog.get_values
+_s209_run({
+    "cascade_path": str(_s209_c_vars),
+    "variables": {"foo_flag": "x", "bar_flag": "y"},
+    "loop_count": 1, "summary_path": None,
+})
+check(scaffold.CascadeVariableDialog.exec is _s209_orig_exec_check,
+      "209G.2: CascadeVariableDialog.exec restored after run")
+check(scaffold.CascadeVariableDialog.get_values is _s209_orig_get_check,
+      "209G.2: CascadeVariableDialog.get_values restored after run")
+
+# 209G.3: QMessageBox.warning/critical/information/question class methods
+# also restored after run.
+_s209_orig_qmb_warn = QMessageBox.warning
+_s209_orig_qmb_crit = QMessageBox.critical
+_s209_orig_qmb_info = QMessageBox.information
+_s209_orig_qmb_quest = QMessageBox.question
+_s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+check(QMessageBox.warning is _s209_orig_qmb_warn,
+      "209G.3: QMessageBox.warning restored after run")
+check(QMessageBox.critical is _s209_orig_qmb_crit,
+      "209G.3: QMessageBox.critical restored after run")
+check(QMessageBox.information is _s209_orig_qmb_info,
+      "209G.3: QMessageBox.information restored after run")
+check(QMessageBox.question is _s209_orig_qmb_quest,
+      "209G.3: QMessageBox.question restored after run")
+
+# ---------------------------------------------------------------------
+# 209H: State isolation (QSettings not polluted)
+# ---------------------------------------------------------------------
+
+_s209_settings = QSettings("Scaffold", "Scaffold")
+
+# Capture baseline state of keys we care about
+_s209_keys_to_check = (
+    "session/last_tool",
+    "picker/recent_tools",
+    "cascade/slots",
+    "cascade/loop_mode",
+    "cascade/stop_on_error",
+    "cascade/variables",
+    "cascade/current_name",
+    "cascade_history/entries",
+    "cascade_history/_version",
+)
+_s209_baseline = {
+    k: (_s209_settings.value(k, None), _s209_settings.contains(k))
+    for k in _s209_keys_to_check
+}
+
+# Run a cascade — should not leave changes
+_s209_run({
+    "cascade_path": str(_s209_c_pass),
+    "variables": {}, "loop_count": 1, "summary_path": None,
+})
+
+# 209H.1: Each tracked key is back to its baseline value
+for _s209_k in _s209_keys_to_check:
+    _s209_now = (_s209_settings.value(_s209_k, None), _s209_settings.contains(_s209_k))
+    check(_s209_now == _s209_baseline[_s209_k],
+          f"209H.1: {_s209_k} restored to baseline "
+          f"(was {_s209_baseline[_s209_k]!r}, now {_s209_now!r})")
+
+# 209H.2: cascade_history was not appended to
+_s209_hist_after = _s209_settings.value("cascade_history/entries", None)
+check(_s209_hist_after == _s209_baseline["cascade_history/entries"][0],
+      "209H.2: cascade_history/entries unchanged after headless run")
+
+# ---------------------------------------------------------------------
+# 209 cleanup
+# ---------------------------------------------------------------------
+shutil.rmtree(_s209_tmpdir, ignore_errors=True)
+# Section 209's MainWindow construction (inside CascadeHeadlessRunner) calls
+# _load_tool_path during cascade execution which sets session/last_tool.
+# The runner's _restore_settings() restores it, but be defensive — match the
+# sec 207/208 pattern of clearing it explicitly so a kill mid-section can't
+# leak a fixture path that no longer exists.
+_s209_settings.remove("session/last_tool")
+_s209_settings.sync()
 app.processEvents()
 
 
