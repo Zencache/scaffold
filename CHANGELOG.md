@@ -2,6 +2,43 @@
 
 All notable changes to Scaffold are documented here.
 
+## [v2.12.3] — 2026-04-26
+
+Per-history-entry notes annotation, plus two diagnostic dead-ends surfaced while landing the feature that are now hardened against. The orphaned-QSettings hang in particular had been silently waiting to bite anyone who killed a test mid-run; the PySide6 method-binding gotcha had been masking real assertion failures behind hangs in two different Section 208 attempts before being identified. Both are documented below so future-you can find the why.
+
+### Fixed
+
+- **Orphaned `session/last_tool` could hang the next process startup.** Sections 207 and 208 now clear `session/last_tool` on teardown. Both construct fresh `MainWindow` instances whose `__init__` implicitly reopens whatever path is stored under that key. If a prior section pointed it at a fixture without a `_format` marker (e.g. `tests/test_minimal.json`) and the process was killed before reaching final cleanup, the next launch — `test_smoke.py`, an ad-hoc run, or a re-invocation of this suite — would block at startup on the modal "Missing Format Marker" warning dialog. test_functional installs a `QMessageBox.warning` auto-accept patch, but no other entry point does, so the leaked key bricked everything else. Roughly 50 other sections leak the same key in normal flow without consequence (the next section overrides), but if any one of those is the last to fire before a kill, the same hang reappears. Closing those gaps systematically is parked for a follow-up cleanup pass.
+
+- **`Klass.exec = func` does not intercept PySide6 instance calls.** Section 208's first context-menu and edit-dialog tests assigned to `QMenu.exec` and `QDialog.exec` at the class level expecting to capture instances; the assignment was a no-op for the blocking call path because Qt C++ methods are bound at instance construction, not resolved through Python attribute lookup at call time. Compounding the trap, `menu.exec()` blocks even on the offscreen Qt platform unless something closes the popup — so the silent no-op masked itself behind a hang. Section 208 now patches `QMenu.__init__` and `QDialog.__init__` to track instances, then drives popups via `QTimer.singleShot` (with an `aboutToShow`-driven close for menus). Worth pinning so future dialog/popup tests don't repeat the dead-end.
+
+### Added
+
+- **Per-history-entry user-editable notes.** The History dialog now shows a "Notes" column between Command and Time. Right-click any row and pick "Edit notes…" to attach context to a run ("ran during maintenance window," "this is the prod box," "preset variant for client X"). Notes participate in the dialog's filter bar so you can locate runs by their annotation, not just by command line. Double-click remains wired to Restore — intentionally not the edit affordance.
+
+- **`MainWindow._update_history_notes(timestamp, notes)`.** Locates the history entry for the active tool whose `timestamp` matches and persists the new notes through the same `history/<tool>` QSettings key used by `_record_history_entry`. Returns `True` on a match, `False` otherwise; the no-op branch leaves storage untouched.
+
+### Changed
+
+- **History entries now carry a `notes` field.** New entries default to `""`. Legacy entries without the key render and filter as if `notes == ""` — the change is forward-compatible without bumping any history version key.
+
+- **HistoryDialog table layout: 4 columns → 5.** Headers are now `["Exit", "Command", "Notes", "Time", "Age"]`. The Notes column at index 2 is interactive with a default width of 150px; Time and Age shift to indices 3 and 4. `_wire_last_column` and `_fit_last_column` derive the last column dynamically, so the shift needs no helper changes.
+
+- **History filter now matches against Notes.** The case-insensitive substring search bar considers both the Command (col 1) and Notes (col 2) columns, so a filter needle hits if it appears in either.
+
+### Tests
+
+New §208 in `test_functional.py` covers: `notes` default on new entries, round-trip via QSettings, `_update_history_notes` match/no-match semantics, HistoryDialog 5-column header layout, legacy-entry rendering (missing `notes` key), Notes cell text and tooltip, Time/Age column shift to indices 3/4, context-menu invocation via programmatic `QPoint`, edit-dialog accept/cancel flow with cell + QSettings assertions, and filter behavior against the Notes column (case-insensitive, Notes-only positive, negative, and command-column regression). Pre-existing §49f / §49q assertions updated to reflect the new key set and the 5-column layout.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,690/3,690 assertions, 0 failures**
+  - Functional: 3,189/3,189
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 80/80
+  - Manual verification: 61/61
+  - Examples: 52/52
 
 
 ## [v2.12.2] — 2026-04-26
