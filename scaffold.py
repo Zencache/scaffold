@@ -12026,13 +12026,14 @@ def main() -> None:
             sys.exit(1)
 
         # Peek at the cascade's loop_mode so we can require an explicit --loop N
-        # when it is set. File-read or JSON-parse failures are deferred to the
-        # runner's existing error handling — this peek must not duplicate that
-        # error path or it would change the stderr text seen for bad files.
+        # when it is set. File-read, JSON-parse, and wrong-format failures are
+        # all deferred to the runner's existing error handling — the peek must
+        # not duplicate those error paths or the user would see a misleading
+        # "specify --loop N" message for a non-cascade file.
         loop_mode_in_file = False
         try:
             _peek = json.loads(Path(parsed["cascade_path"]).read_text(encoding="utf-8"))
-            if isinstance(_peek, dict):
+            if isinstance(_peek, dict) and _peek.get("_format") == "scaffold_cascade":
                 loop_mode_in_file = bool(_peek.get("loop_mode", False))
         except (OSError, json.JSONDecodeError):
             pass
