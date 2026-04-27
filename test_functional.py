@@ -29441,6 +29441,201 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 210 — Headless cascade loop_mode honoring (--run-cascade)
+# =====================================================================
+print("\n--- Section 210: Headless Cascade loop_mode Honoring ---")
+
+# Belt-and-suspenders: ensure welcome dialog is suppressed (set at module top
+# but reaffirm in case a prior section flipped it off).
+scaffold.MainWindow._suppress_welcome_dialog = True
+
+_s210_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s210_"))
+_S210_OMIT = object()
+
+
+def _s210_make_tool(name, default_code):
+    data = {
+        "_format": "scaffold_schema",
+        "tool": name,
+        "binary": "python",
+        "description": f"Test tool {name}",
+        "arguments": [
+            {"name": "Code", "flag": "-c", "type": "string",
+             "required": False, "default": default_code},
+        ],
+    }
+    p = _s210_tmpdir / f"{name}.json"
+    p.write_text(json.dumps(data, indent=2))
+    return p
+
+
+def _s210_make_cascade(name, steps, *, loop_mode_value):
+    """Build a cascade JSON file. ``loop_mode_value`` is True, False, or the
+    sentinel ``_S210_OMIT`` to skip the key entirely (legacy-format guard)."""
+    data = {
+        "_format": "scaffold_cascade",
+        "name": name,
+        "description": "test",
+        "stop_on_error": False,
+        "steps": steps,
+        "variables": [],
+    }
+    if loop_mode_value is not _S210_OMIT:
+        data["loop_mode"] = loop_mode_value
+    p = _s210_tmpdir / f"{name}.json"
+    p.write_text(json.dumps(data, indent=2))
+    return p
+
+
+def _s210_run_main(extra_args, cascade_path):
+    """Invoke ``scaffold.main()`` in-process with simulated argv.
+
+    Returns ``(exit_code, stderr_str)``. Restores ``sys.argv`` /
+    ``sys.stderr`` regardless of how main() exits.
+    """
+    saved_argv = sys.argv[:]
+    saved_stderr = sys.stderr
+    err_buf = io.StringIO()
+    sys.argv = ["scaffold.py", "--run-cascade", str(cascade_path), *extra_args]
+    sys.stderr = err_buf
+    try:
+        try:
+            scaffold.main()
+            rc = 0  # main() always sys.exits in cascade branch; unreachable
+        except SystemExit as exc:
+            rc = exc.code if isinstance(exc.code, int) else 1
+    finally:
+        sys.argv = saved_argv
+        sys.stderr = saved_stderr
+    return rc, err_buf.getvalue()
+
+
+_s210_t_zero = _s210_make_tool("s210_zero", "import sys; sys.exit(0)")
+
+# ---------------------------------------------------------------------
+# 210A: Argv parser change pin
+# ---------------------------------------------------------------------
+
+# 210A.1: --loop absent → loop_count is None (parser change pin; v2.13.0
+# returned 1, v2.13.1 returns None so main() can distinguish the cases).
+_s210_p, _s210_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json"]
+)
+check(_s210_e is None and _s210_p["loop_count"] is None,
+      f"210A.1: --loop absent → loop_count is None "
+      f"(got {_s210_p.get('loop_count')!r}, err={_s210_e!r})")
+
+# 210A.2: --loop N present → loop_count is N (regression guard)
+_s210_p, _s210_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "f.json", "--loop", "5"]
+)
+check(_s210_e is None and _s210_p["loop_count"] == 5,
+      f"210A.2: --loop 5 → loop_count is 5 "
+      f"(got {_s210_p.get('loop_count')!r}, err={_s210_e!r})")
+
+# ---------------------------------------------------------------------
+# 210B: main() loop_mode integration
+# ---------------------------------------------------------------------
+
+_s210_steps_one = [
+    {"tool": str(_s210_t_zero), "preset": None, "delay": 0, "captures": []},
+]
+_s210_c_loop_on = _s210_make_cascade(
+    "c_loop_on", _s210_steps_one, loop_mode_value=True
+)
+_s210_c_loop_off = _s210_make_cascade(
+    "c_loop_off", _s210_steps_one, loop_mode_value=False
+)
+_s210_c_legacy = _s210_make_cascade(
+    "c_legacy", _s210_steps_one, loop_mode_value=_S210_OMIT
+)
+
+# 210B.1: loop_mode=true, no --loop → exit 1 with explanatory stderr
+_s210_rc, _s210_err = _s210_run_main([], _s210_c_loop_on)
+check(_s210_rc == 1,
+      f"210B.1: loop_mode=true + no --loop → exit 1 (got {_s210_rc})")
+check("loop_mode enabled" in _s210_err and "--loop" in _s210_err,
+      f"210B.1: stderr names loop_mode and --loop (got {_s210_err!r})")
+
+# 210B.2: loop_mode=true, --loop 5 → runs 5 iterations
+_s210_summary_path = _s210_tmpdir / "s210b2_summary.json"
+_s210_rc, _ = _s210_run_main(
+    ["--loop", "5", "--summary", str(_s210_summary_path)],
+    _s210_c_loop_on,
+)
+check(_s210_rc == 0,
+      f"210B.2: loop_mode=true + --loop 5 → exit 0 (got {_s210_rc})")
+_s210_summary = json.loads(_s210_summary_path.read_text())
+check(_s210_summary["loop_count"] == 5,
+      f"210B.2: summary loop_count==5 "
+      f"(got {_s210_summary.get('loop_count')!r})")
+check(len(_s210_summary["steps"]) == 5,
+      f"210B.2: 5 step records for 5 iterations "
+      f"(got {len(_s210_summary.get('steps', []))})")
+
+# 210B.3: loop_mode=false, no --loop → runs once (regression guard)
+_s210_summary_path = _s210_tmpdir / "s210b3_summary.json"
+_s210_rc, _ = _s210_run_main(
+    ["--summary", str(_s210_summary_path)],
+    _s210_c_loop_off,
+)
+check(_s210_rc == 0,
+      f"210B.3: loop_mode=false + no --loop → exit 0 (got {_s210_rc})")
+_s210_summary = json.loads(_s210_summary_path.read_text())
+check(_s210_summary["loop_count"] == 1,
+      f"210B.3: defaults to 1 iteration "
+      f"(got {_s210_summary.get('loop_count')!r})")
+check(len(_s210_summary["steps"]) == 1,
+      f"210B.3: 1 step record for 1 iteration "
+      f"(got {len(_s210_summary.get('steps', []))})")
+
+# 210B.4: loop_mode=false, --loop 3 → runs 3 iterations (regression guard)
+_s210_summary_path = _s210_tmpdir / "s210b4_summary.json"
+_s210_rc, _ = _s210_run_main(
+    ["--loop", "3", "--summary", str(_s210_summary_path)],
+    _s210_c_loop_off,
+)
+check(_s210_rc == 0,
+      f"210B.4: loop_mode=false + --loop 3 → exit 0 (got {_s210_rc})")
+_s210_summary = json.loads(_s210_summary_path.read_text())
+check(_s210_summary["loop_count"] == 3,
+      f"210B.4: --loop 3 honored "
+      f"(got {_s210_summary.get('loop_count')!r})")
+check(len(_s210_summary["steps"]) == 3,
+      f"210B.4: 3 step records "
+      f"(got {len(_s210_summary.get('steps', []))})")
+
+# 210B.5: loop_mode key absent (legacy / minimal cascade), no --loop → runs once
+_s210_summary_path = _s210_tmpdir / "s210b5_summary.json"
+_s210_rc, _ = _s210_run_main(
+    ["--summary", str(_s210_summary_path)],
+    _s210_c_legacy,
+)
+check(_s210_rc == 0,
+      f"210B.5: legacy (no loop_mode key) + no --loop → exit 0 "
+      f"(got {_s210_rc})")
+_s210_summary = json.loads(_s210_summary_path.read_text())
+check(_s210_summary["loop_count"] == 1,
+      f"210B.5: missing loop_mode treated as false → 1 iteration "
+      f"(got {_s210_summary.get('loop_count')!r})")
+check(len(_s210_summary["steps"]) == 1,
+      f"210B.5: 1 step record "
+      f"(got {len(_s210_summary.get('steps', []))})")
+
+# ---------------------------------------------------------------------
+# 210 cleanup
+# ---------------------------------------------------------------------
+shutil.rmtree(_s210_tmpdir, ignore_errors=True)
+# Match §209's defensive clear of session/last_tool: in-process main() calls
+# construct MainWindow inside the runner which can mutate this key during
+# cascade execution, and a kill mid-section could leak a fixture path.
+_s210_settings = QSettings("Scaffold", "Scaffold")
+_s210_settings.remove("session/last_tool")
+_s210_settings.sync()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
