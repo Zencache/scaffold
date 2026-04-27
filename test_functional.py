@@ -28945,7 +28945,9 @@ _s209_p, _s209_e = scaffold._parse_run_cascade_args(
 )
 check(_s209_e is None, f"209A.1: basic parse no error (got {_s209_e!r})")
 check(_s209_p["cascade_path"] == "foo.json", "209A.1: cascade_path captured")
-check(_s209_p["loop_count"] == 1, "209A.1: default loop_count is 1")
+# Default loop_count is None (sentinel for "user didn't pass --loop") so main()
+# can require an explicit count when cascade JSON has loop_mode set; see §210.
+check(_s209_p["loop_count"] is None, "209A.1: default loop_count is None")
 check(_s209_p["summary_path"] is None, "209A.1: default summary_path is None")
 check(_s209_p["variables"] == {}, "209A.1: default variables is empty")
 

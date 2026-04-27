@@ -5521,15 +5521,20 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
     """Parse ``--run-cascade`` and friends out of *argv*.
 
     Returns ``(parsed, error)``: on success ``parsed`` is a dict with keys
-    ``cascade_path`` (str), ``variables`` (dict), ``loop_count`` (int),
+    ``cascade_path`` (str), ``variables`` (dict), ``loop_count`` (int | None),
     ``summary_path`` (str | None); ``error`` is ``None``. On failure
     ``parsed`` is ``{}`` and ``error`` is a usage message suitable for
     printing to stderr.
+
+    ``loop_count`` is ``None`` when ``--loop`` was not on the command line, so
+    callers can distinguish "user didn't pass --loop" from "user passed
+    --loop 1". main() uses this to enforce explicit ``--loop N`` when the
+    cascade JSON has ``loop_mode`` set.
     """
     cascade_path: str | None = None
     variables: dict[str, str] = {}
     file_vars: dict[str, str] = {}
-    loop_count = 1
+    loop_count: int | None = None
     summary_path: str | None = None
 
     KNOWN = {"--run-cascade", "--var", "--vars", "--loop", "--summary"}
@@ -11963,7 +11968,9 @@ def main() -> None:
             "  python scaffold.py --run-cascade <cascade.json>  Run a saved cascade headlessly\n"
             "                     [--var name=value]              Supply a variable (repeatable)\n"
             "                     [--vars file.json]              Load variables from JSON file\n"
-            "                     [--loop N]                      Run the cascade N times (1-1000)\n"
+            "                     [--loop N]                      Run the cascade N times (1-1000); required\n"
+            "                                                     when the cascade's saved loop_mode is on,\n"
+            "                                                     otherwise defaults to 1\n"
             "                     [--summary path]                Write JSON summary to path\n"
             "\n"
             "Portable mode:  Place portable.txt next to scaffold.py to store settings locally\n"
@@ -12017,10 +12024,36 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
+
+        # Peek at the cascade's loop_mode so we can require an explicit --loop N
+        # when it is set. File-read or JSON-parse failures are deferred to the
+        # runner's existing error handling — this peek must not duplicate that
+        # error path or it would change the stderr text seen for bad files.
+        loop_mode_in_file = False
+        try:
+            _peek = json.loads(Path(parsed["cascade_path"]).read_text(encoding="utf-8"))
+            if isinstance(_peek, dict):
+                loop_mode_in_file = bool(_peek.get("loop_mode", False))
+        except (OSError, json.JSONDecodeError):
+            pass
+
+        loop_explicit = parsed["loop_count"] is not None
+        if loop_mode_in_file and not loop_explicit:
+            print(
+                "Error: cascade has loop_mode enabled; specify --loop N to set "
+                "the iteration count.\n"
+                "The cascade's saved loop_mode flag is honored in GUI mode but "
+                "headless mode\nrequires an explicit count to prevent infinite "
+                "loops in automation contexts.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        loop_count = parsed["loop_count"] if loop_explicit else 1
         runner = CascadeHeadlessRunner(
             cascade_path=parsed["cascade_path"],
             variables=parsed["variables"],
-            loop_count=parsed["loop_count"],
+            loop_count=loop_count,
             summary_path=parsed["summary_path"],
         )
         sys.exit(runner.run())
