@@ -3,6 +3,46 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.13.1] — 2026-04-26
+
+Headless `--run-cascade` now honors the saved `loop_mode` flag from the cascade JSON, with a safety rail. v2.13.0 silently dropped the flag and always ran a single iteration unless `--loop N` was supplied — the reasoning was CI safety, since honoring `loop_mode=true` from a saved file would mean infinite loops in cron jobs. The silent drop surprised users who built a cascade in the GUI with loop on and expected the same intent to carry over headlessly. This release surfaces the saved intent without compromising automation safety: if the cascade has `loop_mode=true`, `--loop N` is now **required** rather than ignored. Absent or false `loop_mode` continues to default to a single iteration.
+
+**Migration:** scripts that ran cascades with `loop_mode=true` and got a single iteration under v2.13.0 will now exit 1 with an explanatory message. Add `--loop N` to the invocation to set the iteration count explicitly.
+
+### Changed
+
+- **Headless `loop_mode` is now honored as a required `--loop N` count.** Behavior matrix:
+
+  | Saved `loop_mode` | `--loop N` provided | Behavior |
+  |---|---|---|
+  | absent or `false` | no | Run once (unchanged) |
+  | absent or `false` | yes | Run N times (unchanged) |
+  | `true` | no | **Exit 1 with explanatory stderr** (new) |
+  | `true` | yes | Run N times (unchanged) |
+
+  The exit-1 message is two lines: an actionable summary first, then the why so users don't think Scaffold is being arbitrary. Exit code is 1 — consistent with other "missing required input" failures like missing variables.
+
+- **`--help` text for `--loop N` updated** to reflect the new rule: required when the cascade's saved `loop_mode` is on, otherwise defaults to 1.
+
+- **`_parse_run_cascade_args` default for `loop_count` changed from `1` to `None`.** Lets `main()` distinguish "user didn't pass `--loop`" from "user passed `--loop 1`". The runner is unchanged — it still receives a concrete integer. §209A.1's default-loop_count assertion updated in lockstep.
+
+- **`main()` peeks at the cascade JSON before constructing the runner** to read `loop_mode`. File-read, JSON-parse, and wrong-format failures all defer to the runner's existing error handling so the new check doesn't change stderr for unrelated bad-file cases. A non-cascade JSON with a stray `loop_mode` key still surfaces the runner's "not a valid cascade file" message, not the `loop_mode` rule.
+
+### Tests
+
+New §210 in `test_functional.py` pins the parser change (`loop_count` defaults to `None` when `--loop` is absent; `--loop N` still produces `N`) and covers the full `loop_mode` × `--loop` matrix via in-process `main()` invocation: `loop_mode=true` with no `--loop` exits 1 with stderr naming the rule; `loop_mode=true` with `--loop 5` runs 5 iterations; `loop_mode=false` with and without `--loop` runs 1 / N respectively (regression guards); a legacy cascade missing the `loop_mode` key entirely runs once. Iteration counts are verified via the `--summary` JSON readback so the new tests don't reach into runner internals.
+
+#### Full suite results
+
+- **All 6 test suites pass: 3,798/3,798 assertions, 0 failures**
+  - Functional: 3,299/3,299 (+17, includes new §210 `loop_mode` coverage)
+  - Security: 243/243
+  - Preset validation: 65/65
+  - Smoke: 78/78
+  - Manual verification: 61/61
+  - Examples: 52/52
+
+
 ## [v2.13.0] — 2026-04-26
 
 Headless cascade execution. Saved cascades can now run from the command line via `python scaffold.py --run-cascade <cascade.json>` without launching the GUI — for cron jobs, CI pipelines, batch processing, and other automation use cases. The headless runner shares the exact chain code path used by GUI cascade execution: the GUI is constructed in memory but never shown, so variable injection, capture extraction, stop-on-error, and preset hash gating all behave identically. Per-step `QProcess` output streams live to the parent's stdout/stderr with a `[step N: tool]` prefix, an optional JSON summary records per-step exit codes and timings, and a documented exit-code map (0 success, 2 stop-on-error halt, 3 non-zero step exit, 130 SIGINT) lets shell scripts branch on outcome without parsing logs.

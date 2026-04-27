@@ -47,7 +47,7 @@ Single Python file, one dependency (PySide6), no telemetry, no network calls, fu
 ### Quick install
 
 ```bash
-pip install git+https://github.com/kevlattice/scaffold.git@v2.13.0
+pip install git+https://github.com/kevlattice/scaffold.git@v2.13.1
 ```
 
 This installs `scaffold` as a shell command. Launch the GUI:
@@ -62,7 +62,7 @@ scaffold
 environments without conflicting with system Python:
 
 ```bash
-pipx install git+https://github.com/kevlattice/scaffold.git@v2.13.0
+pipx install git+https://github.com/kevlattice/scaffold.git@v2.13.1
 ```
 
 ### From source (for development)
