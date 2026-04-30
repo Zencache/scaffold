@@ -53,3 +53,4 @@ verify_theme_consistency.py
 test_diagnostic.py
 diag_output.txt
 tmp*.json
+scaffold_bugtests/
