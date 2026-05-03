@@ -36,8 +36,6 @@ Single Python file, one dependency (PySide6), no telemetry, no network calls, fu
   <img src="hashcat%20example.png" alt="Scaffold running a hashcat schema" width="48%">
 </p>
 
-> **Disclaimer:** Much of the code was written by [Claude Code](https://claude.ai) (Opus 4.6), but the project was human-directed — designed, planned, tested, and iterated over many sessions. Not vibe-coded — every line was manually reviewed and approved. The author is not a professional software developer, but has 15 years of IT experience and multiple professional certifications. See [About This Project](#about-this-project) for the full story. The project has an automated test suite (3,661 assertions across 6 suites, including a dedicated security suite), but it has not been extensively tested in production environments. **Always review the generated commands before running them**, especially with tools that can modify files or systems.
->
 > **Tip:** If a specific flag or argument isn't behaving the way you expect in the form, you can type it directly into the Additional Flags box at the bottom of any tool form. It passes your input straight through to the command line.
 
 ---
