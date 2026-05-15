@@ -450,15 +450,12 @@ This project was built as a hobby by one person, a couple computers, and a coupl
 - **Star this repo** — it's free and it helps others find the project
 - **Share your tool schemas** — submit a PR to add schemas for popular CLI tools
 - **Crypto donations** — if you're feeling generous:
-
-  | Currency | Address |
-  |----------|---------|
-BTC: gurutech.blockchain
-  | **BTC** | `bc1qmtzjlc2cw2y45nea2jqf4deh946j8mq502zvsw` |
-  | **LTC** | `ltc1qf32n038a90ulajlq6zz67r3n2myewpjlj2ej6w` |
-  | **ETH** | `0x9bf3311c4721fe37f58913dc57c2bf1722dc8a0f` |
-  | **BCH** | `bitcoincash:qr2l294kuve9cw48u7xek9nklhed066ycvjtj4ymq9` |
-  | **SOL** | `CuraE8usMpSrAhpY2QiWaQGoBjyJzkSaUNP6kRgAzscU` |
+  - **BTC** — `bc1qmtzjlc2cw2y45nea2jqf4deh946j8mq502zvsw`
+  - **BTC (Unstoppable Domain)** — `gurutech.blockchain`
+  - **LTC** — `ltc1qf32n038a90ulajlq6zz67r3n2myewpjlj2ej6w`
+  - **ETH** — `0x9bf3311c4721fe37f58913dc57c2bf1722dc8a0f`
+  - **BCH** — `bitcoincash:qr2l294kuve9cw48u7xek9nklhed066ycvjtj4ymq9`
+  - **SOL** — `CuraE8usMpSrAhpY2QiWaQGoBjyJzkSaUNP6kRgAzscU`
 
 - **Contact** — kev@gurutechnology.services
 
