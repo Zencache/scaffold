@@ -453,6 +453,7 @@ This project was built as a hobby by one person, a couple computers, and a coupl
 
   | Currency | Address |
   |----------|---------|
+gurutech.blockchain
   | **BTC** | `3MBq8n3zj58xCbdDykLdDW6PSFA9vXyRfa` |
   | **LTC** | `MQ1ZqNdS2ujMgdRvE8BUAGm3y7DV6ZKkas` |
   | **ETH** | `0xB08dFBa742487F22e47135aB734de5554262047D` |
